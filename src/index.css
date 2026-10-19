@@ -1,0 +1,234 @@
+/* src/index.css
+   Tailwind v4 is configured here (CSS-first) instead of in tailwind.config.js.
+   Everything below @theme becomes a utility: bg-forest, text-mint, font-display… */
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #f7f1e7;
+  --color-paper: #fff8ed;
+  --color-soft-green: #dde8d8;
+  --color-gold: #a3834f;
+  --color-forest: #164a3a;
+  --color-ink: #0b1512;
+  --color-ivory: #f6f3eb;
+  --color-sage: #a6b6aa;
+  --color-mint: #70d6a0;
+  --color-mist: #858b87;
+
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Manrope", ui-sans-serif, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+
+  --animate-pulse-ring: pulse-ring 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  @keyframes pulse-ring {
+    0% { transform: scale(0.8); opacity: 0.7; }
+    80%, 100% { transform: scale(2.4); opacity: 0; }
+  }
+}
+
+@layer base {
+  html {
+    /* No scroll-padding here on purpose: Lenis would ADD it on top of our own nav offset
+       (see utils/scroll.js) and every anchor would land 80px too low. */
+    -webkit-text-size-adjust: 100%;
+    scrollbar-width: none;
+    background-color: var(--color-cream);
+  }
+  body {
+    background-color: transparent;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Clip decorative layers without disabling native vertical scrolling. */
+    overflow-x: clip;
+  }
+  body::before {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    background-color: var(--color-cream);
+    background-image:
+      radial-gradient(ellipse at 14% 18%, rgb(221 232 216 / 42%), transparent 36%),
+      radial-gradient(ellipse at 86% 72%, rgb(255 248 237 / 78%), transparent 34%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 1440 440' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 110c220 80 320-74 545 5s320 102 475 14 270-75 420-11v110c-200-45-315 43-500 45s-280-95-465-43S180 289 0 225Z' fill='%23DDE8D8' fill-opacity='.2'/%3E%3Cpath d='M0 298c215-75 330 55 520 20s320-123 510-47 270 66 410 13v95c-210 45-320-40-510-31s-300 108-505 62S180 357 0 393Z' fill='%23C8B79F' fill-opacity='.12'/%3E%3Cg fill='none' stroke='%23231C16' stroke-width='1.2' stroke-opacity='.28'%3E%3Cpath d='M-80 54C110-18 188 130 380 72s274-62 434 9 280 84 450 13 250-61 330-20'/%3E%3Cpath d='M-80 78C110 6 188 154 380 96s274-62 434 9 280 84 450 13 250-61 330-20'/%3E%3Cpath d='M-80 102C110 30 188 178 380 120s274-62 434 9 280 84 450 13 250-61 330-20'/%3E%3Cpath d='M-80 270C110 198 188 346 380 288s274-62 434 9 280 84 450 13 250-61 330-20'/%3E%3Cpath d='M-80 294C110 222 188 370 380 312s274-62 434 9 280 84 450 13 250-61 330-20'/%3E%3Cpath d='M-80 318C110 246 188 394 380 336s274-62 434 9 280 84 450 13 250-61 330-20'/%3E%3C/g%3E%3C/svg%3E");
+    background-position: center, center, center;
+    background-size: cover, cover, 100% auto;
+    background-repeat: no-repeat;
+    animation: wave-drift 36s ease-in-out infinite alternate;
+  }
+  ::selection {
+    background: var(--color-mint);
+    color: var(--color-ink);
+  }
+  /* One clear, consistent keyboard focus style for the whole site. */
+  :focus-visible {
+    outline: 2px solid var(--color-mint);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+@keyframes wave-drift {
+  from { background-position: center, center, 48% 52%; }
+  to { background-position: center, center, 52% 48%; }
+}
+
+.intro-sphere-fallback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(68vw, 64vh, 64rem);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 48%, rgb(255 255 255 / 5%), transparent 46%);
+}
+.intro-star {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px rgb(255 255 255 / 55%);
+}
+
+.philosophy-card {
+  width: min(100%, 64rem);
+  max-width: 100%;
+  border-radius: 25px 100px 100px 25px;
+  background-color: #456a78;
+  color: #fff;
+}
+.philosophy-card-wrap {
+  overflow: visible;
+}
+@media (min-width: 768px) {
+  .philosophy-card {
+    width: 90%;
+  }
+}
+@media (max-height: 500px) and (max-width: 1100px) {
+  .mobile-bottom-nav { display: flex !important; }
+  .mobile-menu-layer { display: block !important; }
+  .mobile-hero-introduction { display: block !important; }
+  .desktop-top-nav { display: none !important; }
+}
+@media (min-width: 768px) and (min-height: 501px) and (max-width: 1023px) {
+  .hero-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .hero-portrait { grid-column: span 5 / span 5; }
+  .hero-identity { grid-column: span 7 / span 7; }
+  .hero-intro { grid-column: span 12 / span 12; }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .philosophy-card {
+    transition:
+      width 500ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 500ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .philosophy-card:hover {
+    width: 100%;
+    box-shadow: 0 28px 72px rgb(38 55 62 / 20%);
+  }
+}
+.intro-name-first {
+  display: inline-block;
+  transform: translateX(max(calc(clamp(0.65em, 14vw, 1.05em) - 100%), calc(50% - 50vw)));
+}
+.intro-name-last {
+  left: clamp(0.65em, 14vw, 1.05em);
+}
+@media (max-width: 767px) {
+  .intro-name-first { transform: none; }
+  .intro-name-last { left: 0; }
+}
+@media (max-height: 500px) and (max-width: 1100px) {
+  .hero-content {
+    align-items: flex-start;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem) !important;
+  }
+  .hero-grid { gap: 0.75rem !important; }
+  .hero-portrait { width: min(25svh, 8rem) !important; max-width: none !important; }
+  .hero-identity [data-hero-name] { margin-top: 0.25rem; font-size: clamp(1.1rem, 6vw, 3rem); }
+  .hero-identity .font-serif { font-size: 1.25rem; }
+  .hero-identity [data-hero-name] + div { margin-top: 0.5rem; }
+  .hero-identity ul { margin-top: 0.5rem; }
+  .hero-identity > p:last-child,
+  .hero-intro { display: none !important; }
+}
+@media (max-height: 750px) and (max-width: 767px) {
+  .hero-content {
+    align-items: flex-start;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem) !important;
+  }
+  .hero-grid { gap: 0.75rem !important; }
+  .hero-portrait { width: min(55vw, 14rem) !important; }
+  .hero-identity [data-hero-name] {
+    margin-top: 0.25rem;
+    font-size: clamp(1.1rem, 6.4vw, 3rem);
+  }
+  .hero-identity .font-serif { font-size: 1.25rem; }
+  .hero-identity [data-hero-name] + div { margin-top: 0.5rem; }
+  .hero-identity ul { margin-top: 0.5rem; gap: 0.375rem; }
+  .hero-identity ul li { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+  .hero-identity > p:last-child { margin-top: 0.5rem; }
+}
+@media (max-width: 340px) and (max-height: 750px) {
+  .hero-identity > p:last-child { display: none; }
+}
+
+[data-section].bg-cream {
+  background-color: rgb(247 241 231 / 72%);
+}
+[data-section].bg-soft-green {
+  background-color: rgb(221 232 216 / 76%);
+}
+
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .service-stack-stage {
+    position: relative;
+    height: min(70svh, 650px);
+    min-height: 500px;
+  }
+  .service-stack-card {
+    position: absolute;
+    inset: 0;
+    min-height: 0;
+  }
+}
+
+/* Recommended Lenis rules so native scrolling and Lenis don't fight. */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+/* Keep touch and trackpad scrolling native while hiding scrollbar chrome. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Reduced motion: shorten transitions and stop looping animations. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  body::before { animation: none; }
+}
+
+/* Hero scroll cue: the mint dash slides down the thin line */
+@keyframes scroll-cue {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(200%); }
+}

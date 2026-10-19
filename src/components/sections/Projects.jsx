@@ -1,0 +1,144 @@
+// src/components/sections/Projects.jsx
+// Filterable grid with a four-project preview and an in-grid expansion tile.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { categories, projects } from '../../data/projects'
+import { gsap, ScrollTrigger } from '../../utils/gsap'
+import { useReducedMotion } from '../../hooks/useReducedMotion'
+import SectionHeading from '../common/SectionHeading'
+import Button from '../common/Button'
+import ProjectCard from '../projects/ProjectCard'
+import Section from '../common/Section'
+import { scrollToId } from '../../utils/scroll'
+
+const INITIAL_COUNT = 4
+
+export default function Projects() {
+  const root = useRef(null)
+  const [filter, setFilter] = useState('All')
+  const [expanded, setExpanded] = useState(false)
+  const reduced = useReducedMotion()
+
+  const filtered = useMemo(
+    () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
+    [filter],
+  )
+  const visible = expanded ? filtered : filtered.slice(0, INITIAL_COUNT)
+  const countFor = (cat) => (cat === 'All' ? projects.length : projects.filter((p) => p.category === cat).length)
+
+  const dur = reduced ? 0 : 0.4
+
+  useLayoutEffect(() => {
+    if (!expanded || reduced || !root.current) return undefined
+
+    const ctx = gsap.context(() => {
+      gsap.fromTo(
+        root.current.querySelectorAll('[data-expanded-project]'),
+        { y: 34, opacity: 0, filter: 'blur(5px)' },
+        { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.75, stagger: 0.12, ease: 'power3.out' },
+      )
+    }, root)
+
+    return () => ctx.revert()
+  }, [expanded, reduced])
+
+  // The page gets taller/shorter when filtering, so tell ScrollTrigger to re-measure.
+  useEffect(() => {
+    const t = setTimeout(() => ScrollTrigger.refresh(), 600)
+    return () => clearTimeout(t)
+  }, [filter, expanded])
+
+  return (
+    <Section id="projects" className="overflow-x-clip bg-cream py-24 md:py-32">
+      <div className="mx-auto max-w-[90rem] px-5 md:px-10">
+        <SectionHeading
+          label="Selected Works"
+          title="Projects"
+          description="A curated collection of projects where design meets intention."
+        />
+
+        <div role="group" aria-label="Filter projects by category" className="mt-12 flex flex-wrap gap-2">
+          {categories.map((cat) => {
+            const selected = filter === cat
+            return (
+              <button
+                key={cat}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => { setFilter(cat); setExpanded(false) }}
+                className={`relative rounded-full px-5 py-2.5 text-sm font-semibold transition-colors ${selected ? 'text-ink' : 'text-forest/70 ring-1 ring-forest/15 hover:text-forest hover:ring-forest/40'}`}
+              >
+                {selected && (
+                  <motion.span
+                    layoutId="filter-pill"
+                    className="absolute inset-0 rounded-full bg-mint"
+                    transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 34 }}
+                  />
+                )}
+                <span className="relative">{cat} <span className="opacity-60">{countFor(cat)}</span></span>
+              </button>
+            )
+          })}
+        </div>
+
+        <p className="sr-only" aria-live="polite">Showing {visible.length} of {filtered.length} projects</p>
+
+        <motion.ul ref={root} id="project-grid" layout className="mt-14 grid gap-x-10 gap-y-16 md:grid-cols-2 lg:gap-x-16">
+          <AnimatePresence mode="popLayout">
+            {visible.map((project, i) => (
+              <motion.li
+                key={project.id}
+                layout={!reduced}
+                initial={false}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: dur, delay: reduced ? 0 : i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+                // Every second card drops down: the staggered, editorial alignment.
+                className={i % 2 === 1 ? 'md:mt-28' : ''}
+              >
+                <div data-expanded-project={expanded && i >= INITIAL_COUNT ? '' : undefined}>
+                  <ProjectCard project={project} wide={i % 2 === 0} number={String(projects.indexOf(project) + 1).padStart(2, '0')} />
+                </div>
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </motion.ul>
+
+        {!expanded && filtered.length > INITIAL_COUNT && (
+          <div className="mt-16 flex justify-center">
+            <Button
+              type="button"
+              variant="outlineDark"
+              arrow
+              onClick={() => setExpanded(true)}
+              aria-expanded={expanded}
+              aria-controls="project-grid"
+            >
+              See More Projects
+            </Button>
+          </div>
+        )}
+
+        {filtered.length === 0 && (
+          <p className="mt-12 text-forest/80">No projects in this category yet.</p>
+        )}
+
+        {expanded && filtered.length > INITIAL_COUNT && (
+          <div className="mt-16 flex justify-center">
+            <Button
+              variant="outlineDark"
+              onClick={() => {
+                setExpanded(false)
+                requestAnimationFrame(() => scrollToId('opportunities'))
+              }}
+              aria-expanded={expanded}
+              aria-controls="project-grid"
+            >
+              Show Less
+            </Button>
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
