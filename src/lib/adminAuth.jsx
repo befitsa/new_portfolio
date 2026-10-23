@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth, authConfigurationError, browserLocalPersistence } from './firebase.js'
+import { isLocalFilesystemCms } from '../services/cmsProvider.js'
 
 export const ADMIN_UID = '0SYXtQtU61hMim2S9a2aktAeeSA2'
 
@@ -29,6 +30,10 @@ export function AdminAuthProvider({ children }) {
   const [state, setState] = useState({ loading: true, user: null, error: '' })
 
   useEffect(() => {
+    if (isLocalFilesystemCms) {
+      setState({ loading: false, user: { uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
+      return undefined
+    }
     if (!auth) {
       setState({ loading: false, user: null, error: authConfigurationError })
       return undefined
@@ -59,9 +64,13 @@ export function AdminAuthProvider({ children }) {
 
   const value = useMemo(() => ({
     ...state,
-    configured: Boolean(auth),
+    configured: isLocalFilesystemCms || Boolean(auth),
     clearError: () => setState((current) => ({ ...current, error: '' })),
     login: async (username, password) => {
+      if (isLocalFilesystemCms) {
+        setState({ loading: false, user: { uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
+        return true
+      }
       if (!auth) {
         setState((current) => ({ ...current, error: authConfigurationError }))
         throw new Error(authConfigurationError)
@@ -88,7 +97,7 @@ export function AdminAuthProvider({ children }) {
       }
     },
     logout: async () => {
-      if (auth) await signOut(auth)
+      if (!isLocalFilesystemCms && auth) await signOut(auth)
       setState({ loading: false, user: null, error: '' })
     },
   }), [state])

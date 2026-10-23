@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .env.local
+.local-cms/
 functions/.env*
 !functions/.env.example
 cloudflare/wrangler.toml

@@ -18,8 +18,15 @@ import {
   subscribePublishedDocument,
   subscribePublishedSettings,
 } from '../../services/contentService.js'
+import {
+  subscribeLocalCmsCollection,
+  subscribeLocalCmsDocument,
+  subscribeLocalCmsSettings,
+} from '../../services/localCmsSubscriptions.js'
+import { isLocalFilesystemCms } from '../../services/cmsProvider.js'
 
 export function subscribeToPublishedCollection(type, onValue, onError) {
+  if (isLocalFilesystemCms) return subscribeLocalCmsCollection(type, onValue, onError)
   if (import.meta.env.DEV) return subscribePublishedCollection(type, onValue, onError)
   assertContentType(type)
   const request = query(
@@ -38,6 +45,7 @@ export function subscribeToPublishedCollection(type, onValue, onError) {
 }
 
 export function subscribeToPublishedDocument(type, id, onValue, onError) {
+  if (isLocalFilesystemCms) return subscribeLocalCmsDocument(type, id, onValue, onError)
   if (import.meta.env.DEV) return subscribePublishedDocument(type, id, onValue, onError)
   assertContentType(type)
   return onSnapshot(
@@ -52,6 +60,7 @@ export function subscribeToPublishedDocument(type, id, onValue, onError) {
 }
 
 export function subscribeToPublishedSiteSettings(onValue, onError) {
+  if (isLocalFilesystemCms) return subscribeLocalCmsSettings(onValue, onError)
   if (import.meta.env.DEV) return subscribePublishedSettings(onValue, onError)
   if (!db) throw new Error('Firebase is not configured.')
   return onSnapshot(

@@ -1,6 +1,6 @@
 # Fitsum Mesfin Portfolio & CMS
 
-The project serves the existing public portfolio and its editorial CMS from one Vite/React codebase. In development, `/` remains the portfolio and `/admin` opens the CMS. Development edits use shared browser storage; production content continues to use the existing Firestore and protected CMS API integration.
+The project serves the existing public portfolio and editorial CMS from one Vite/React codebase. In development, `/` remains the portfolio and `/admin` opens the CMS. The default development provider stores content in local JSON and uploaded bytes on disk. Production builds do not include that writable filesystem CMS and continue to use the existing protected production provider.
 
 ## Development
 
@@ -11,9 +11,11 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open the Vite URL shown in the terminal. The public site is at `/` and the admin dashboard is at `/admin` on that same server. In this checkout, the verified URLs are `http://127.0.0.1:5175/` and `http://127.0.0.1:5175/admin`.
+Open the Vite URL shown in the terminal. The public site is at `/` and the admin dashboard is at `/admin` on that same server. The local development login is Firebase-free and enabled only in Vite development mode.
 
-Development content mode does not require the CMS API or Cloudflare. Text records are saved in browser local storage, and uploaded images and resume PDFs are stored as binary files in IndexedDB. Publishing updates only the local public preview in that browser; it does not publish to the live website. Admin pages still require Firebase Authentication and the authorized administrator UID; there is no local authentication bypass. Configure the existing Firebase web app values and sign in with the administrator account, or use the Auth emulator. A new local copy starts with no projects, education, or experience entries. Existing browser copies remove the former built-in project slots and education records when they are read; old temporary object URL previews cannot be recovered, so upload those files again.
+The development server creates `.local-cms/content.json` on first run and stores uploaded images, media, and resumes in `.local-cms/uploads/`. These files are ignored by Git and persist across browser refreshes and server restarts. Projects, experience, education, site settings, publication metadata, resumes, and media use the same provider-facing service contract as production. A fresh store starts with no project, experience, or education records; its profile settings initialize from the existing portfolio profile. Publishing affects only the local public preview and never changes the production website. The filesystem API and its uploads are limited to loopback clients.
+
+The default local provider does not require Firebase, Cloudflare, Netlify Functions, or external storage. Set `VITE_CMS_PROVIDER=remote` only when deliberately testing the existing protected remote or emulator API; configure `VITE_CMS_API_URL` and Firebase variables for that separate mode.
 
 ### Optional backend emulator testing
 
@@ -23,7 +25,7 @@ The following setup is only needed when testing the existing Firebase adapter lo
 firebase emulators:start --project demo-fitsum-portfolio --only auth,firestore,storage,functions
 ```
 
-In a second terminal, configure the web Firebase values and Function dependencies. Set `VITE_USE_FIREBASE_EMULATORS=true` and `VITE_CMS_API_URL=http://127.0.0.1:5001/demo-fitsum-portfolio/us-central1/cmsApi/api`. Copy `functions/.env.example` to `functions/.env.demo-fitsum-portfolio` and set `CMS_ALLOW_LOCAL_EMULATOR=true` there only for the local Functions emulator. That bypass is gated on emulator mode and a localhost origin; it does not work in a deployed function. The Auth emulator account used to enter the CMS must have the administrator UID below. Do not use emulator data for a production project.
+Set `VITE_CMS_PROVIDER=remote`, configure the web Firebase values, set `VITE_USE_FIREBASE_EMULATORS=true`, and set `VITE_CMS_API_URL=http://127.0.0.1:5001/demo-fitsum-portfolio/us-central1/cmsApi/api`. Copy `functions/.env.example` to `functions/.env.demo-fitsum-portfolio` and set `CMS_ALLOW_LOCAL_EMULATOR=true` only for the local Functions emulator. This optional setup is separate from and not required by the default local filesystem CMS.
 
 ## CMS pages
 
@@ -35,15 +37,19 @@ In a second terminal, configure the web Firebase values and Function dependencie
 - `/admin/media` — upload and reference images, replace image files, inspect usage, search, copy URLs, and safely remove unused assets.
 - `/admin/settings` — edit and publish public profile and SEO settings.
 
-Draft edits write only to `drafts/...`. A publish request validates the draft on the server, writes the public copy atomically, updates its revision and publishing metadata, and then returns success. Public pages subscribe only to `published/...` records whose `status` is `published` and `visibility` is `true`. Resume publication turns off any other active version in the same Firestore transaction. An unpublished resume stays suppressed once CMS resume management has been enabled. The public download uses the filename `Fitsum-Mesfin-Resume.pdf` and is available only for an active, visible published PDF record.
+Draft edits write only to the draft portion of the local JSON store. Publishing copies the validated record to its published portion; public pages read only published, visible records. Resume publication activates one version at a time. The same provider-facing CMS API is used by the local and production adapters.
 
-### Resume storage availability
+### Production storage availability
 
-The remote upload path uses Cloud Storage through the protected Firebase Function and validates PDF structure before accepting a draft. The local development workflow previews and publishes a valid PDF only inside the current browser with IndexedDB; it never claims that local content reached the live site. On the current Firebase Spark project, the Cloud Storage upload path is unavailable, so production resume uploads and live download changes need the existing remote storage service to be eligible and configured. This project update does not upgrade billing, create storage resources, or deploy anything.
+Local uploads are saved under `.local-cms/uploads/`, validated by MIME type, size, image signature, and (for PDFs) document structure, and served through loopback-only Vite middleware. Local resume downloads and project images persist after server restart. Production uploads still depend on the existing persistent Cloud Storage/backend provider; local files never reach the production site.
+
+### Local data and Firebase migration boundary
+
+The browser uses the same CMS service interface for local data and production API operations. A Vite-only middleware handles local JSON CRUD, publication, file uploads, and public reads; React components do not read or write local files directly. To migrate to Firebase, implement this provider interface with Firestore and Storage, preserve the existing schemas and draft/published rules, migrate the JSON records and upload objects, then switch the provider. Never deploy `.local-cms` as writable Netlify data: deployed project and function filesystems are not durable storage.
 
 ## Security design
 
-The admin login uses a separate named Firebase Auth app for project `user-auth-vp`; it does not replace the existing portfolio/content Firebase app configured by `VITE_FIREBASE_*`. The app's registered web configuration was retrieved from Firebase and its project ID, project number, auth domain, storage bucket, and app ID match the supplied values. The public web API key is saved only in the ignored local `.env.local` as `VITE_ADMIN_FIREBASE_API_KEY`. Its `Username` field accepts the admin account's registered Firebase email; no username mapping or password database is used, and there is no registration flow.
+Production admin login uses the existing separate Firebase Auth app for project `user-auth-vp`; it does not replace the portfolio/content Firebase app configured by `VITE_FIREBASE_*`. Vite local filesystem mode intentionally has development-only direct access and does not require Firebase Authentication. Never expose the development server to the public internet or reuse this local access mode in production.
 
 The UI restores sessions through Firebase's auth-state listener and permits only UID `0SYXtQtU61hMim2S9a2aktAeeSA2`. The authenticated Firebase token is verified by a separately named Admin SDK app configured for `user-auth-vp`, rather than the Functions/content project. Before any CMS health check, read, or mutation, `functions/index.js` independently validates the Cloudflare Access JWT (signature, issuer, expiry, and audience), verifies the Firebase ID token with revocation checking enabled, and requires that exact UID. Firestore and Storage client rules continue to deny all browser writes and draft reads; public reads remain governed by the existing published-content rules. The Worker forwards the Access assertion and Firebase ID token to the Function. Firebase Admin credentials remain in the Function runtime and never enter Vite variables.
 

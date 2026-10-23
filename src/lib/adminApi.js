@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { localCmsApi } from '../admin/localCmsStore.js'
 import { isPathBasedAdmin } from '../admin/cmsPaths.js'
+import { isLocalFilesystemCms } from '../services/cmsProvider.js'
 import { auth } from './firebase.js'
 
 const configuredBase = import.meta.env.DEV ? import.meta.env.VITE_CMS_API_URL?.trim() : ''
@@ -8,7 +9,7 @@ const base = (configuredBase || '/api').replace(/\/$/, '')
 
 const statusLabels = {
   checking: 'Checking CMS API…',
-  local: 'Local browser content',
+  local: 'Local JSON + uploads',
   connected: 'Access API ready',
   unconfigured: 'CMS API not configured',
   network: 'CMS API unreachable',
@@ -20,7 +21,7 @@ const statusLabels = {
 }
 
 export function isLocalCmsMode() {
-  return import.meta.env.DEV && isPathBasedAdmin()
+  return isLocalFilesystemCms && isPathBasedAdmin()
 }
 
 let apiStatus = isLocalCmsMode()
@@ -186,7 +187,7 @@ export async function checkCmsApiHealth() {
     try {
       const health = await localCmsApi.health()
       const note = health.recoveryNotice ? ` ${health.recoveryNotice}` : ''
-      updateApiStatus({ state: 'local', ready: true, storageReady: true, checking: false, message: `Development mode: changes are saved in this browser and are not published to the live website.${note}`, checkedAt: new Date().toISOString() })
+      updateApiStatus({ state: 'local', ready: true, storageReady: true, checking: false, message: `Development mode: changes are saved in local JSON files and uploads are stored on this machine. They are not published to the live website.${note}`, checkedAt: new Date().toISOString() })
       return true
     } catch (cause) {
       const error = cause instanceof CmsApiError

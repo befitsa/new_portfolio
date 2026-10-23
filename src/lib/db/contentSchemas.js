@@ -9,6 +9,8 @@ const httpUrlSchema = z.string().url().refine((value) => {
   }
 }, 'URL must use HTTP or HTTPS.')
 const optionalUrl = z.union([z.literal(''), httpUrlSchema])
+const localFileUrl = z.string().refine((value) => /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value) && !value.split('/').includes('..'), 'Local file URL must be a safe development upload path.')
+const storedFileUrl = z.union([httpUrlSchema, localFileUrl])
 const optionalText = (max = 5000) => z.string().trim().max(max)
 const imageUrl = z.union([
   z.literal(''),
@@ -127,8 +129,8 @@ export const educationSchema = z.object({
 })
 
 export const resumeSchema = z.object({
-  fileUrl: httpUrlSchema,
-  previewUrl: optionalUrl.default(''),
+  fileUrl: storedFileUrl,
+  previewUrl: z.union([z.literal(''), storedFileUrl]).default(''),
   storagePath: z.string().trim().min(1).max(1024),
   fileName: z.string().trim().min(1).max(255),
   sizeKB: z.number().positive().max(5120),
@@ -140,7 +142,7 @@ export const resumeSchema = z.object({
 })
 
 export const mediaSchema = z.object({
-  url: httpUrlSchema,
+  url: storedFileUrl,
   storagePath: z.string().trim().min(1).max(1024),
   type: z.enum(['image', 'pdf', 'other']),
   sizeBytes: z.number().int().positive().max(12 * 1024 * 1024),
