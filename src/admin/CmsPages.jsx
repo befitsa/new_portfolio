@@ -64,7 +64,8 @@ function persistableProject(value, localMode) {
 }
 
 function PageHeader({ eyebrow, title, description, actions }) {
-  return <div className="cms-page-header"><div><p className="cms-eyebrow"><span className="cms-live-dot" />{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions && <div className="cms-page-actions">{actions}</div>}</div>
+  const apiStatus = useCmsApiStatus()
+  return <div className="cms-page-header"><div><p className="cms-eyebrow"><span className="cms-live-dot" />{eyebrow}</p><h1>{title}</h1><p>{description}</p>{apiStatus.ready && apiStatus.storageReady === false && <CmsStorageNotice status={apiStatus} />}</div>{actions && <div className="cms-page-actions">{actions}</div>}</div>
 }
 
 function Button({ children, variant = 'secondary', disabled, onClick, type = 'button', href, title, className = '', ...props }) {
@@ -139,6 +140,11 @@ function useMutation() {
 function CmsConnectionNotice({ status }) {
   if (!status) return null
   return <Notice kind="warning">{status.message}{!status.checking && <Button className="cms-inline-retry" onClick={() => checkCmsApiHealth()}><RefreshCw size={14} /> Retry health check</Button>}</Notice>
+}
+
+function CmsStorageNotice({ status }) {
+  if (!status || status.storageReady !== false) return null
+  return <Notice kind="warning">{status.storageMessage || status.message}</Notice>
 }
 
 function ContentError({ error, retry }) {
@@ -337,6 +343,10 @@ export function CmsProjectEditorPage({ id }) {
   }
   const uploadHero = async (file) => {
     if (!file) return
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      return
+    }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
       await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP image larger than 0 bytes and no larger than 12 MB.') })
       return
@@ -361,6 +371,10 @@ export function CmsProjectEditorPage({ id }) {
   }
   const importHero = async () => {
     if (!imageUrl.trim()) return
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      return
+    }
     const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim()), localMode ? 'Image URL added to this browser library.' : 'Image copied to managed storage.')
     if (imported) { setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: imported.url, storagePath: imported.storagePath } })); setImageUrl('') }
   }
@@ -388,6 +402,7 @@ export function CmsBackgroundPage() {
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(EMPTY_EXPERIENCE)
   const [previewId, setPreviewId] = useState('')
+  const [editorPreview, setEditorPreview] = useState(false)
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
   const records = useMemo(() => {
@@ -400,22 +415,38 @@ export function CmsBackgroundPage() {
     const empty = targetKind === 'experiences' ? EMPTY_EXPERIENCE : EMPTY_EDUCATION
     setSelected(item || { isNew: true })
     setForm(item ? { ...empty, ...cleanRecord(item) } : { ...empty, order: targetKind === kind ? records.length : 0 })
+    setEditorPreview(false)
     mutation.clear()
   }
-  const save = async () => {
+  const closeEditor = () => {
+    if (mutation.busy) return
+    setSelected(null)
+    setForm(kind === 'experiences' ? EMPTY_EXPERIENCE : EMPTY_EDUCATION)
+    setEditorPreview(false)
+    mutation.clear()
+  }
+  const save = async (publishAfterSave = false) => {
     const schema = kind === 'experiences' ? experienceSchema : educationSchema
     let content
     try { content = schema.parse({ ...form, order: Number(form.order), ...(kind === 'education' ? { startYear: Number(form.startYear), endYear: form.endYear === '' || form.endYear == null ? null : Number(form.endYear) } : {}) }) }
     catch (error) { mutation.clear(); return mutation.run(() => { throw new Error(error.issues?.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · ') || error.message) }) }
-    const saved = await mutation.run(() => selected?.id ? adminApi.save(kind, selected.id, content, selected.revision) : adminApi.create(kind, content), 'Background draft saved.')
-    if (saved) { setSelected(saved); recordsState.refresh() }
-  }
-  const publish = async () => {
-    if (!selected?.id) return
-    const title = kind === 'experiences' ? `${form.role} at ${form.company}` : `${form.degree} · ${form.institution}`
-    if (!window.confirm(`Review background publish\n\n${title}\n${kind === 'experiences' ? form.description : form.notes}\n\nPublish this selected ${kind === 'experiences' ? 'experience' : 'education'} entry?`)) return
-    const result = await mutation.run(() => adminApi.publish(kind, selected.id, selected.revision), 'Background entry published.')
-    if (result) recordsState.refresh()
+    if (publishAfterSave) {
+      const title = kind === 'experiences' ? `${form.role} at ${form.company}` : `${form.degree} · ${form.institution}`
+      if (!window.confirm(`Review background publish\n\n${title}\n${kind === 'experiences' ? form.description : form.notes}\n\nSave and publish this ${kind === 'experiences' ? 'experience' : 'education'} entry?`)) return
+    }
+    let savedDraft = null
+    const result = await mutation.run(async () => {
+      savedDraft = selected?.id
+        ? await adminApi.save(kind, selected.id, content, selected.revision)
+        : await adminApi.create(kind, content)
+      return publishAfterSave
+        ? adminApi.publish(kind, savedDraft.id, savedDraft.revision)
+        : savedDraft
+    }, publishAfterSave ? 'Background entry saved and published.' : 'Background draft saved.')
+    if (savedDraft) {
+      setSelected({ ...savedDraft, ...(result || {}) })
+      recordsState.refresh()
+    }
   }
   const publishRecord = async (item) => {
     const title = kind === 'experiences' ? `${item.role} at ${item.company}` : `${item.degree} · ${item.institution}`
@@ -444,12 +475,63 @@ export function CmsBackgroundPage() {
   }
   const edit = Boolean(selected?.id)
   const titleOf = (item) => kind === 'experiences' ? item.role : item.degree
+  const previewTitle = kind === 'experiences' ? form.role : form.degree
+  const previewSubtitle = kind === 'experiences' ? form.company : form.institution
+  const previewDescription = kind === 'experiences' ? form.description : form.notes
   return <><PageHeader eyebrow="EDITORIAL BIOGRAPHY" title="Background & Credentials" description="Manage professional experience, education, dates, skills, visibility, and portfolio sequence." actions={<><Button variant="brown" onClick={() => start(null, 'experiences')}><Plus size={15} /> Add Experience</Button><Button onClick={() => start(null, 'education')}><Plus size={15} /> Add Education</Button></>} />
     {!ready && <CmsConnectionNotice status={apiStatus} />}{recordsState.error && <ContentError error={recordsState.error} retry={recordsState.refresh} />}{mutation.error && <Notice kind="error">{mutation.error}</Notice>}{mutation.success && <Notice kind="success">{mutation.success}</Notice>}
     <section className="cms-stats-grid cms-background-stats"><StatCard icon={FolderKanban} label="TOTAL MILESTONES" value={records.length} detail={`${records.filter((item) => item.status === 'published').length} live on portfolio`} badge="Records" tone="green" /><StatCard icon={GraduationCap} label="CAREER & ACADEMICS" value={kind === 'experiences' ? 'Experience' : 'Education'} detail={`${records.length} entries in this section`} badge="Selected view" tone="neutral" /><StatCard icon={FileText} label="PENDING REVIEW" value={records.filter((item) => item.status === 'draft').length} detail="Draft entries awaiting publish" badge="Private drafts" tone="amber" /><StatCard icon={ShieldCheck} label="PUBLIC VISIBILITY" value={records.filter((item) => item.visibility && item.status === 'published').length} detail="Published and set to visible" badge="Live items" tone="green" /></section>
     <div className="cms-tabs" role="tablist"><button role="tab" aria-selected={kind === 'experiences'} className={kind === 'experiences' ? 'is-active' : ''} onClick={() => { setKind('experiences'); setSelected(null) }}><FolderKanban size={15} /> Work Experience <span>{recordsState.drafts.length}</span></button><button role="tab" aria-selected={kind === 'education'} className={kind === 'education' ? 'is-active' : ''} onClick={() => { setKind('education'); setSelected(null) }}><GraduationCap size={15} /> Education & Degrees</button></div>
     {recordsState.loading ? <LoadingPanel /> : records.length ? <div className="cms-background-list">{records.map((item, index) => <article key={item.id} className={`cms-background-card${item.status === 'draft' ? ' is-draft' : ''}`}><div className="cms-drag-handle" aria-hidden="true">⠿</div><div className="cms-background-monogram">{kind === 'experiences' ? item.logoInitials || item.company?.slice(0, 2) : item.institution?.slice(0, 2)}</div><div className="cms-background-copy"><div className="cms-background-title"><h2>{titleOf(item)}</h2><span>•</span><strong>{kind === 'experiences' ? item.company : item.institution}</strong>{kind === 'experiences' && item.isCurrent && <span className="cms-badge cms-badge-green">Current role</span>}<StatusBadge status={item.status} /></div><p className="cms-background-meta">{kind === 'experiences' ? `${dateValue(item.startDate)} — ${item.isCurrent ? 'Present' : dateValue(item.endDate)} · ${item.location} · ${item.employmentType}` : `${item.startYear}${item.endYear ? ` — ${item.endYear}` : ''}`}</p><p>{kind === 'experiences' ? item.description : item.notes}</p>{item.skills?.length > 0 && <div className="cms-tag-list">{item.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}</div><div className="cms-record-controls"><Button className="cms-square-button" title="Move earlier" disabled={!ready || index === 0 || mutation.busy} onClick={() => reorder(item, -1)}><ArrowUp size={14} /></Button><Button className="cms-square-button" title="Move later" disabled={!ready || index === records.length - 1 || mutation.busy} onClick={() => reorder(item, 1)}><ArrowDown size={14} /></Button><Button className="cms-action-preview" onClick={() => setPreviewId((current) => current === item.id ? '' : item.id)}><Eye size={13} /> {previewId === item.id ? 'Hide preview' : 'Preview'}</Button><Button className="cms-action-edit" onClick={() => start(item)}>Edit</Button>{item.status === 'published' ? <Button className="cms-action-unpublish" onClick={() => unpublish(item)} disabled={!ready || mutation.busy}>Unpublish</Button> : <Button className="cms-action-publish" variant="brown" onClick={() => publishRecord(item)} disabled={!ready || mutation.busy}>Publish</Button>}<Button className="cms-square-button cms-action-delete" title="Delete and retain history" disabled={!ready || mutation.busy} onClick={() => deleteBackground(item)}><Trash2 size={14} /></Button></div>{previewId === item.id && <div className="cms-record-preview"><p className="cms-eyebrow">PRIVATE PREVIEW · {kind === 'experiences' ? 'EXPERIENCE' : 'EDUCATION'}</p><h3>{titleOf(item)}</h3><strong>{kind === 'experiences' ? item.company : item.institution}</strong><p>{kind === 'experiences' ? item.description : item.notes}</p>{item.skills?.length > 0 && <div className="cms-tag-list">{item.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}</div>}</article>)}</div> : <EmptyState title="No background entries yet" text="Add your work history and education, then publish each item to the portfolio." />}
-    {selected !== null && <div className="cms-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null) }}><form className="cms-modal" onSubmit={(event) => { event.preventDefault(); save() }}><div className="cms-panel-heading"><div><p className="cms-eyebrow">{kind === 'experiences' ? 'WORK EXPERIENCE' : 'EDUCATION'}</p><h2>{edit ? 'Edit entry' : `Add ${kind === 'experiences' ? 'experience' : 'education'}`}</h2></div><button type="button" className="cms-icon-button" onClick={() => setSelected(null)} aria-label="Close editor">×</button></div>{kind === 'experiences' ? <><div className="cms-field-grid"><TextInput label="Role title *" value={form.role} onChange={(value) => setForm({ ...form, role: value })} required /><TextInput label="Company *" value={form.company} onChange={(value) => setForm({ ...form, company: value })} required /><TextInput label="Start date *" type="date" value={form.startDate} onChange={(value) => setForm({ ...form, startDate: value })} required /><TextInput label="End date" type="date" value={form.endDate} onChange={(value) => setForm({ ...form, endDate: value })} disabled={form.isCurrent} /><TextInput label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} /><TextInput label="Employment type" value={form.employmentType} onChange={(value) => setForm({ ...form, employmentType: value })} /><TextInput label="Initials" value={form.logoInitials} onChange={(value) => setForm({ ...form, logoInitials: value })} maxLength={8} /><TextInput label="Display order" type="number" value={form.order} onChange={(value) => setForm({ ...form, order: Number(value) })} /></div><label className="cms-checkbox-field"><input type="checkbox" checked={form.isCurrent} onChange={(event) => setForm({ ...form, isCurrent: event.target.checked, endDate: '' })} /> This is my current position</label><TextArea label="Description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} rows={4} /><TagInput label="Skills" values={form.skills} onChange={(value) => setForm({ ...form, skills: value })} /></> : <><div className="cms-field-grid"><TextInput label="Degree or credential *" value={form.degree} onChange={(value) => setForm({ ...form, degree: value })} required /><TextInput label="Institution *" value={form.institution} onChange={(value) => setForm({ ...form, institution: value })} required /><TextInput label="Start year *" type="number" value={form.startYear} onChange={(value) => setForm({ ...form, startYear: value })} required /><TextInput label="End year" type="number" value={form.endYear ?? ''} onChange={(value) => setForm({ ...form, endYear: value })} placeholder="Leave blank if current" /><TextInput label="Credential URL" type="url" value={form.credentialUrl} onChange={(value) => setForm({ ...form, credentialUrl: value })} /><TextInput label="Display order" type="number" value={form.order} onChange={(value) => setForm({ ...form, order: Number(value) })} /></div><TextArea label="Notes" value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} rows={3} /></>}<label className="cms-checkbox-field"><input type="checkbox" checked={form.visibility} onChange={(event) => setForm({ ...form, visibility: event.target.checked })} /> Visible after publishing</label><div className="cms-modal-actions"><Button onClick={() => setSelected(null)}>Cancel</Button><Button type="submit" variant="primary" disabled={!ready || mutation.busy}><Save size={14} /> Save draft</Button>{edit && <Button variant="brown" disabled={!ready || mutation.busy} onClick={publish}><CloudUpload size={14} /> Publish</Button>}</div></form></div>}
+    {selected !== null && <div className="cms-modal-backdrop" role="presentation" onMouseDown={(event) => { if (!mutation.busy && event.target === event.currentTarget) closeEditor() }}>
+      <form className="cms-modal" onSubmit={(event) => { event.preventDefault(); save() }}>
+        <div className="cms-panel-heading">
+          <div><p className="cms-eyebrow">{kind === 'experiences' ? 'WORK EXPERIENCE' : 'EDUCATION'}</p><h2>{edit ? 'Edit entry' : `Add ${kind === 'experiences' ? 'experience' : 'education'}`}</h2></div>
+          <button type="button" className="cms-icon-button" onClick={closeEditor} aria-label="Close editor" disabled={mutation.busy}>×</button>
+        </div>
+        {kind === 'experiences' ? <>
+          <div className="cms-field-grid">
+            <TextInput label="Role title *" value={form.role} onChange={(value) => setForm({ ...form, role: value })} required />
+            <TextInput label="Company *" value={form.company} onChange={(value) => setForm({ ...form, company: value })} required />
+            <TextInput label="Start date *" type="date" value={form.startDate} onChange={(value) => setForm({ ...form, startDate: value })} required />
+            <TextInput label="End date" type="date" value={form.endDate} onChange={(value) => setForm({ ...form, endDate: value })} disabled={form.isCurrent} />
+            <TextInput label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} />
+            <TextInput label="Employment type" value={form.employmentType} onChange={(value) => setForm({ ...form, employmentType: value })} />
+            <TextInput label="Initials" value={form.logoInitials} onChange={(value) => setForm({ ...form, logoInitials: value })} maxLength={8} />
+            <TextInput label="Display order" type="number" value={form.order} onChange={(value) => setForm({ ...form, order: Number(value) })} />
+          </div>
+          <label className="cms-checkbox-field"><input type="checkbox" checked={form.isCurrent} onChange={(event) => setForm({ ...form, isCurrent: event.target.checked, endDate: '' })} /> This is my current position</label>
+          <TextArea label="Description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} rows={4} />
+          <TagInput label="Skills" values={form.skills} onChange={(value) => setForm({ ...form, skills: value })} />
+        </> : <>
+          <div className="cms-field-grid">
+            <TextInput label="Degree or credential *" value={form.degree} onChange={(value) => setForm({ ...form, degree: value })} required />
+            <TextInput label="Institution *" value={form.institution} onChange={(value) => setForm({ ...form, institution: value })} required />
+            <TextInput label="Start year *" type="number" value={form.startYear} onChange={(value) => setForm({ ...form, startYear: value })} required />
+            <TextInput label="End year" type="number" value={form.endYear ?? ''} onChange={(value) => setForm({ ...form, endYear: value })} placeholder="Leave blank if current" />
+            <TextInput label="Credential URL" type="url" value={form.credentialUrl} onChange={(value) => setForm({ ...form, credentialUrl: value })} />
+            <TextInput label="Display order" type="number" value={form.order} onChange={(value) => setForm({ ...form, order: Number(value) })} />
+          </div>
+          <TextArea label="Notes" value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} rows={3} />
+        </>}
+        <label className="cms-checkbox-field"><input type="checkbox" checked={form.visibility} onChange={(event) => setForm({ ...form, visibility: event.target.checked })} /> Visible after publishing</label>
+        {editorPreview && <section className="cms-record-preview" aria-label="Private draft preview">
+          <p className="cms-eyebrow">PRIVATE DRAFT PREVIEW · NOT PUBLISHED</p>
+          <h3>{previewTitle || 'Untitled entry'}</h3>
+          <strong>{previewSubtitle || 'Organization not specified'}</strong>
+          <p>{kind === 'experiences' ? `${dateValue(form.startDate) || 'Start date'} — ${form.isCurrent ? 'Present' : dateValue(form.endDate) || 'End date'}${form.location ? ` · ${form.location}` : ''}` : `${form.startYear || 'Start year'}${form.endYear ? ` — ${form.endYear}` : ''}`}</p>
+          <p>{previewDescription || 'No description provided.'}</p>
+          {kind === 'experiences' && form.skills?.length > 0 && <div className="cms-tag-list">{form.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}
+          {kind === 'education' && form.credentialUrl && <a href={form.credentialUrl} target="_blank" rel="noreferrer">View credential</a>}
+        </section>}
+        <div className="cms-modal-actions">
+          <Button onClick={closeEditor} disabled={mutation.busy}>Cancel</Button>
+          <Button onClick={() => setEditorPreview((value) => !value)} disabled={mutation.busy}><Eye size={14} /> {editorPreview ? 'Hide draft preview' : 'Preview draft'}</Button>
+          <Button type="submit" variant="primary" disabled={!ready || mutation.busy}><Save size={14} /> Save draft</Button>
+          <Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={14} /> Save & publish</Button>
+        </div>
+      </form>
+    </div>}
   </>
 }
 
@@ -469,6 +551,10 @@ export function CmsResumePage() {
   const preview = versions.find((item) => item.id === previewId) || active || versions.find((item) => item.status === 'draft') || null
   const upload = async (file) => {
     if (!file) return
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      return
+    }
     if (file.size <= 0 || file.size > 5 * 1024 * 1024) { mutation.run(() => { throw new Error('Choose a PDF larger than 0 bytes and no larger than 5 MB.') }); return }
     setProgress(1)
     const result = await mutation.run(() => adminApi.upload(file, { kind: 'resume', onProgress: setProgress }), localMode ? 'Resume saved in this browser as a private draft.' : 'Resume uploaded as a private draft.')
@@ -510,9 +596,45 @@ export function CmsMediaPage() {
   const ready = apiStatus.ready
   const localMode = apiStatus.state === 'local'
   const items = useMemo(() => [...new Map([...published, ...drafts].map((item) => [item.id, item])).values()].filter((item) => item.status === 'published').filter((item) => `${item.fileName} ${item.alt} ${item.sourceUrl}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => Number(b.order || 0) - Number(a.order || 0)), [drafts, published, query])
-  const upload = async (file) => { if (!file) return; if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 12 * 1024 * 1024) { mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP image no larger than 12 MB.') }); return } setProgress(1); const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt, onProgress: setProgress }), localMode ? 'Image saved in this browser.' : 'Image copied into managed storage.'); setProgress(0); if (item) { setAlt(''); refresh() } }
-  const replace = async (current, file) => { if (!file) return; if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 12 * 1024 * 1024) { mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP image no larger than 12 MB.') }); return } setProgress(1); const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt: current.alt, replaceMediaId: current.id, onProgress: setProgress }), localMode ? 'Image replaced in this browser.' : 'Managed image replaced. Existing project references still use the same URL.'); setProgress(0); if (item) refresh() }
-  const importUrl = async (event) => { event.preventDefault(); const item = await mutation.run(() => adminApi.importImage(sourceUrl.trim(), alt), localMode ? 'Image URL added as a browser library reference.' : 'Image imported into managed storage.'); if (item) { setSourceUrl(''); setAlt(''); refresh() } }
+  const upload = async (file) => {
+    if (!file) return
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      return
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
+      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP image larger than 0 bytes and no larger than 12 MB.') })
+      return
+    }
+    setProgress(1)
+    const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt, onProgress: setProgress }), localMode ? 'Image saved in this browser.' : 'Image copied into managed storage.')
+    setProgress(0)
+    if (item) { setAlt(''); refresh() }
+  }
+  const replace = async (current, file) => {
+    if (!file) return
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      return
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
+      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP image larger than 0 bytes and no larger than 12 MB.') })
+      return
+    }
+    setProgress(1)
+    const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt: current.alt, replaceMediaId: current.id, onProgress: setProgress }), localMode ? 'Image replaced in this browser.' : 'Managed image replaced. Existing project references still use the same URL.')
+    setProgress(0)
+    if (item) refresh()
+  }
+  const importUrl = async (event) => {
+    event.preventDefault()
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      return
+    }
+    const item = await mutation.run(() => adminApi.importImage(sourceUrl.trim(), alt), localMode ? 'Image URL added as a browser library reference.' : 'Image imported into managed storage.')
+    if (item) { setSourceUrl(''); setAlt(''); refresh() }
+  }
   const remove = async (item) => { if (!window.confirm(`Delete ${item.fileName || 'this image'} from ${localMode ? 'this browser' : 'managed storage'}?`)) return; const result = await mutation.run(() => adminApi.removeMedia(item.id), 'Unused media asset deleted.'); if (result) refresh() }
   const copy = async (value) => { try { await navigator.clipboard.writeText(value); mutation.run(async () => true, 'Managed URL copied.') } catch { mutation.run(() => { throw new Error('Clipboard access is not available in this browser.') }) } }
   return <><PageHeader eyebrow={localMode ? 'LOCAL BROWSER ASSETS' : 'PORTFOLIO ASSETS · MANAGED STORAGE'} title="Media Library" description={localMode ? 'Upload image files into this browser or add a reference to an existing public image URL.' : 'Upload local images or copy permitted public images into the portfolio storage bucket.'} actions={<label className="cms-button cms-button-brown cms-file-button"><Upload size={15} /> Upload image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => upload(event.target.files?.[0])} /></label>} />

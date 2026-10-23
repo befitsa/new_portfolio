@@ -24,12 +24,15 @@ export function isLocalCmsMode() {
 }
 
 let apiStatus = isLocalCmsMode()
-  ? { state: 'local', ready: true, checking: false, label: statusLabels.local, message: 'Development mode: edits are saved in this browser and are not published to the live website.', checkedAt: new Date().toISOString() }
-  : { state: 'checking', ready: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
+  ? { state: 'local', ready: true, storageReady: true, checking: false, label: statusLabels.local, message: 'Development mode: edits are saved in this browser and are not published to the live website.', checkedAt: new Date().toISOString() }
+  : { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
 const statusListeners = new Set()
 
 function updateApiStatus(next) {
-  apiStatus = { ...next, label: statusLabels[next.state] || 'CMS API error' }
+  const defaultLabel = next.state === 'connected' && next.storageReady === false
+    ? 'API ready · storage unavailable'
+    : statusLabels[next.state] || 'CMS API error'
+  apiStatus = { ...next, label: next.label || defaultLabel }
   statusListeners.forEach((listener) => listener())
 }
 
@@ -55,8 +58,14 @@ function apiErrorForStatus(status, message = '') {
   if (status === 401) return new CmsApiError('unauthorized', 'Administrator sign-in is required. Sign in again with the authorized Firebase account.', status)
   if (status === 403) return new CmsApiError('forbidden', 'Administrator access was denied. Verify the Firebase account and Cloudflare Access policy.', status)
   if (status === 404) return new CmsApiError('notFound', 'The CMS API route returned 404. Check the Netlify /api function route and configured Cloudflare Worker.', status)
-  if (status === 503 && /cms api is not configured|cms backend is not configured/i.test(message)) {
-    return new CmsApiError('unconfigured', 'CMS API is not configured. Set VITE_CMS_API_URL for local development or connect this hostname to the Cloudflare Worker /api route.', status)
+  if (status === 503 && /cms api proxy is not configured/i.test(message)) {
+    return new CmsApiError('unconfigured', 'The Netlify CMS proxy is not configured. Set the private Function variables CMS_WORKER_URL, CF_ACCESS_CLIENT_ID, and CF_ACCESS_CLIENT_SECRET, then redeploy.', status)
+  }
+  if (status === 503 && /cloudflare access verification is not configured/i.test(message)) {
+    return new CmsApiError('unconfigured', 'The CMS backend is missing its Cloudflare Access configuration. Verify CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD in the Firebase Function environment.', status)
+  }
+  if (status === 503 && /cms firestore is unavailable/i.test(message)) {
+    return new CmsApiError('serverError', 'The CMS API is reachable, but Firestore is unavailable. Check the content project and Function service-account access.', status)
   }
   if (status >= 500) return new CmsApiError('serverError', `CMS API returned ${status}. Check the Functions configuration and server logs.`, status)
   return new CmsApiError('serverError', message || `CMS request failed (${status}).`, status)
@@ -117,8 +126,8 @@ const remoteAdminApi = {
   request,
   health: async () => {
     const data = await request('/health')
-    if (data?.ok !== true || data?.access !== 'verified' || data?.administrator !== 'verified') {
-      throw new CmsApiError('invalidResponse', 'CMS health check did not confirm a verified administrator session.')
+    if (data?.ok !== true || data?.access !== 'verified' || data?.administrator !== 'verified' || data?.firestore?.ready !== true || typeof data?.storage?.ready !== 'boolean') {
+      throw new CmsApiError('invalidResponse', 'CMS health check did not confirm administrator access and Firestore readiness.')
     }
     return data
   },
@@ -177,7 +186,7 @@ export async function checkCmsApiHealth() {
     try {
       const health = await localCmsApi.health()
       const note = health.recoveryNotice ? ` ${health.recoveryNotice}` : ''
-      updateApiStatus({ state: 'local', ready: true, checking: false, message: `Development mode: changes are saved in this browser and are not published to the live website.${note}`, checkedAt: new Date().toISOString() })
+      updateApiStatus({ state: 'local', ready: true, storageReady: true, checking: false, message: `Development mode: changes are saved in this browser and are not published to the live website.${note}`, checkedAt: new Date().toISOString() })
       return true
     } catch (cause) {
       const error = cause instanceof CmsApiError
@@ -189,8 +198,10 @@ export async function checkCmsApiHealth() {
   }
   updateApiStatus({ state: 'checking', ready: false, checking: true, message: statusLabels.checking, checkedAt: apiStatus.checkedAt })
   try {
-    await adminApi.health()
-    updateApiStatus({ state: 'connected', ready: true, checking: false, message: 'Firebase administrator identity and Cloudflare Access are verified; the CMS API is responding.', checkedAt: new Date().toISOString() })
+    const health = await adminApi.health()
+    const storageReady = health.storage.ready
+    const storageMessage = storageReady ? '' : ` Cloud Storage is not ready: ${health.storage.message}`
+    updateApiStatus({ state: 'connected', ready: true, storageReady, storageMessage: health.storage.message, checking: false, message: `Firebase administrator identity, Cloudflare Access, and Firestore are verified.${storageMessage}`, checkedAt: new Date().toISOString() })
     return true
   } catch (cause) {
     const error = cause instanceof CmsApiError

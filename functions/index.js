@@ -12,6 +12,7 @@ import { Agent } from 'undici'
 import { parsePayload, schemas, settingsSchema } from './contentSchemas.js'
 import { isValidPdfDocument } from './pdfValidation.js'
 import { verifyAdminUser } from './adminAuth.js'
+import { checkCmsHealth } from './cmsHealth.js'
 
 if (!getApps().length) initializeApp()
 const db = getFirestore()
@@ -565,7 +566,26 @@ async function handle(req, actor) {
   const body = req.body && typeof req.body === 'object' ? req.body : {}
 
   if (segments[1] === 'health' && req.method === 'GET') {
-    return { ok: true, access: 'verified', administrator: 'verified', projectId: process.env.GCLOUD_PROJECT ?? '' }
+    const health = await checkCmsHealth({
+      checkFirestore: () => db.doc(settingsPath('published')).get(),
+      checkStorage: async () => {
+        await bucket.getMetadata()
+        const requiredPermissions = ['storage.objects.create', 'storage.objects.get', 'storage.objects.delete']
+        const [permissions] = await bucket.iam.testPermissions(requiredPermissions)
+        if (requiredPermissions.some((permission) => !permissions.includes(permission))) {
+          throw new Error('Cloud Storage object permissions are incomplete.')
+        }
+        await bucket.file('cms-incoming/cms-health-probe').getSignedUrl({
+          version: 'v4',
+          action: 'write',
+          expires: Date.now() + 60_000,
+          contentType: 'application/octet-stream',
+        })
+      },
+      projectId: process.env.GCLOUD_PROJECT ?? '',
+    })
+    if (!health.firestore.ready) throw privateError('CMS Firestore is unavailable.', 503)
+    return health
   }
   if (segments[1] === 'settings') {
     const ref = db.doc(settingsPath(req.query.view === 'published' ? 'published' : 'drafts'))
