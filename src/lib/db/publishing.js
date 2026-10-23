@@ -1,7 +1,7 @@
 import { adminApi } from '../adminApi.js'
 
-// All CMS mutations go through the Cloudflare Access protected backend. Never
-// write drafts, published documents, or media directly from the browser.
+// CMS mutations go through the configured provider. Never write drafts,
+// published documents, or media directly from the browser.
 export async function createDraft(type, initialContent = {}) {
   const record = await adminApi.create(type, initialContent)
   return record.id
