@@ -3,11 +3,13 @@
 import { useLayoutEffect, useRef } from 'react'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 import Section from '../common/Section'
 import SectionHeading from '../common/SectionHeading'
 import AnimatedText from '../common/AnimatedText'
 
 export default function About() {
+  const profile = usePortfolioProfile()
   const aboutRoot = useRef(null)
   const thoughtStage = useRef(null)
   const thoughtTitle = useRef(null)
@@ -80,9 +82,10 @@ export default function About() {
             />
             {/* Words light up one by one as you scroll through the paragraph. */}
             <AnimatedText
+              key={profile.about}
               as="p"
               mode="scrub"
-              text="I’m Fitsum Mesfin, a passionate software developer creating high-performance, user-centered digital experiences. I turn complex ideas into clear, useful products that feel as good as they work."
+              text={profile.about}
               className="mt-10 max-w-2xl font-display text-[clamp(1.35rem,2.4vw,2rem)] leading-snug text-ink"
             />
             <div className="mt-12 grid gap-8 border-t border-forest/15 pt-8 sm:grid-cols-3">

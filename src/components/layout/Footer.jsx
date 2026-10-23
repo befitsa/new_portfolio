@@ -1,14 +1,17 @@
 // src/components/layout/Footer.jsx
 import { useLayoutEffect, useRef } from 'react'
 import { ArrowUp } from 'lucide-react'
-import { navItems, profile } from '../../data/profile'
+import { navItems } from '../../data/profile'
+import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 import { scrollToId, scrollToTop } from '../../utils/scroll'
 import SocialLinks from '../common/SocialLinks'
+import BrandLink from '../common/BrandLink'
 import AnimatedText from '../common/AnimatedText'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 export default function Footer() {
+  const profile = usePortfolioProfile()
   const footerRef = useRef(null)
   const reduced = useReducedMotion()
 
@@ -39,9 +42,8 @@ export default function Footer() {
       <div className="mx-auto grid max-w-[90rem] gap-12 px-5 md:px-10 lg:grid-cols-12">
         <div data-footer-reveal className="lg:col-span-5">
           <div className="flex items-center gap-4">
-            <img src="/images/logo.png" alt="" className="size-12 object-contain" />
+            <BrandLink href="#home" onClick={(event) => { event.preventDefault(); scrollToTop() }} ariaLabel="Fitsum — back to top" logoSize={48} className="text-forest" />
             <div>
-              <p className="font-display text-lg font-semibold">{profile.name}</p>
               <p className="text-sm text-forest/65">{profile.title}</p>
             </div>
           </div>
@@ -94,7 +96,7 @@ export default function Footer() {
 
       <div data-footer-reveal className="mx-auto mt-14 flex max-w-[90rem] flex-col gap-2 border-t border-forest/10 px-5 pt-6 pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] text-sm text-forest/60 md:flex-row md:justify-between md:px-10 md:pb-6">
         <p>© {year} {profile.name}. All rights reserved.</p>
-        <p>Creative developer & Designer Based in 📍Addis Ababa, Ethiopia</p>
+        <p>{profile.title} based in {profile.location || 'Addis Ababa, Ethiopia'}</p>
       </div>
     </footer>
   )

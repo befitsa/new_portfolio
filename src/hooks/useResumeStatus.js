@@ -1,30 +1,24 @@
 // src/hooks/useResumeStatus.js
-import { useEffect, useState } from 'react'
-import { profile } from '../data/profile'
+import { useEffect, useMemo, useState } from 'react'
+import { usePublishedCollection } from './usePublishedCollection.js'
 
-// Returns { status, href }.  status: 'checking' | 'ready' | 'missing'
-// We really check the file exists, so the site never claims a resume is
-// ready when it isn't. (A dev server answers missing files with index.html,
-// so we also confirm the response is a document type, not HTML.)
+// A download is available only for a visible, published CMS resume record.
+// The backend validates the PDF bytes before creating that public record.
 export function useResumeStatus() {
-  const { url, path } = profile.resume
-  const href = url || path
-  const [status, setStatus] = useState(url ? 'ready' : 'checking')
+  const published = usePublishedCollection('resumes')
+  const activeResume = useMemo(
+    () => published.data.find((resume) => resume.status === 'published' && resume.isActive && resume.visibility === true && resume.fileUrl) ?? null,
+    [published.data],
+  )
+  const href = activeResume?.fileUrl || ''
+  const downloadName = 'Fitsum-Mesfin-Resume.pdf'
+  const [status, setStatus] = useState('checking')
 
   useEffect(() => {
-    if (url) return undefined // external link: can't be verified from the browser
-    const controller = new AbortController()
-    fetch(path, { method: 'HEAD', signal: controller.signal })
-      .then((res) => {
-        const type = res.headers.get('content-type') || ''
-        const isDocument = /pdf|msword|officedocument|octet-stream/i.test(type)
-        setStatus(res.ok && isDocument ? 'ready' : 'missing')
-      })
-      .catch((err) => {
-        if (err.name !== 'AbortError') setStatus('missing')
-      })
-    return () => controller.abort()
-  }, [url, path])
+    if (published.loading) setStatus('checking')
+    else if (published.error) setStatus('error')
+    else setStatus(activeResume ? 'ready' : 'missing')
+  }, [activeResume, published.error, published.loading])
 
-  return { status, href }
+  return { status, href, downloadName, resume: activeResume, error: published.error }
 }

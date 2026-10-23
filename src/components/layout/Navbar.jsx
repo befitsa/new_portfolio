@@ -1,11 +1,12 @@
 // src/components/layout/Navbar.jsx
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { navItems, profile } from '../../data/profile'
+import { navItems } from '../../data/profile'
 import { getLenis, scrollToId, scrollToTop } from '../../utils/scroll'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import Button from '../common/Button'
+import BrandLink from '../common/BrandLink'
 import MobileMenu from './MobileMenu'
 
 const navListVariants = {
@@ -55,14 +56,13 @@ export default function Navbar({ activeId, introActive = false }) {
       >
         <div className="pointer-events-auto mx-auto flex h-20 max-w-[100rem] items-center justify-between gap-4 px-5 md:grid md:grid-cols-[1fr_auto_1fr] md:px-8">
           {/* Logo: returns to the top */}
-          <a
+          <BrandLink
             href="#home"
-            onClick={(e) => { e.preventDefault(); scrollToTop() }}
-            aria-label={`${profile.name} — back to top`}
-            className="grid size-11 place-items-center justify-self-start font-display text-xl font-bold tracking-tight text-forest"
-          >
-            <img src="/images/logo.png" alt="" width="40" height="40" className="size-10 object-contain" />
-          </a>
+            onClick={(event) => { event.preventDefault(); scrollToTop() }}
+            ariaLabel="Fitsum — back to top"
+            logoSize={40}
+            className="fitsum-brand-nav justify-self-start font-display text-lg font-bold tracking-tight text-forest"
+          />
 
           {/* Center links (desktop / tablet) */}
           <nav aria-label="Primary" className="hidden md:block">

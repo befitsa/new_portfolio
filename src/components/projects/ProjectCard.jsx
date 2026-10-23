@@ -1,14 +1,19 @@
 // src/components/projects/ProjectCard.jsx
-// One project: a preview (image, real 3D scene, or designed placeholder) plus
-// text and action links. Links without a URL are simply not rendered.
+// One project preview and its compact title/platform details link.
 import { lazy, useLayoutEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { BookOpen, Code, ExternalLink } from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { projectDetailsPath } from '../../data/projects'
 import LazyScene from '../three/LazyScene'
 
 const ProjectScene = lazy(() => import('../three/ProjectScene'))
+
+function projectPlatform(project) {
+  const value = String(project.platform || project.category || '').toLowerCase()
+  return /\bmobile\b|\bandroid\b|\bios\b/.test(value) ? 'Mobile' : 'Web'
+}
 
 function Preview({ project }) {
   const [imageFailed, setImageFailed] = useState(false)
@@ -44,7 +49,7 @@ function Preview({ project }) {
   )
 }
 
-export default function ProjectCard({ project, wide, number }) {
+export default function ProjectCard({ project }) {
   const reduced = useReducedMotion()
   const root = useRef(null)
   const frame = useRef(null)
@@ -57,8 +62,8 @@ export default function ProjectCard({ project, wide, number }) {
       const trigger = { trigger: root.current, start: 'top 88%', once: true }
       gsap.fromTo(
         frame.current,
-        { clipPath: 'inset(16% 16% 16% 16% round 1.5rem)', scale: 1.06 },
-        { clipPath: 'inset(0% 0% 0% 0% round 0.75rem)', scale: 1, duration: 1.3, ease: 'power4.out', scrollTrigger: trigger },
+        { clipPath: 'inset(16% 16% 16% 16% round 2rem)', scale: 1.06 },
+        { clipPath: 'inset(0% 0% 0% 0% round 2rem)', scale: 1, duration: 1.3, ease: 'power4.out', scrollTrigger: trigger },
       )
       gsap.from(root.current.querySelectorAll('[data-fade]'), {
         y: 36, opacity: 0, duration: 0.9, ease: 'power3.out', stagger: 0.08, delay: 0.25, scrollTrigger: trigger,
@@ -67,17 +72,23 @@ export default function ProjectCard({ project, wide, number }) {
     return () => ctx.revert()
   }, [reduced])
 
-  const hasLinks = project.liveUrl || project.sourceUrl || project.caseStudyUrl
-  const linkClass = 'inline-flex items-center gap-1.5 text-sm font-semibold text-forest underline decoration-gold/60 underline-offset-4 transition-colors hover:text-forest/70 hover:decoration-mint'
+  const platform = projectPlatform(project)
 
   return (
-    <article ref={root} className="group flex h-full flex-col">
+    <article ref={root} className="group relative flex h-full flex-col">
+      <a
+        href={projectDetailsPath(project)}
+        aria-label={`View ${project.title} project details`}
+        className="absolute inset-0 z-10 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-mint"
+      >
+        <span className="sr-only">View project details</span>
+      </a>
       <div ref={frame}>
       <motion.div
         whileHover={reduced ? undefined : { y: -3 }}
         whileTap={reduced ? undefined : { scale: 0.995 }}
         transition={{ duration: 0.25, ease: 'easeOut' }}
-        className={`relative overflow-hidden rounded-xl ring-1 ring-white/10 ${wide ? 'aspect-[4/5]' : 'aspect-[5/4]'}`}
+        className="relative aspect-[4/3] overflow-hidden rounded-[2rem] ring-1 ring-white/10"
       >
         <Preview project={project} />
         {project.isPlaceholder && (
@@ -88,39 +99,21 @@ export default function ProjectCard({ project, wide, number }) {
       </motion.div>
       </div>
 
-      <div className="mt-6 flex flex-1 flex-col">
-        <div data-fade className="flex items-baseline justify-between gap-4 border-t border-forest/15 pt-4">
-          <p className="text-xs font-semibold tracking-[0.18em] text-mint uppercase">{project.category}</p>
-          <span className="font-display text-sm text-mist">({number})</span>
-        </div>
-        <h3 data-fade className="mt-4 font-display text-[clamp(1.7rem,3vw,2.6rem)] leading-[1.02] font-semibold tracking-tight">{project.title}</h3>
-        <p data-fade className="mt-3 max-w-md leading-relaxed text-forest/80">{project.description}</p>
-
-        {project.tech.length > 0 && (
-          <ul data-fade className="mt-4 flex flex-wrap gap-2" aria-label="Technologies used">
-            {project.tech.map((t) => (
-              <li key={t} className="rounded-full bg-soft-green px-3 py-1 text-xs font-medium text-forest">{t}</li>
-            ))}
-          </ul>
-        )}
-
-        <div data-fade className="mt-auto flex flex-wrap gap-x-5 gap-y-2 pt-5">
-          {project.liveUrl && (
-            <a href={project.liveUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
-              <ExternalLink className="size-4" aria-hidden="true" /> View Live Project
-            </a>
-          )}
-          {project.sourceUrl && (
-            <a href={project.sourceUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
-              <Code className="size-4" aria-hidden="true" /> View Source Code
-            </a>
-          )}
-          {project.caseStudyUrl && (
-            <a href={project.caseStudyUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>
-              <BookOpen className="size-4" aria-hidden="true" /> View Case Study
-            </a>
-          )}
-          {!hasLinks && <p className="text-sm text-mist">Links will appear here once added.</p>}
+      <div className="mt-[15px] flex flex-1 flex-col">
+        <div data-fade className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="font-display text-[15px] leading-snug font-bold text-ink sm:text-[16px] md:text-[17px] lg:text-[18px]">{project.title}</h3>
+            <span className={`mt-[7px] inline-flex w-fit rounded-full px-3 py-[5px] text-xs leading-none font-semibold ${platform === 'Mobile' ? 'bg-[#DDF3DF] text-[#245B36]' : 'bg-[#DCEBFF] text-[#244A78]'}`}>
+              {platform}
+            </span>
+          </div>
+          <a
+            href={projectDetailsPath(project)}
+            aria-label={`View ${project.title} project details`}
+            className="relative z-20 inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-[#E8BA45] text-[#17251b] shadow-sm transition-transform hover:scale-105 hover:bg-[#F0C85A] active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#E8BA45]"
+          >
+            <ArrowUpRight size={20} strokeWidth={2.2} aria-hidden="true" />
+          </a>
         </div>
       </div>
     </article>

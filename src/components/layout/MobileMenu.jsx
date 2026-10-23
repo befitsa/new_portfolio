@@ -5,6 +5,7 @@ import { Grid2X2, X } from 'lucide-react'
 import { navItems } from '../../data/profile'
 import { scrollToId, scrollToTop } from '../../utils/scroll'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import BrandLink from '../common/BrandLink'
 
 export default function MobileMenu({ open, onClose, onToggle, activeId }) {
   const reduced = useReducedMotion()
@@ -150,18 +151,17 @@ export default function MobileMenu({ open, onClose, onToggle, activeId }) {
           <span aria-live="polite" className="min-w-0 flex-1 truncate px-3 text-center text-xs font-semibold text-forest/75">
             {activeItem?.label ?? 'Explore'}
           </span>
-          <a
+          <BrandLink
             href="#home"
             onClick={(event) => {
               event.preventDefault()
               onClose()
               setTimeout(scrollToTop, 60)
             }}
-            aria-label="Fitsum Mesfin — back to home"
-            className="grid size-12 shrink-0 place-items-center rounded-full border border-white bg-white/85 shadow-sm transition-transform duration-200 hover:scale-105 active:scale-95"
-          >
-            <img src="/images/logo.png" alt="" width="28" height="28" className="size-7 object-contain" />
-          </a>
+            ariaLabel="Fitsum — back to home"
+            logoSize={28}
+            className="fitsum-brand-mobile shrink-0 rounded-full border border-white bg-white/85 px-2 shadow-sm transition-transform duration-200 hover:scale-105 active:scale-95"
+          />
         </nav>
       </div>
     </>

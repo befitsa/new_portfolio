@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://admin.example.com"],
+    "method": ["PUT", "GET", "HEAD"],
+    "responseHeader": ["Content-Type", "x-goog-meta-cms-subject", "x-goog-meta-cms-upload", "x-goog-meta-firebaseStorageDownloadTokens", "ETag"],
+    "maxAgeSeconds": 3600
+  }
+]

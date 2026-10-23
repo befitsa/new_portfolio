@@ -2,9 +2,12 @@
 // Filterable grid with a four-project preview and an in-grid expansion tile.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { categories, projects } from '../../data/projects'
+import { categories } from '../../data/projects'
 import { gsap, ScrollTrigger } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { usePublishedCollection } from '../../hooks/usePublishedCollection.js'
+import { toPublicProject } from '../../lib/db/presentation.js'
+import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 import SectionHeading from '../common/SectionHeading'
 import Button from '../common/Button'
 import ProjectCard from '../projects/ProjectCard'
@@ -18,10 +21,20 @@ export default function Projects() {
   const [filter, setFilter] = useState('All')
   const [expanded, setExpanded] = useState(false)
   const reduced = useReducedMotion()
+  const published = usePublishedCollection('projects')
+  const portfolio = usePortfolioProfile()
+  const projects = useMemo(() => {
+    const featuredIds = new Set(portfolio.featuredProjectIds || [])
+    return published.data.map(toPublicProject).sort((a, b) => {
+      const aFeatured = featuredIds.size ? featuredIds.has(a.id) : a.featured
+      const bFeatured = featuredIds.size ? featuredIds.has(b.id) : b.featured
+      return Number(bFeatured) - Number(aFeatured) || Number(a.order || 0) - Number(b.order || 0)
+    })
+  }, [published.data, portfolio.featuredProjectIds])
 
   const filtered = useMemo(
     () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
-    [filter],
+    [filter, projects],
   )
   const visible = expanded ? filtered : filtered.slice(0, INITIAL_COUNT)
   const countFor = (cat) => (cat === 'All' ? projects.length : projects.filter((p) => p.category === cat).length)
@@ -97,7 +110,7 @@ export default function Projects() {
                 className={i % 2 === 1 ? 'md:mt-28' : ''}
               >
                 <div data-expanded-project={expanded && i >= INITIAL_COUNT ? '' : undefined}>
-                  <ProjectCard project={project} wide={i % 2 === 0} number={String(projects.indexOf(project) + 1).padStart(2, '0')} />
+                  <ProjectCard project={project} />
                 </div>
               </motion.li>
             ))}
@@ -119,8 +132,16 @@ export default function Projects() {
           </div>
         )}
 
-        {filtered.length === 0 && (
-          <p className="mt-12 text-forest/80">No projects in this category yet.</p>
+        {published.loading && (
+          <p className="mt-12 text-forest/70" role="status">Loading published projects…</p>
+        )}
+
+        {published.error && (
+          <p className="mt-12 text-forest/80" role="alert">Projects could not be loaded right now. Please try again later.</p>
+        )}
+
+        {!published.loading && !published.error && filtered.length === 0 && (
+          <p className="mt-12 text-forest/80">No projects have been published yet.</p>
         )}
 
         {expanded && filtered.length > INITIAL_COUNT && (

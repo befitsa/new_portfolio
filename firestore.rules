@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function validContentType(type) {
+      return type in ['projects', 'experiences', 'education', 'resumes', 'media'];
+    }
+
+    function isPublicContent(data) {
+      return data.status == 'published' && data.visibility == true;
+    }
+
+    match /drafts/{type}/items/{itemId} {
+      allow read, write: if false;
+    }
+
+    match /drafts/site/settings/{settingsId} {
+      allow read, write: if false;
+    }
+
+    match /published/{type}/items/{itemId} {
+      allow read: if validContentType(type)
+        && isPublicContent(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    match /published/site/settings/{settingsId} {
+      allow read: if isPublicContent(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    match /slugRegistry/{type}/slugs/{slug} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

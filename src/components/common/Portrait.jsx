@@ -3,9 +3,10 @@
 // fails to load) a polished placeholder appears instead — never a broken image,
 // and never an invented face.
 import { useState } from 'react'
-import { profile } from '../../data/profile'
+import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 
 export default function Portrait({ className = '' }) {
+  const profile = usePortfolioProfile()
   const [failed, setFailed] = useState(false)
 
   return (

@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useForm } from 'react-hook-form'
 import { CircleAlert, LoaderCircle, Send } from 'lucide-react'
 import { helpServices } from '../../data/services'
-import { profile } from '../../data/profile'
+import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { buildMailto, sendContactMessage } from '../../services/contactService'
@@ -141,6 +141,7 @@ function ContactForm() {
 }
 
 export default function Contact() {
+  const profile = usePortfolioProfile()
   const invitation = useRef(null)
   const reduced = useReducedMotion()
 

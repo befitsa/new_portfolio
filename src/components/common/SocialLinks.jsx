@@ -2,12 +2,13 @@
 // Renders only the links that have a real URL in src/data/profile.js.
 import { Mail, Globe } from 'lucide-react'
 import { FaGithub, FaLinkedinIn } from 'react-icons/fa6'
-import { profile } from '../../data/profile'
+import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 
 // Lucide dropped brand logos, so GitHub/LinkedIn come from react-icons.
 const icons = { github: FaGithub, linkedin: FaLinkedinIn, email: Mail }
 
 export default function SocialLinks({ orientation = 'horizontal', size = 'md', className = '' }) {
+  const profile = usePortfolioProfile()
   const links = profile.socials.filter((s) => s.url)
   if (links.length === 0) return null
 

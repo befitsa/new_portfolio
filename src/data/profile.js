@@ -8,6 +8,8 @@ export const profile = {
   monogram: 'FM',
   title: 'Software Developer',
   email: 'Befitsa123@gmail.com',
+  about:
+    'Iâ€™m Fitsum Mesfin, a passionate software developer creating high-performance, user-centered digital experiences. I turn complex ideas into clear, useful products that feel as good as they work.',
   roles: ['React Developer', 'Flutter Developer', 'UI/UX Designer'],
   intro:
     'Fueling the future with sleek, responsive websites and intuitive digital experiences. From thoughtful UI/UX to practical technology solutions.',
@@ -19,11 +21,8 @@ export const profile = {
     alt: 'Portrait of Fitsum Mesfin',
   },
 
-  // Resume: drop your PDF into public/resume/ with the file name below,
-  // OR paste a full https:// link into `url` (the url wins if both are set).
+  // Download is enabled only when the CMS publishes a real PDF.
   resume: {
-    path: '/resume/Fitsum-Mesfin-Resume.pdf',
-    url: '',
     downloadName: 'Fitsum-Mesfin-Resume.pdf',
   },
 

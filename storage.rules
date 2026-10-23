@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Uploads and deletes are mediated by signed, short-lived server URLs.
+    // Public managed assets are served by per-file Firebase download tokens.
+    match /published/{contentType}/{filePath=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

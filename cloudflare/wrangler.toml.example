@@ -1,0 +1,10 @@
+name = "fitsum-portfolio-cms-api-proxy"
+main = "worker.js"
+compatibility_date = "2026-10-22"
+
+# Copy this to wrangler.toml and set your Cloudflare-proxied CMS hostname route.
+# The Access application must cover this route (for example admin.example.com/api/*).
+routes = [ { pattern = "admin.example.com/api/*", zone_name = "example.com" } ]
+
+[vars]
+CMS_BACKEND_URL = "https://us-central1-YOUR_FIREBASE_PROJECT.cloudfunctions.net/cmsApi"

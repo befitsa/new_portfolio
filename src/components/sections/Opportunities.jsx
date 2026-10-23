@@ -4,7 +4,6 @@ import { useLayoutEffect, useRef } from 'react'
 import { motion } from 'motion/react'
 import { Check, Download } from 'lucide-react'
 import { opportunityRoles } from '../../data/services'
-import { profile } from '../../data/profile'
 import { useResumeStatus } from '../../hooks/useResumeStatus'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
@@ -15,7 +14,7 @@ import Section from '../common/Section'
 
 function ResumeCard() {
   const root = useRef(null)
-  const { status, href } = useResumeStatus()
+  const { status, href, downloadName } = useResumeStatus()
   const ready = status === 'ready'
   const reduced = useReducedMotion()
 
@@ -59,22 +58,15 @@ function ResumeCard() {
             </>
           ) : status === 'checking' ? (
             'Checking resume…'
+          ) : status === 'error' ? (
+            'Resume information is temporarily unavailable.'
           ) : (
-            <>
-              Resume coming soon.{' '}
-              <a href={`mailto:${profile.email}?subject=Resume%20request`} className="text-[#171a1b] underline underline-offset-4 hover:text-forest">
-                Email me for a copy
-              </a>
-            </>
+            'No resume is currently available for download.'
           )}
         </p>
-        {import.meta.env.DEV && status === 'missing' && (
-          <p className="mt-2 text-sm text-[#394245]/70">Dev note: add your PDF at public{profile.resume.path}</p>
-        )}
-
         <div data-opportunity-card-copy className="mt-8 flex flex-wrap gap-3">
           {ready ? (
-            <Button data-resume-button href={href} icon={Download} variant="dark" download={profile.resume.downloadName} className="bg-black text-white shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:bg-[#1e2325] hover:text-white">
+            <Button data-resume-button href={href} icon={Download} variant="dark" download={downloadName} className="bg-black text-white shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:bg-[#1e2325] hover:text-white">
               Download Resume
             </Button>
           ) : (
