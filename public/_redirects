@@ -1,1 +1,3 @@
+/api /.netlify/functions/cms-api/api 200!
+/api/* /.netlify/functions/cms-api/api/:splat 200!
 /*    /index.html   200

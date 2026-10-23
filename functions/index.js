@@ -11,6 +11,7 @@ import sharp from 'sharp'
 import { Agent } from 'undici'
 import { parsePayload, schemas, settingsSchema } from './contentSchemas.js'
 import { isValidPdfDocument } from './pdfValidation.js'
+import { verifyAdminUser } from './adminAuth.js'
 
 if (!getApps().length) initializeApp()
 const db = getFirestore()
@@ -69,22 +70,6 @@ async function verifyAccess(req) {
     return { sub: payload.sub, email: typeof payload.email === 'string' ? payload.email : '' }
   } catch {
     throw privateError('Cloudflare Access token is invalid or expired.', 401)
-  }
-
-  async function verifyAdminUser(req) {
-    const idToken = req.get('x-firebase-id-token')
-    if (!idToken) throw privateError('Firebase administrator sign-in required.', 401)
-    let decoded
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken, true)
-    } catch {
-      throw privateError('Firebase administrator sign-in is invalid or expired.', 401)
-    }
-    if (decoded.uid !== ADMIN_UID) throw privateError('This Firebase account is not authorized for the CMS.', 403)
-    return {
-      sub: decoded.uid,
-      email: typeof decoded.email === 'string' ? decoded.email : decoded.uid,
-    }
   }
 }
 
@@ -630,7 +615,7 @@ export const cmsApi = onRequest({
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return response(res, 405, { error: 'Method not allowed.' })
   try {
     await verifyAccess(req)
-    const actor = await verifyAdminUser(req)
+    const actor = await verifyAdminUser(req, adminAuth, ADMIN_UID)
     const result = await handle(req, actor)
     return response(res, 200, { data: result })
   } catch (error) {

@@ -3,7 +3,7 @@ import { localCmsApi } from '../admin/localCmsStore.js'
 import { isPathBasedAdmin } from '../admin/cmsPaths.js'
 import { auth } from './firebase.js'
 
-const configuredBase = import.meta.env.VITE_CMS_API_URL?.trim()
+const configuredBase = import.meta.env.DEV ? import.meta.env.VITE_CMS_API_URL?.trim() : ''
 const base = (configuredBase || '/api').replace(/\/$/, '')
 
 const statusLabels = {
@@ -54,7 +54,7 @@ export class CmsApiError extends Error {
 function apiErrorForStatus(status, message = '') {
   if (status === 401) return new CmsApiError('unauthorized', 'Administrator sign-in is required. Sign in again with the authorized Firebase account.', status)
   if (status === 403) return new CmsApiError('forbidden', 'Administrator access was denied. Verify the Firebase account and Cloudflare Access policy.', status)
-  if (status === 404) return new CmsApiError('notFound', 'The CMS API route returned 404. Check VITE_CMS_API_URL and the Cloudflare Worker /api route.', status)
+  if (status === 404) return new CmsApiError('notFound', 'The CMS API route returned 404. Check the Netlify /api function route and configured Cloudflare Worker.', status)
   if (status === 503 && /cms api is not configured|cms backend is not configured/i.test(message)) {
     return new CmsApiError('unconfigured', 'CMS API is not configured. Set VITE_CMS_API_URL for local development or connect this hostname to the Cloudflare Worker /api route.', status)
   }
@@ -106,7 +106,7 @@ async function request(path, { method = 'GET', body, signal } = {}) {
     throw classified
   }
   if (!response.headers.get('content-type')?.toLowerCase().includes('application/json') || !valid || !payload || typeof payload !== 'object' || !Object.hasOwn(payload, 'data')) {
-    throw new CmsApiError('invalidResponse', 'The CMS endpoint returned a successful HTTP status but not the expected JSON API response. Check that /api points to the CMS Worker or Functions API.')
+    throw new CmsApiError('invalidResponse', 'The CMS endpoint returned a successful HTTP status but not the expected JSON API response. Check the Netlify /api function and Cloudflare Worker configuration.')
   }
   return payload.data
 }

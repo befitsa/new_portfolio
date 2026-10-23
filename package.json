@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/contentSchemas.test.js tests/contentService.test.js tests/pdfValidation.test.js tests/backendSchemas.test.js",
+    "test": "node --test tests/contentSchemas.test.js tests/contentService.test.js tests/pdfValidation.test.js tests/backendSchemas.test.js tests/netlifyCmsProxy.test.js",
     "test:rules": "npm exec --yes --package=firebase-tools@13.35.1 -- firebase emulators:exec --project demo-fitsum-portfolio --only firestore,storage \"node --test tests/firebaseRules.test.js\""
   },
   "dependencies": {

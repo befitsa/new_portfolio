@@ -51,14 +51,32 @@ Firebase CLI access confirms that the `user-auth-vp` project and the specified r
 
 Because the CMS Function may run in the portfolio/content Firebase project while Auth lives in `user-auth-vp`, grant the deployed Function service identity permission to verify Auth users in the `user-auth-vp` project (including `firebaseauth.users.get` for revocation checking). Use the narrowest applicable Firebase Authentication IAM role. Do not add the Auth service account key to the frontend or repository.
 
+### Netlify production CMS API route
+
+The production frontend calls the same-origin `/api/*` route. `public/_redirects` sends those requests to `netlify/functions/cms-api.mjs` before the general SPA fallback; the function relays only the CMS API path to the existing Cloudflare Access-protected Worker. It does not write content itself, hold Firebase Admin credentials, or accept arbitrary upstream URLs. The Worker and Firebase Function continue to validate Cloudflare Access and the Firebase administrator UID.
+
+In Netlify site settings, configure these as **private runtime environment variables for Functions**:
+
+- `CMS_WORKER_URL` — the actual HTTPS origin of the existing Cloudflare Worker route, with no path (for example, `https://cms-api.your-owned-domain.example`; replace this with the real configured hostname).
+- `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` — credentials for a Cloudflare Access service token. In Zero Trust, add a **Service Auth** policy for this token to the Access application covering the Worker’s `/api/*` route. Keep the existing human administrator policy as well.
+
+Do not set `VITE_CMS_API_URL` in the Netlify production build; the production client uses the same-origin Netlify function. The API key exposed as `VITE_ADMIN_FIREBASE_API_KEY` is a Firebase web-app identifier, not a server secret. Keep Firebase Admin credentials, Cloudflare service-token secrets, and any storage credentials out of all `VITE_` variables.
+
+The Netlify function forwards the browser's Firebase ID token and the original site origin, then expects a JSON API envelope from the Worker. The Worker’s `CMS_BACKEND_URL` must point at the already deployed Firebase HTTPS Function. The Firebase Function environment must include `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `CMS_ALLOWED_ORIGINS=https://testportfolios01.netlify.app` (plus any other exact site origins actually used). Do not add a made-up Worker or Function URL: obtain both from the deployed Cloudflare and Firebase consoles. If these services or the Access service-token policy are not configured, the proxy returns a JSON configuration/upstream error instead of the SPA HTML shell.
+
+The CMS uploads directly to the existing content project's default Cloud Storage bucket using short-lived signed URLs issued by the Firebase Function. Configure that bucket's CORS to allow `https://testportfolios01.netlify.app` for signed `PUT` uploads and `GET` downloads (and any separate admin origin if used). The bucket belongs to the portfolio/content Firebase project, not the separate Auth project. Cloud Storage must be enabled and the project must have a billing plan that permits its use; the Function identity needs the necessary object permissions and `iam.serviceAccounts.signBlob` for signed URLs. Apply the lifecycle policy in `storage-lifecycle.json.example` to delete abandoned objects under `cms-incoming/` after one day, for example with `gcloud storage buckets update gs://<actual-content-bucket> --lifecycle-file=storage-lifecycle.json` after copying the example. Do not make the bucket writable to browser clients.
+
 ### Cloudflare and Firebase setup
 
 1. Create the Firebase project, Firestore database, and default Storage bucket. Deploy Firestore/Storage rules and indexes with `firebase deploy --only firestore,storage`.
 2. Copy `functions/.env.example` to `functions/.env.<firebase-project-id>`. Set `CF_ACCESS_TEAM_DOMAIN` (for example `your-team.cloudflareaccess.com`), `CF_ACCESS_AUD` from the Access app, and the exact admin origin in `CMS_ALLOWED_ORIGINS`. Deploy the Function with `firebase deploy --only functions:cmsApi`.
 3. Copy `cloudflare/wrangler.toml.example` to `cloudflare/wrangler.toml`. Replace the admin route, zone name, and `CMS_BACKEND_URL` with the deployed `cmsApi` HTTPS URL. From the `cloudflare` directory, deploy with `npx wrangler deploy`.
-4. In Cloudflare Zero Trust, create an Access application/policy for the admin API route or Worker hostname, restricted to your email/account. Confirm the Worker receives `Cf-Access-Jwt-Assertion`. Configure the app's audience tag in the Function environment.
-5. Configure bucket CORS using `cloudflare/storage-cors.json.example` (replace the origin) so the browser can upload to short-lived signed Storage URLs. For example use `gcloud storage buckets update gs://<bucket-name> --cors-file=storage-cors.json` after copying and editing that file.
-6. Keep `VITE_FIREBASE_*` pointed at the existing portfolio/content project. The separate admin Auth web app metadata is fixed to the verified `user-auth-vp` app; set `VITE_ADMIN_FIREBASE_API_KEY` in ignored `.env.local` to that registered app's Web API key. The local checkout has this value from Firebase's SDK config command; do not commit `.env.local`. Set `VITE_PUBLIC_PORTFOLIO_URL` if the public website is not on the hostname inferred from the admin hostname.
+4. In Cloudflare Zero Trust, create an Access application covering the Worker `/api/*` route. Add the administrator policy and a Service Auth policy for the Netlify-held service token. Confirm the Worker receives `Cf-Access-Jwt-Assertion`. Configure the app's audience tag in the Function environment.
+5. Set `CMS_WORKER_URL`, `CF_ACCESS_CLIENT_ID`, and `CF_ACCESS_CLIENT_SECRET` in Netlify's private Function environment; set `CMS_ALLOWED_ORIGINS` in the Firebase Function environment to the deployed Netlify origin. Keep the Netlify production branch set to the intended repository branch.
+6. Configure bucket CORS using `cloudflare/storage-cors.json.example`, replacing or extending its origin with the actual Netlify production origin (and any separate admin origin), so the browser can upload to short-lived signed Storage URLs. For example use `gcloud storage buckets update gs://<bucket-name> --cors-file=storage-cors.json` after copying and editing that file. Apply `storage-lifecycle.json.example` as the bucket lifecycle policy to clean up unfinalized uploads.
+7. Keep `VITE_FIREBASE_*` pointed at the existing portfolio/content project. The separate admin Auth web app metadata is fixed to the verified `user-auth-vp` app; set `VITE_ADMIN_FIREBASE_API_KEY` in ignored `.env.local` to that registered app's Web API key. The local checkout has this value from Firebase's SDK config command; do not commit `.env.local`. Set `VITE_PUBLIC_PORTFOLIO_URL` if the public website is not on the hostname inferred from the admin hostname.
+
+For GitHub-connected Netlify deployment, `netlify.toml` sets the build command and publish directory to `npm run build` and `dist`. Verify the production branch in Netlify, then push the committed change to that branch and wait for its deploy to finish. This checkout currently has local branch `main` tracking `origin/main`; the Netlify dashboard's configured production branch cannot be verified from repository files.
 
 Function environment values are loaded from Firebase-supported dotenv files under `functions/`. Keep project-specific `.env.*` files out of source control. The Function uses the Google runtime's default service identity; grant it the Firebase/Firestore and bucket permissions required by the Admin SDK. V4 upload URL signing also needs `iam.serviceAccounts.signBlob`; when the runtime uses its attached service identity, grant that identity `roles/iam.serviceAccountTokenCreator` on itself. No service-account JSON is required in the browser or repository.
 
@@ -73,8 +91,12 @@ Media deletion scans project, background, resume, and settings records and is de
 ```powershell
 npm.cmd run build
 npm.cmd test
+npm.cmd --prefix functions test
+npm.cmd --prefix functions run lint
 npm.cmd run test:rules
 node --check functions/index.js
+node --check netlify/functions/cms-api.mjs
+node --check cloudflare/worker.js
 ```
 
 `test:rules` needs Java and the Firebase CLI/emulators. The tests assert that anonymous and Firebase-authenticated web clients cannot access drafts or write content, while public reads remain limited to visible published records. A production deployment still needs the real Cloudflare Access app, Firebase Email/Password provider and existing administrator account, Firebase project/bucket, Function environment, domain route, and bucket CORS configuration; this repository alone cannot verify those account settings.
