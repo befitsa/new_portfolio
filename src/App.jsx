@@ -104,15 +104,34 @@ export default function App() {
     meta.content = description
   }, [effectiveProfile])
 
-  const match = window.location.pathname.match(/^\/projects\/([^/]+)\/?$/)
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+  const match = pathname.match(/^\/projects\/([^/]+)$/)
+  const knownPortfolioPath = pathname === '/'
+    || pathname === '/projects'
+    || pathname === '/background'
   const page = match
     ? <PublishedProjectRoute slug={decodeURIComponent(match[1])} />
-    : <PortfolioHome />
+    : knownPortfolioPath
+      ? <PortfolioHome />
+      : <PublicNotFound />
 
   return (
     <PortfolioProfileProvider value={effectiveProfile}>
       {page}
     </PortfolioProfileProvider>
+  )
+}
+
+function PublicNotFound() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-cream p-8 text-forest">
+      <section className="max-w-lg text-center">
+        <p className="text-xs font-bold tracking-[.16em] uppercase">Page not found</p>
+        <h1 className="mt-3 font-serif text-4xl">This page isn’t available.</h1>
+        <p className="mt-3 text-sm text-forest/70">The page may have moved or the address may be incorrect.</p>
+        <a href="/" className="mt-6 inline-flex min-h-11 items-center rounded-full bg-forest px-5 text-sm font-semibold text-white">Return to portfolio</a>
+      </section>
+    </main>
   )
 }
 
