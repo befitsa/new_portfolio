@@ -15,7 +15,7 @@ const statusLabels = {
   serverError: 'Local CMS unavailable',
 }
 
-const productionMessage = 'Live CMS editing is not configured for this deployment. Use npm run dev for local JSON and disk storage, or add a persistent production CMS provider before editing live content.'
+const productionMessage = 'Production CMS is not configured for this deployment. Use npm run dev for local JSON and disk storage, or add the required Firebase production variables before editing live content.'
 const SYSTEM_FIELDS = new Set(['id', 'status', 'revision', 'publishedRevision', 'basePublishedRevision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy', 'siteVersion', 'lastPublishedAt'])
 
 function stripSystemFields(value = {}) {
@@ -62,9 +62,25 @@ async function readRecords(type, view) {
   return result.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id })).sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0))
 }
 
-let apiStatus = isLocalCmsMode()
-  ? { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
-  : { state: 'unconfigured', ready: false, storageReady: false, checking: false, label: statusLabels.unconfigured, message: productionMessage, checkedAt: new Date().toISOString() }
+function createApiStatus() {
+  if (isLocalCmsMode()) {
+    return { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
+  }
+  if (hasProductionCmsProvider) {
+    return {
+      state: 'firebase',
+      ready: true,
+      storageReady: true,
+      checking: false,
+      label: statusLabels.firebase,
+      message: 'Production CMS is connected to Firebase. Live edits are saved in Firestore and uploaded files are stored in Firebase Storage.',
+      checkedAt: new Date().toISOString(),
+    }
+  }
+  return { state: 'unconfigured', ready: false, storageReady: false, checking: false, label: statusLabels.unconfigured, message: productionMessage, checkedAt: new Date().toISOString() }
+}
+
+let apiStatus = createApiStatus()
 const statusListeners = new Set()
 
 function updateApiStatus(next) {
