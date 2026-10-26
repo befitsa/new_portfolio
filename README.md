@@ -33,18 +33,25 @@ Draft records are kept separate from their published versions. A successful publ
 
 ## Production behavior
 
-Production CMS writes are enabled when the site is deployed with the existing Firebase portfolio configuration and the separate admin Firebase web API key. In that configuration, the admin dashboard uses the Firebase Firestore + Cloud Storage adapter behind the same CMS service interface. If the required Firebase environment variables are missing or the admin sign-in app is not configured, the deployed admin shows the “Production CMS not configured” message and disables live writes instead of silently failing.
+Production admin requests use the existing Firebase Function API. The Function verifies the Firebase ID token against the `user-auth-vp` Authentication project and checks the server-side administrator UID before it reads drafts or performs writes. The Function validates content and upload bytes, then stores draft and published records in Firestore and persistent files in Cloud Storage. The browser does not write directly to Firestore or Storage.
 
-The Netlify-to-Cloudflare CMS proxy has been removed. Production admin sign-in still uses the existing Firebase Auth configuration and current authorization checks. The Vite filesystem CMS remains a local-only development tool and is not used as a production storage provider. Netlify's deployed function filesystems are not durable writable storage, so local `.local-cms` data never appears on the live site.
+The public portfolio subscribes to visible published Firestore records, so publish and unpublish changes arrive through Firebase's live listeners without a GitHub push or a Netlify build. Draft records are private. Resume uploads and project-editor images remain in private storage until publication; a successful publish promotes their files and updates the published record. The local Vite filesystem CMS remains separate and is not used in production.
 
-The existing `functions/` Firebase backend source is retained for future use, but it is not the active production CMS path in this project unless deliberately re-enabled and configured. If it is reused, replace the legacy Cloudflare Access gate with a secure Firebase-backed design and test authorization end to end before exposing it publicly.
+### One-time production setup
 
-## Future persistent publishing
+1. In the Firebase project used for portfolio content, enable Firestore and Cloud Storage, and deploy the existing restrictive rules and indexes. Deploy the `cmsApi` Function to that same project. Its service account needs Firestore access and Cloud Storage object create, read, and delete access.
+2. Create `functions/.env.<content-project-id>` with `CMS_ALLOWED_ORIGINS=https://testportfolios01.netlify.app`. Set a comma-separated list if the site has more than one production origin. `CMS_FUNCTION_REGION` is optional and defaults to `us-central1`.
+3. In Netlify, set the portfolio web app values `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, and `VITE_FIREBASE_APP_ID`. The project ID and bucket must match the Firebase project and bucket used by the Function.
+4. Keep `VITE_ADMIN_FIREBASE_API_KEY` pointed at the existing `user-auth-vp` web app, and set `VITE_CMS_API_URL` to the deployed Function root, for example `https://us-central1-<content-project-id>.cloudfunctions.net/cmsApi` (omit `/api`). Do not put service account credentials in Netlify `VITE_` variables.
+5. Deploy the Function and the initial Netlify build, then sign in to `/admin`. The dashboard health check verifies administrator access, Firestore access, Storage read/write access, and the allowed production origin before it enables writes.
 
-To edit the live portfolio without pushing to GitHub, configure the Firebase Firestore + Cloud Storage provider behind the existing CMS service interface. It must verify the existing administrator identity on every write, validate records and uploads server-side, preserve draft/published separation, and store uploads in durable object storage. Migrate existing production records and media with a verified backup before enabling writes. Do not copy `.local-cms` to Netlify as a database.
+Example deployment from the repository root:
 
-The existing public portfolio/content Firebase configuration and Firebase sign-in are not changed by the local filesystem CMS. The production adapter is only enabled when the required Firebase environment variables are set in the deployed app.
+```powershell
+firebase deploy --only functions:cmsApi --project <content-project-id>
+```
 
+Changing code or Netlify build variables requires one deployment. Publishing records after that writes to Firestore and Storage directly and does not trigger another build.
 ## Checks
 
 ```powershell
@@ -54,4 +61,4 @@ npm.cmd --prefix functions test
 npm.cmd --prefix functions run lint
 ```
 
-The root web package has no lint script or linter configured. The Functions `lint` script runs a Node syntax check. The root and Functions test commands cover the local CMS, schemas, content service, backend authorization, health checks, and PDF validation. A successful production build does not verify live Netlify CMS availability.
+The root web package has no lint script or linter configured. The Functions `lint` script runs a Node syntax check. The root and Functions tests cover local CMS behavior, schemas, Firebase rules, backend authorization, health reporting, and PDF validation. A local build cannot verify production Firebase credentials, deployed Function access, or Netlify publishing; those require the one-time dashboard setup above.

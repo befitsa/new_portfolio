@@ -189,7 +189,7 @@ export function CmsDashboardPage() {
     <PageHeader eyebrow={localMode ? 'LOCAL DEVELOPMENT · PORTFOLIO ENGINE' : 'CURATOR CONSOLE · PORTFOLIO ENGINE'} title={`Welcome back, ${profile.firstName[0] + profile.firstName.slice(1).toLowerCase()}`} description={localMode ? 'Manage a local copy of the existing portfolio. Changes stay on this device and do not reach the live website.' : ready ? 'Review the portfolio. The live CMS is active and ready for draft, upload, and publish workflows.' : 'Review the portfolio. Production content editing requires a persistent CMS provider.'} />
     {!ready && <CmsConnectionNotice status={apiStatus} />}
     {errors.length > 0 && <ContentError error={errors[0]} retry={() => [projects.refresh(), experiences.refresh(), education.refresh(), resumes.refresh(), media.refresh()]} />}
-    <section className="cms-welcome-card cms-dashboard-welcome"><div><span className="cms-dashboard-kicker"><ShieldCheck size={15} /> {localMode ? 'LOCAL PREVIEW' : 'CURATOR CONSOLE'}</span><h2>Your portfolio workspace</h2><p>{localMode ? 'Create, edit, and remove local records. Local publish actions update only the local public preview.' : ready ? 'Your connected CMS provider is active and ready to save drafts, publish updates, and manage media.' : 'Production content editing is paused until a persistent CMS provider is configured.'}</p></div><div className="cms-welcome-status"><strong className={ready && !errors.length ? 'is-ready' : ''}>{localMode ? 'Local JSON + disk ready' : ready && !errors.length ? 'Persistent provider configured' : 'Production editing unavailable'}</strong><p>{localMode ? 'Records are saved in local JSON files; uploads are stored on disk.' : ready ? 'The configured CMS provider is available.' : 'No production CMS API is configured. This dashboard will not send content writes.'}</p></div></section>
+    <section className="cms-welcome-card cms-dashboard-welcome"><div><span className="cms-dashboard-kicker"><ShieldCheck size={15} /> {localMode ? 'LOCAL PREVIEW' : 'CURATOR CONSOLE'}</span><h2>Your portfolio workspace</h2><p>{localMode ? 'Create, edit, and remove local records. Local publish actions update only the local public preview.' : ready ? 'Your connected CMS provider is active and ready to save drafts, publish updates, and manage media.' : apiStatus.message}</p></div><div className="cms-welcome-status"><strong className={ready && !errors.length ? 'is-ready' : ''}>{localMode ? 'Local JSON + disk ready' : ready && !errors.length ? 'Persistent provider configured' : apiStatus.label}</strong><p>{localMode ? 'Records are saved in local JSON files; uploads are stored on disk.' : ready ? 'The configured CMS provider is available.' : apiStatus.message}</p></div></section>
     <div className="cms-quick-actions"><span className="cms-section-kicker">QUICK ACTIONS</span><Button variant="primary" href="/projects/new"><Plus size={15} /> Add Project</Button><Button href="/background"><Plus size={15} /> Add Experience</Button><Button href="/resume"><Upload size={15} /> Upload Resume</Button><Button href="/media"><ImageIcon size={15} /> Manage Media</Button></div>
     <section className="cms-stats-grid">
       <StatCard icon={FolderKanban} label="PORTFOLIO WORKS" value={publishedProjects.length} detail={`${drafts.length} project drafts pending`} badge={localMode ? 'Local preview' : ready ? 'Live data' : 'Published entries'} tone={ready ? 'green' : 'neutral'} />
@@ -358,7 +358,7 @@ export function CmsProjectEditorPage({ id }) {
       return
     }
     setProgress(1)
-    const uploaded = await mutation.run(() => adminApi.upload(file, { kind: 'image', onProgress: setProgress }), localMode ? 'Hero image saved to local disk.' : 'Hero image uploaded to managed storage.')
+    const uploaded = await mutation.run(() => adminApi.upload(file, { kind: 'image', private: !localMode, onProgress: setProgress }), localMode ? 'Hero image saved to local disk.' : 'Hero image uploaded to private draft storage.')
     setProgress(0)
     setHeroPreviewUrl('')
     if (uploaded) setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: uploaded.url, storagePath: uploaded.storagePath } }))
@@ -375,7 +375,7 @@ export function CmsProjectEditorPage({ id }) {
       await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
       return
     }
-    const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim()), localMode ? 'Image URL added to the local media library.' : 'Image copied to managed storage.')
+    const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim(), '', { private: !localMode }), localMode ? 'Image URL added to the local media library.' : 'Image copied to private draft storage.')
     if (imported) { setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: imported.url, storagePath: imported.storagePath } })); setImageUrl('') }
   }
   const slugConflict = form.slug && published.some((item) => item.slug === form.slug && item.id !== id)
@@ -444,7 +444,11 @@ export function CmsBackgroundPage() {
         : savedDraft
     }, publishAfterSave ? 'Background entry saved and published.' : 'Background draft saved.')
     if (savedDraft) {
-      setSelected({ ...savedDraft, ...(result || {}) })
+      let current = { ...savedDraft, ...(result || {}) }
+      try {
+        current = await adminApi.get(kind, savedDraft.id, publishAfterSave ? 'published' : 'drafts') || current
+      } catch { /* The successful mutation result still lets the editor remain open. */ }
+      setSelected(current)
       recordsState.refresh()
     }
   }

@@ -5,7 +5,6 @@ import { initializeApp, getApps } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
 import ipaddr from 'ipaddr.js'
 import sharp from 'sharp'
 import { Agent } from 'undici'
@@ -27,7 +26,6 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024
 const MAX_PDF_BYTES = 5 * 1024 * 1024
 const ADMIN_UID = '0SYXtQtU61hMim2S9a2aktAeeSA2'
 const privateError = (message, status = 400) => Object.assign(new Error(message), { status })
-let jwks
 
 function response(res, status, body) {
   res.set('Cache-Control', 'private, no-store')
@@ -50,43 +48,47 @@ function configureCors(req, res) {
   res.set('Access-Control-Max-Age', '600')
 }
 
-async function verifyAccess(req) {
-  if (
-    process.env.FUNCTIONS_EMULATOR === 'true'
-    && process.env.CMS_ALLOW_LOCAL_EMULATOR === 'true'
-    && /^https?:\/\/(localhost|127\.0\.0\.1|dev\.localhost|admin\.localhost)(:\d+)?$/.test(req.get('origin') ?? '')
-  ) return { sub: 'local-functions-emulator', email: 'local@emulator.invalid' }
-  const team = (process.env.CF_ACCESS_TEAM_DOMAIN ?? '').trim().replace(/^https?:\/\//, '').replace(/\/$/, '')
-  const audience = (process.env.CF_ACCESS_AUD ?? '').trim()
-  if (!team || !audience) throw privateError('Cloudflare Access verification is not configured on this API.', 503)
-  const assertion = req.get('cf-access-jwt-assertion')
-    || req.get('Cf-Access-Jwt-Assertion')
-    || (req.get('authorization')?.startsWith('Bearer ') ? req.get('authorization').slice(7) : '')
-  if (!assertion) throw privateError('Cloudflare Access session required.', 401)
-  const issuer = `https://${team}`
-  jwks ??= createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`))
-  try {
-    const { payload } = await jwtVerify(assertion, jwks, { issuer, audience, algorithms: ['RS256'] })
-    if (typeof payload.sub !== 'string' || !payload.sub) throw new Error('Missing subject')
-    return { sub: payload.sub, email: typeof payload.email === 'string' ? payload.email : '' }
-  } catch {
-    throw privateError('Cloudflare Access token is invalid or expired.', 401)
-  }
-}
-
 const collectionPath = (state, type) => `${state}/${type}/items`
 const itemPath = (state, type, id) => `${collectionPath(state, type)}/${id}`
 const settingsPath = (state) => `${state}/site/settings/current`
 const slugPath = (slug) => `slugRegistry/projects/slugs/${slug}`
 
 function timestamped(value) {
-  return JSON.parse(JSON.stringify(value))
+  return JSON.parse(JSON.stringify(value, (_key, item) => (
+    item && Number.isInteger(item._seconds) && Number.isInteger(item._nanoseconds)
+      ? { seconds: item._seconds, nanoseconds: item._nanoseconds }
+      : item
+  )))
 }
 
 function publicUrl(storagePath, token, disposition = '') {
   const query = new URLSearchParams({ alt: 'media', token })
   if (disposition) query.set('response-content-disposition', disposition)
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket.name)}/o/${encodeURIComponent(storagePath)}?${query}`
+}
+
+function privateSubject(actor) {
+  return createHash('sha256').update(actor.sub).digest('hex').slice(0, 24)
+}
+
+async function privateDownloadUrl(storagePath, disposition = '') {
+  const [url] = await bucket.file(storagePath).getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + 60 * 60 * 1000,
+    ...(disposition ? { responseDisposition: disposition } : {}),
+  })
+  return url
+}
+
+async function revokeDownloadToken(storagePath) {
+  if (!storagePath) return
+  const file = bucket.file(storagePath)
+  const [metadata] = await file.getMetadata().catch(() => [null])
+  if (!metadata) return
+  const custom = { ...(metadata.metadata ?? {}) }
+  delete custom.firebaseStorageDownloadTokens
+  await file.setMetadata({ metadata: custom })
 }
 
 function cleanFileName(value) {
@@ -107,8 +109,29 @@ function assertRevision(current, expected, fallbackRevision = 0) {
   }
 }
 
-function recordFrom(snapshot) {
-  return snapshot.exists ? timestamped({ ...snapshot.data(), id: snapshot.id }) : null
+async function hydratePrivatePreview(type, state, value) {
+  const record = { ...value }
+  if (type === 'projects' && state !== 'published') {
+    const hydrateAsset = async (asset) => asset?.storagePath?.startsWith('cms-private/')
+      ? { ...asset, url: await privateDownloadUrl(asset.storagePath) }
+      : asset
+    record.heroImage = await hydrateAsset(record.heroImage)
+    if (Array.isArray(record.gallery)) record.gallery = await Promise.all(record.gallery.map(hydrateAsset))
+  }
+  if (type === 'media' && record.status !== 'published' && record.storagePath?.startsWith('cms-private/')) {
+    record.url = await privateDownloadUrl(record.storagePath)
+  }
+  if (type === 'resumes' && (record.status !== 'published' || record.isActive !== true) && record.storagePath) {
+    record.fileUrl = await privateDownloadUrl(record.storagePath, 'attachment; filename="Fitsum-Mesfin-Resume.pdf"')
+    record.previewUrl = await privateDownloadUrl(record.storagePath, 'inline')
+  }
+  return timestamped(record)
+}
+
+async function recordFrom(snapshot, type = '', state = 'published') {
+  return snapshot.exists
+    ? hydratePrivatePreview(type, state, { ...snapshot.data(), id: snapshot.id })
+    : null
 }
 
 async function listRecords(type, state) {
@@ -118,8 +141,8 @@ async function listRecords(type, state) {
     ...doc.data(), id: doc.id,
     ...(type === 'media' ? { usedIn: await findMediaUsage(doc.get('storagePath')) } : {}),
   })))
-  return rows.map(timestamped)
-    .sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0))
+  return Promise.all(rows.map((row) => hydratePrivatePreview(type, state, row)))
+    .then((records) => records.sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0)))
 }
 
 async function saveItem(type, id, content, expectedRevision, actor) {
@@ -197,6 +220,20 @@ async function publishItem(type, id, expectedRevision, actor) {
   if (!TYPES.has(type)) throw privateError('Unknown content collection.', 404)
   const draftRef = db.doc(itemPath('drafts', type, id))
   const publishedRef = db.doc(itemPath('published', type, id))
+  const initialDraftSnap = await draftRef.get()
+  if (!initialDraftSnap.exists) throw privateError('Draft was not found.', 404)
+  const initialDraft = initialDraftSnap.data()
+  const systemFields = new Set(['id', 'status', 'revision', 'publishedRevision', 'basePublishedRevision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy'])
+  let content = Object.fromEntries(Object.entries(initialDraft).filter(([key]) => !systemFields.has(key)))
+  let promotedImages = []
+  if (type === 'projects') {
+    const prepared = await promoteProjectImages(content)
+    content = prepared.project
+    promotedImages = prepared.promoted
+  }
+  if (type === 'resumes') content = await promoteResumeFile(content, id)
+
+  const previousResumePaths = new Set()
   const result = await db.runTransaction(async (tx) => {
     const [draftSnap, publishedSnap, siteSnap] = await Promise.all([
       tx.get(draftRef), tx.get(publishedRef), tx.get(db.doc(settingsPath('published'))),
@@ -209,7 +246,7 @@ async function publishItem(type, id, expectedRevision, actor) {
     assertRevision(draft, expectedRevision)
     const currentPublishedRevision = publishedSnap.exists ? Number(publishedSnap.get('revision') ?? 0) : 0
     if (Number(draft.basePublishedRevision ?? 0) !== currentPublishedRevision) throw privateError('The published version changed after this draft was started. Reload before publishing.', 409)
-    const validated = parsePayload(type, Object.fromEntries(Object.entries(draft).filter(([key]) => !['id', 'status', 'revision', 'publishedRevision', 'basePublishedRevision', 'createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy'].includes(key))))
+    const validated = parsePayload(type, content)
     let slugRef
     if (type === 'projects') slugRef = await assertUniqueProjectSlug(tx, validated.slug, id)
     const slugDeletions = []
@@ -218,6 +255,12 @@ async function publishItem(type, id, expectedRevision, actor) {
       const oldSlugSnap = await tx.get(oldSlugRef)
       if (oldSlugSnap.exists && oldSlugSnap.get('projectId') === id) slugDeletions.push(oldSlugRef)
     }
+    const mediaRefs = promotedImages.map(({ mediaId }) => ({
+      id: mediaId,
+      draftRef: db.doc(itemPath('drafts', 'media', mediaId)),
+      publishedRef: db.doc(itemPath('published', 'media', mediaId)),
+    }))
+    const mediaSnapshots = await Promise.all(mediaRefs.map(async ({ draftRef: mediaDraftRef, publishedRef: mediaPublishedRef }) => Promise.all([tx.get(mediaDraftRef), tx.get(mediaPublishedRef)])))
     const siteVersion = Number(siteSnap.get('siteVersion') ?? 0) + 1
     const publishedAt = FieldValue.serverTimestamp()
     const publication = {
@@ -229,10 +272,44 @@ async function publishItem(type, id, expectedRevision, actor) {
     if (slugRef) tx.set(slugRef, { projectId: id, slug: validated.slug })
     for (const oldSlugRef of slugDeletions) tx.delete(oldSlugRef)
     for (const prior of activeResumeSnap?.docs ?? []) {
-      if (prior.id !== id) tx.update(prior.ref, { isActive: false, updatedAt: FieldValue.serverTimestamp() })
+      if (prior.id !== id) {
+        tx.update(prior.ref, { status: 'unpublished', visibility: false, isActive: false, updatedAt: FieldValue.serverTimestamp() })
+        const path = prior.get('storagePath')
+        if (path) previousResumePaths.add(path)
+      }
     }
     tx.set(publishedRef, publication)
-    tx.set(draftRef, { ...draft, status: 'published', publishedRevision: publication.revision, basePublishedRevision: publication.revision, publishedAt, updatedAt: FieldValue.serverTimestamp() })
+    tx.set(draftRef, { ...draft, ...publication, status: 'published', publishedRevision: publication.revision, basePublishedRevision: publication.revision, publishedAt, updatedAt: FieldValue.serverTimestamp() })
+    for (const [index, media] of promotedImages.entries()) {
+      const [mediaDraftSnap, mediaPublishedSnap] = mediaSnapshots[index]
+      const existing = mediaDraftSnap.exists ? mediaDraftSnap.data() : mediaPublishedSnap.exists ? mediaPublishedSnap.data() : {}
+      const revision = Math.max(
+        Number(mediaDraftSnap.exists ? mediaDraftSnap.get('revision') ?? 0 : 0),
+        Number(mediaPublishedSnap.exists ? mediaPublishedSnap.get('revision') ?? 0 : 0),
+      ) + 1
+      const validatedMedia = parsePayload('media', {
+        ...Object.fromEntries(Object.entries(existing).filter(([key]) => !systemFields.has(key))),
+        ...media.media,
+        usedIn: existing.usedIn ?? [],
+        alt: existing.alt ?? '',
+        sourceUrl: existing.sourceUrl ?? '',
+        order: Number(existing.order ?? Date.now()),
+      })
+      const mediaRecord = {
+        ...validatedMedia,
+        id: media.mediaId,
+        status: 'published',
+        visibility: true,
+        revision,
+        publishedRevision: revision,
+        basePublishedRevision: revision,
+        createdAt: existing.createdAt ?? FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        publishedAt: FieldValue.serverTimestamp(),
+      }
+      tx.set(media.publishedRef || db.doc(itemPath('published', 'media', media.mediaId)), mediaRecord)
+      tx.set(media.draftRef || db.doc(itemPath('drafts', 'media', media.mediaId)), mediaRecord)
+    }
     tx.set(db.doc(settingsPath('published')), {
       ...(siteSnap.exists ? siteSnap.data() : {}), status: siteSnap.get('status') ?? 'published', visibility: true,
       siteVersion, lastPublishedAt: publishedAt, updatedAt: FieldValue.serverTimestamp(),
@@ -240,6 +317,11 @@ async function publishItem(type, id, expectedRevision, actor) {
     }, { merge: true })
     return { id, type, revision: publication.revision, siteVersion }
   })
+  await Promise.all([
+    ...promotedImages.map(({ sourcePath }) => bucket.file(sourcePath).delete({ ignoreNotFound: true }).catch(() => {})),
+    ...[...previousResumePaths].map((path) => revokeDownloadToken(path).catch(() => {})),
+    ...(type === 'resumes' && initialDraft.storagePath?.startsWith('cms-private/') ? [bucket.file(initialDraft.storagePath).delete({ ignoreNotFound: true }).catch(() => {})] : []),
+  ])
   return result
 }
 
@@ -247,6 +329,7 @@ async function unpublishItem(type, id) {
   if (!TYPES.has(type)) throw privateError('Unknown content collection.', 404)
   const draftRef = db.doc(itemPath('drafts', type, id))
   const publishedRef = db.doc(itemPath('published', type, id))
+  const currentPublished = await publishedRef.get()
   await db.runTransaction(async (tx) => {
     const [draft, published, site] = await Promise.all([tx.get(draftRef), tx.get(publishedRef), tx.get(db.doc(settingsPath('published')))])
     if (!draft.exists && !published.exists) throw privateError('Content item was not found.', 404)
@@ -254,6 +337,7 @@ async function unpublishItem(type, id) {
     if (draft.exists) tx.update(draftRef, { status: 'unpublished', visibility: false, updatedAt: FieldValue.serverTimestamp() })
     tx.set(db.doc(settingsPath('published')), { ...(site.exists ? site.data() : {}), siteVersion: Number(site.get('siteVersion') ?? 0) + 1, lastPublishedAt: FieldValue.serverTimestamp(), ...(type === 'resumes' ? { resumeManaged: true } : {}) }, { merge: true })
   })
+  if (type === 'resumes' || type === 'media') await revokeDownloadToken(currentPublished.get('storagePath'))
   return { id, status: 'unpublished' }
 }
 
@@ -261,6 +345,10 @@ async function deleteItem(type, id) {
   if (!TYPES.has(type)) throw privateError('Unknown content collection.', 404)
   const draftRef = db.doc(itemPath('drafts', type, id))
   const publishedRef = db.doc(itemPath('published', type, id))
+  const beforeDelete = await Promise.all([draftRef.get(), publishedRef.get()])
+  const sensitiveStoragePaths = type === 'resumes'
+    ? [...new Set(beforeDelete.filter((snapshot) => snapshot.exists).map((snapshot) => snapshot.get('storagePath')).filter(Boolean))]
+    : []
   const result = await db.runTransaction(async (tx) => {
     const [draftSnap, publishedSnap, siteSnap] = await Promise.all([
       tx.get(draftRef), tx.get(publishedRef), tx.get(db.doc(settingsPath('published'))),
@@ -283,6 +371,9 @@ async function deleteItem(type, id) {
     }, { merge: true })
     return { id, status: 'deleted' }
   })
+  if (sensitiveStoragePaths.length) {
+    await Promise.all(sensitiveStoragePaths.map((path) => bucket.file(path).delete({ ignoreNotFound: true })))
+  }
   return result
 }
 
@@ -406,26 +497,121 @@ async function inspectImage(bytes, contentType) {
   return { detected, metadata }
 }
 
-async function storeImage({ bytes, contentType, fileName, sourceUrl = '', alt = '' }) {
-  const { detected, metadata } = await inspectImage(bytes, contentType)
-  const id = randomUUID()
-  const name = cleanFileName(fileName || `image.${metadata.format}`)
-  const storagePath = `media/${id}/${name}`
+async function promotePrivateImageAsset(asset) {
+  if (!asset?.storagePath?.startsWith('cms-private/')) return { asset, mediaId: '' }
+  const match = /^cms-private\/[a-f0-9]{24}\/([a-f0-9-]{36})\/([^/]+)$/.exec(asset.storagePath)
+  if (!match) throw privateError('A draft image has an invalid managed storage key.', 422)
+  const source = bucket.file(asset.storagePath)
+  const [metadata] = await source.getMetadata().catch(() => { throw privateError('A draft image is missing from managed storage.', 409) })
+  const [bytes] = await source.download()
+  const contentType = String(metadata.contentType ?? '')
+  const { detected, metadata: imageMetadata } = await inspectImage(bytes, contentType)
+  const mediaId = match[1]
+  const fileName = cleanFileName(match[2])
+  const storagePath = `media/${mediaId}/${fileName}`
   const token = randomUUID()
   await bucket.file(storagePath).save(bytes, {
     resumable: false,
     metadata: { contentType: detected, metadata: { firebaseStorageDownloadTokens: token, cmsManaged: 'true' } },
   })
+  return {
+    mediaId,
+    sourcePath: asset.storagePath,
+    publicPath: storagePath,
+    asset: { ...asset, url: publicUrl(storagePath, token), storagePath },
+    media: {
+      url: publicUrl(storagePath, token), storagePath, type: 'image', sizeBytes: bytes.length,
+      visibility: true, fileName, mimeType: detected,
+      width: imageMetadata.width, height: imageMetadata.height,
+    },
+  }
+}
+
+async function promoteProjectImages(project) {
+  const replacements = new Map()
+  const promoted = []
+  const promote = async (asset) => {
+    if (!asset?.storagePath?.startsWith('cms-private/')) return asset
+    if (!replacements.has(asset.storagePath)) {
+      const value = await promotePrivateImageAsset(asset)
+      replacements.set(asset.storagePath, value)
+      if (value.mediaId) promoted.push(value)
+    }
+    const promotedAsset = replacements.get(asset.storagePath).asset
+    return { ...promotedAsset, ...asset, url: promotedAsset.url, storagePath: promotedAsset.storagePath }
+  }
+  return {
+    project: {
+      ...project,
+      heroImage: await promote(project.heroImage),
+      gallery: await Promise.all((project.gallery ?? []).map(promote)),
+    },
+    promoted,
+  }
+}
+
+async function promoteResumeFile(record, id) {
+  const fileName = cleanFileName(record.fileName || 'resume.pdf')
+  let storagePath = record.storagePath
+  if (storagePath?.startsWith('cms-private/')) {
+    const source = bucket.file(storagePath)
+    const [bytes] = await source.download().catch(() => { throw privateError('The resume draft is missing from managed storage.', 409) })
+    if (!isValidPdfDocument(bytes)) throw privateError('The stored resume is not a structurally valid PDF document.', 422)
+    storagePath = `resumes/${id}/${fileName}`
+    const token = randomUUID()
+    await bucket.file(storagePath).save(bytes, {
+      resumable: false,
+      metadata: {
+        contentType: 'application/pdf',
+        contentDisposition: 'attachment; filename="Fitsum-Mesfin-Resume.pdf"',
+        metadata: { firebaseStorageDownloadTokens: token, cmsManaged: 'true' },
+      },
+    })
+    return {
+      ...record,
+      fileUrl: publicUrl(storagePath, token, 'attachment; filename="Fitsum-Mesfin-Resume.pdf"'),
+      previewUrl: publicUrl(storagePath, token, 'inline'),
+      storagePath,
+    }
+  }
+
+  if (!storagePath?.startsWith('resumes/')) throw privateError('The resume storage key is invalid.', 422)
+  const file = bucket.file(storagePath)
+  const [metadata] = await file.getMetadata().catch(() => { throw privateError('The resume is missing from managed storage.', 409) })
+  const token = randomUUID()
+  await file.setMetadata({
+    contentType: 'application/pdf',
+    contentDisposition: 'attachment; filename="Fitsum-Mesfin-Resume.pdf"',
+    metadata: { ...(metadata.metadata ?? {}), firebaseStorageDownloadTokens: token, cmsManaged: 'true' },
+  })
+  return {
+    ...record,
+    fileUrl: publicUrl(storagePath, token, 'attachment; filename="Fitsum-Mesfin-Resume.pdf"'),
+    previewUrl: publicUrl(storagePath, token, 'inline'),
+  }
+}
+
+async function storeImage({ bytes, contentType, fileName, sourceUrl = '', alt = '', private: privateAsset = false, actor }) {
+  const { detected, metadata } = await inspectImage(bytes, contentType)
+  const id = randomUUID()
+  const name = cleanFileName(fileName || `image.${metadata.format}`)
+  const subject = privateAsset ? privateSubject(actor) : ''
+  const storagePath = privateAsset ? `cms-private/${subject}/${id}/${name}` : `media/${id}/${name}`
+  const token = privateAsset ? '' : randomUUID()
+  await bucket.file(storagePath).save(bytes, {
+    resumable: false,
+    metadata: { contentType: detected, metadata: { ...(token ? { firebaseStorageDownloadTokens: token } : {}), cmsManaged: 'true' } },
+  })
   const record = {
-    url: publicUrl(storagePath, token), storagePath, type: 'image', sizeBytes: bytes.length,
-    usedIn: [], visibility: true, order: Date.now(), fileName: name, mimeType: detected,
+    url: token ? publicUrl(storagePath, token) : await privateDownloadUrl(storagePath), storagePath, type: 'image', sizeBytes: bytes.length,
+    usedIn: [], visibility: !privateAsset, order: Date.now(), fileName: name, mimeType: detected,
     width: metadata.width, height: metadata.height, sourceUrl, alt,
   }
   const validated = parsePayload('media', record)
   const now = FieldValue.serverTimestamp()
-  await db.doc(itemPath('drafts', 'media', id)).set({ ...validated, id, status: 'published', revision: 1, publishedRevision: 1, basePublishedRevision: 1, createdAt: now, updatedAt: now })
-  await db.doc(itemPath('published', 'media', id)).set({ ...validated, id, status: 'published', revision: 1, publishedRevision: 1, createdAt: now, updatedAt: now, publishedAt: now })
-  return { ...record, id, status: 'published', revision: 1 }
+  await db.doc(itemPath('drafts', 'media', id)).set({ ...validated, id, status: privateAsset ? 'draft' : 'published', revision: 1, publishedRevision: privateAsset ? 0 : 1, basePublishedRevision: privateAsset ? 0 : 1, createdAt: now, updatedAt: now })
+  if (!privateAsset) await db.doc(itemPath('published', 'media', id)).set({ ...validated, id, status: 'published', revision: 1, publishedRevision: 1, createdAt: now, updatedAt: now, publishedAt: now })
+  return { ...record, id, status: privateAsset ? 'draft' : 'published', revision: 1, publishedRevision: privateAsset ? 0 : 1 }
 }
 
 async function replaceManagedImage(id, { bytes, contentType, fileName, alt = '' }) {
@@ -472,14 +658,13 @@ async function uploadUrl(body, actor) {
   if (!allowed.includes(body.contentType)) throw privateError('Unsupported file type.')
   const id = randomUUID()
   const safeName = cleanFileName(body.fileName)
-  const subject = createHash('sha256').update(actor.sub).digest('hex').slice(0, 24)
+  const subject = privateSubject(actor)
   const storagePath = `cms-incoming/${subject}/${id}/${safeName}`
-  const token = randomUUID()
   const file = bucket.file(storagePath)
   const [url] = await file.getSignedUrl({
     version: 'v4', action: 'write', expires: Date.now() + 10 * 60 * 1000,
     contentType: body.contentType,
-    extensionHeaders: { 'x-goog-meta-cms-subject': subject, 'x-goog-meta-cms-upload': id, 'x-goog-meta-firebaseStorageDownloadTokens': token },
+    extensionHeaders: { 'x-goog-meta-cms-subject': subject, 'x-goog-meta-cms-upload': id },
   })
   return {
     url, storagePath, uploadId: id, maxBytes, expiresInSeconds: 600, kind,
@@ -487,7 +672,6 @@ async function uploadUrl(body, actor) {
       'Content-Type': body.contentType,
       'x-goog-meta-cms-subject': subject,
       'x-goog-meta-cms-upload': id,
-      'x-goog-meta-firebaseStorageDownloadTokens': token,
     },
   }
 }
@@ -495,7 +679,7 @@ async function uploadUrl(body, actor) {
 async function finalizeUpload(body, actor) {
   const match = /^cms-incoming\/([a-f0-9]{24})\/([a-f0-9-]{36})\/([^/]+)$/.exec(String(body.storagePath ?? ''))
   if (!match) throw privateError('Upload path is invalid.')
-  const subject = createHash('sha256').update(actor.sub).digest('hex').slice(0, 24)
+  const subject = privateSubject(actor)
   if (match[1] !== subject) throw privateError('This upload belongs to a different Access session.', 403)
   const kind = body.kind === 'resume' ? 'resume' : 'image'
   const source = bucket.file(body.storagePath)
@@ -512,20 +696,19 @@ async function finalizeUpload(body, actor) {
   await source.delete()
   if (kind === 'resume') {
     if (!isValidPdfDocument(bytes)) throw privateError('This file is not a structurally valid PDF document.', 422)
-    const path = `resumes/${randomUUID()}/${cleanFileName(match[3])}`
-    const token = custom.firebaseStorageDownloadTokens || randomUUID()
-    await bucket.file(path).save(bytes, { resumable: false, metadata: { contentType: 'application/pdf', contentDisposition: 'attachment; filename="Fitsum-Mesfin-Resume.pdf"', metadata: { firebaseStorageDownloadTokens: token, cmsManaged: 'true' } } })
-    const id = db.collection(collectionPath('drafts', 'resumes')).doc().id
+    const id = match[2]
+    const path = `cms-private/${subject}/${id}/${cleanFileName(match[3])}`
+    await bucket.file(path).save(bytes, { resumable: false, metadata: { contentType: 'application/pdf', contentDisposition: 'attachment; filename="Fitsum-Mesfin-Resume.pdf"', metadata: { cmsManaged: 'true' } } })
     const resumes = await db.collection(collectionPath('published', 'resumes')).get()
     const version = `${Math.max(0, ...resumes.docs.map((doc) => Number.parseFloat(doc.get('version')) || 0)) + 1}.0`
-    const record = { fileUrl: publicUrl(path, token, 'attachment; filename="Fitsum-Mesfin-Resume.pdf"'), previewUrl: publicUrl(path, token, 'inline'), storagePath: path, fileName: cleanFileName(match[3]), sizeKB: Math.ceil(size / 1024), version, notes: '', isActive: false, visibility: true, order: Date.now() }
+    const record = { fileUrl: await privateDownloadUrl(path, 'attachment; filename="Fitsum-Mesfin-Resume.pdf"'), previewUrl: await privateDownloadUrl(path, 'inline'), storagePath: path, fileName: cleanFileName(match[3]), sizeKB: Math.ceil(size / 1024), version, notes: '', isActive: false, visibility: true, order: Date.now() }
     const validated = parsePayload('resumes', record)
     const now = FieldValue.serverTimestamp()
     await db.doc(itemPath('drafts', 'resumes', id)).set({ ...validated, id, status: 'draft', revision: 1, publishedRevision: 0, basePublishedRevision: 0, createdAt: now, updatedAt: now })
     return { ...record, id, status: 'draft', revision: 1 }
   }
   if (body.replaceMediaId) return replaceManagedImage(String(body.replaceMediaId), { bytes, contentType: expectedType, fileName: match[3], alt: String(body.alt ?? '').slice(0, 300) })
-  return storeImage({ bytes, contentType: expectedType, fileName: match[3], alt: String(body.alt ?? '').slice(0, 300) })
+  return storeImage({ bytes, contentType: expectedType, fileName: match[3], alt: String(body.alt ?? '').slice(0, 300), private: body.private === true, actor })
 }
 
 async function findMediaUsage(storagePath) {
@@ -570,26 +753,23 @@ async function handle(req, actor) {
       checkFirestore: () => db.doc(settingsPath('published')).get(),
       checkStorage: async () => {
         await bucket.getMetadata()
-        const requiredPermissions = ['storage.objects.create', 'storage.objects.get', 'storage.objects.delete']
-        const [permissions] = await bucket.iam.testPermissions(requiredPermissions)
-        if (requiredPermissions.some((permission) => !permissions.includes(permission))) {
-          throw new Error('Cloud Storage object permissions are incomplete.')
+        const probe = bucket.file(`cms-health-probes/${randomUUID()}`)
+        try {
+          await probe.save(Buffer.from('cms-storage-health'), { resumable: false, metadata: { contentType: 'text/plain' } })
+          await probe.getMetadata()
+        } finally {
+          await probe.delete({ ignoreNotFound: true })
         }
-        await bucket.file('cms-incoming/cms-health-probe').getSignedUrl({
-          version: 'v4',
-          action: 'write',
-          expires: Date.now() + 60_000,
-          contentType: 'application/octet-stream',
-        })
       },
       projectId: process.env.GCLOUD_PROJECT ?? '',
+      configurationReady: Boolean(ADMIN_UID) && (process.env.CMS_ALLOWED_ORIGINS ?? '').split(',').some((origin) => origin.trim() === req.get('origin')),
     })
-    if (!health.firestore.ready) throw privateError('CMS Firestore is unavailable.', 503)
     return health
   }
   if (segments[1] === 'settings') {
-    const ref = db.doc(settingsPath(req.query.view === 'published' ? 'published' : 'drafts'))
-    if (req.method === 'GET') return recordFrom(await ref.get())
+    const view = req.query.view === 'published' ? 'published' : 'drafts'
+    const ref = db.doc(settingsPath(view))
+    if (req.method === 'GET') return recordFrom(await ref.get(), 'settings', view)
     if (req.method === 'PUT') return saveSettings(body.content, body.expectedRevision, actor)
     if (req.method === 'POST' && segments[2] === 'publish') return publishSettings(body.expectedRevision, actor)
   }
@@ -598,7 +778,13 @@ async function handle(req, actor) {
   if (segments[1] === 'media' && segments[2] === 'import' && req.method === 'POST') {
     const target = validateRemoteUrl(body.sourceUrl)
     const remote = await fetchPublicImage(target.href)
-    return storeImage({ ...remote, fileName: body.fileName || target.pathname.split('/').pop() || 'imported-image', alt: String(body.alt ?? '').slice(0, 300) })
+    return storeImage({
+      ...remote,
+      fileName: body.fileName || target.pathname.split('/').pop() || 'imported-image',
+      alt: String(body.alt ?? '').slice(0, 300),
+      private: body.private === true,
+      actor,
+    })
   }
   if (segments.length === 2 && TYPES.has(segments[1])) {
     const type = segments[1]
@@ -609,7 +795,10 @@ async function handle(req, actor) {
   if (segments[1] === 'media' && segments[2] && req.method === 'DELETE') return deleteMedia(segments[2])
   if (segments.length === 3 && TYPES.has(segments[1])) {
     const [, type, id] = segments
-    if (req.method === 'GET') return recordFrom(await db.doc(itemPath(req.query.view === 'published' ? 'published' : 'drafts', type, id)).get())
+    if (req.method === 'GET') {
+      const view = req.query.view === 'published' ? 'published' : 'drafts'
+      return recordFrom(await db.doc(itemPath(view, type, id)).get(), type, view)
+    }
     if (req.method === 'PUT') return saveItem(type, id, body.content, body.expectedRevision, actor)
     if (req.method === 'POST' && segments[3] === 'publish') return publishItem(type, id, body.expectedRevision, actor)
     if (req.method === 'POST' && segments[3] === 'unpublish') return unpublishItem(type, id)
@@ -634,7 +823,6 @@ export const cmsApi = onRequest({
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return response(res, 405, { error: 'Method not allowed.' })
   try {
-    await verifyAccess(req)
     const actor = await verifyAdminUser(req, adminAuth, ADMIN_UID)
     const result = await handle(req, actor)
     return response(res, 200, { data: result })
