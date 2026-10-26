@@ -33,17 +33,17 @@ Draft records are kept separate from their published versions. A successful publ
 
 ## Production behavior
 
-The Netlify-to-Cloudflare CMS proxy has been removed. Production admin sign-in still uses the existing Firebase Auth configuration and existing authorization checks. No persistent CMS provider is wired into the Netlify frontend, so the deployed admin displays a clear “Production CMS not configured” message after login; CMS reads and writes are disabled and the application does not make CMS proxy requests. This does not change production portfolio content or Firebase configuration.
+Production CMS writes are enabled when the site is deployed with the existing Firebase portfolio configuration and the separate admin Firebase web API key. In that configuration, the admin dashboard uses the Firebase Firestore + Cloud Storage adapter behind the same CMS service interface. If the required Firebase environment variables are missing or the admin sign-in app is not configured, the deployed admin shows the “Production CMS not configured” message and disables live writes instead of silently failing.
 
-The existing `functions/` Firebase backend source is retained but is not routed by Netlify and still contains its previous Cloudflare Access assertion check. It is not needed for local development and is not an active production CMS provider in this setup. Before reusing it in a future Firebase migration, replace that legacy proxy-specific gate with a deliberately configured secure Firebase API design and test authorization end to end.
+The Netlify-to-Cloudflare CMS proxy has been removed. Production admin sign-in still uses the existing Firebase Auth configuration and current authorization checks. The Vite filesystem CMS remains a local-only development tool and is not used as a production storage provider. Netlify's deployed function filesystems are not durable writable storage, so local `.local-cms` data never appears on the live site.
 
-The Vite filesystem CMS is not a production storage provider. Netlify's deployed site and function filesystems are not durable writable storage. Local edits and uploads never appear on Netlify.
+The existing `functions/` Firebase backend source is retained for future use, but it is not the active production CMS path in this project unless deliberately re-enabled and configured. If it is reused, replace the legacy Cloudflare Access gate with a secure Firebase-backed design and test authorization end to end before exposing it publicly.
 
 ## Future persistent publishing
 
-To edit the live portfolio without pushing to GitHub, implement and configure a secure persistent provider (planned: Firebase/Firestore plus Cloud Storage) behind the existing CMS service interface. It must verify the existing administrator identity on every write, validate records and uploads server-side, preserve draft/published separation, and store uploads in durable object storage. Migrate existing production records and media with a verified backup before enabling writes. Then add deployment configuration and provider selection only after testing it; do not copy `.local-cms` to Netlify as a database.
+To edit the live portfolio without pushing to GitHub, configure the Firebase Firestore + Cloud Storage provider behind the existing CMS service interface. It must verify the existing administrator identity on every write, validate records and uploads server-side, preserve draft/published separation, and store uploads in durable object storage. Migrate existing production records and media with a verified backup before enabling writes. Do not copy `.local-cms` to Netlify as a database.
 
-The existing public portfolio/content Firebase configuration and Firebase sign-in are not changed by this local CMS setup. No Firebase backend has been enabled or deployed as part of the local CMS work.
+The existing public portfolio/content Firebase configuration and Firebase sign-in are not changed by the local filesystem CMS. The production adapter is only enabled when the required Firebase environment variables are set in the deployed app.
 
 ## Checks
 
