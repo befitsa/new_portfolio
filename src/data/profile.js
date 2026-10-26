@@ -2,14 +2,14 @@
 // One place for personal details. Edit here, and every component updates.
 
 export const profile = {
-  name: 'Fitsum Mesfin',
+  name: 'FITSUM MESFIN',
   firstName: 'FITSUM',
   lastName: 'MESFIN',
   monogram: 'FM',
   title: 'Software Developer',
   email: 'Befitsa123@gmail.com',
   about:
-    'Iâ€™m Fitsum Mesfin, a passionate software developer creating high-performance, user-centered digital experiences. I turn complex ideas into clear, useful products that feel as good as they work.',
+    'I am Fitsum Mesfin, a passionate software developer creating high-performance, user-centered digital experiences. I turn complex ideas into clear, useful products that feel as good as they work.',
   roles: ['React Developer', 'Flutter Developer', 'UI/UX Designer'],
   intro:
     'Fueling the future with sleek, responsive websites and intuitive digital experiences. From thoughtful UI/UX to practical technology solutions.',
