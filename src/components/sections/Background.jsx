@@ -41,6 +41,7 @@ export function BackgroundTimeline({ items }) {
           <h3 className="mt-2 font-display text-[clamp(1.6rem,3vw,2.5rem)] leading-tight font-semibold">{entry.title}</h3>
           <p className="mt-1 text-forest/75">{entry.place}</p>
           {entry.logo && <img src={entry.logo} alt="" className="mt-3 size-12 rounded-lg border border-forest/10 bg-white object-contain p-1" />}
+          {entry.image && <img src={entry.image} alt="" className="mt-3 h-32 max-w-full rounded-lg border border-forest/10 bg-white object-cover" />}
           {entry.description && <p className="mt-3 max-w-lg text-forest/75">{entry.description}</p>}
           {(entry.responsibilities?.length > 0 || entry.achievements?.length > 0) && <ul className="mt-3 max-w-xl list-disc space-y-1.5 pl-5 text-sm leading-6 text-forest/75">{[...(entry.responsibilities || []), ...(entry.achievements || [])].map((item, index) => <li key={`${entry.id}-detail-${index}`}>{item}</li>)}</ul>}
           {entry.credentialUrl && <a className="mt-3 inline-flex text-sm font-semibold text-forest underline underline-offset-4" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View credential</a>}

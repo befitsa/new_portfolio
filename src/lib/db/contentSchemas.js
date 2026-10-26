@@ -9,7 +9,10 @@ const httpUrlSchema = z.string().url().refine((value) => {
   }
 }, 'URL must use HTTP or HTTPS.')
 const optionalUrl = z.union([z.literal(''), httpUrlSchema])
-const storedFileUrl = httpUrlSchema
+const storedFileUrl = z.union([
+  httpUrlSchema,
+  z.string().refine((value) => /^\/api\/media\?/.test(value) && !value.startsWith('//'), 'File path must be a safe same-site media URL.'),
+])
 const optionalText = (max = 5000) => z.string().trim().max(max)
 const imageUrl = z.union([
   z.literal(''),
@@ -19,7 +22,7 @@ const imageUrl = z.union([
 const imageAssetSchema = z.object({
   url: imageUrl.default(''),
   storagePath: z.string().trim().max(1024).default(''),
-  mediaProvider: z.enum(['', 'cloudinary']).default(''),
+  mediaProvider: z.enum(['', 'cloudinary', 'cloudflare-r2']).default(''),
   format: z.enum(['', 'jpg', 'jpeg', 'png', 'webp']).default(''),
   caption: optionalText(300).default(''),
   order: z.number().int().nonnegative().default(0),
@@ -91,6 +94,7 @@ export const experienceSchema = z.object({
   responsibilities: z.array(z.string().trim().min(1).max(1000)).max(30).default([]),
   achievements: z.array(z.string().trim().min(1).max(1000)).max(30).default([]),
   logo: imageAssetSchema.default({}),
+  image: imageAssetSchema.default({}),
   skills: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
@@ -117,6 +121,8 @@ export const experienceSchema = z.object({
 export const educationSchema = z.object({
   degree: z.string().trim().min(1).max(160),
   institution: z.string().trim().min(1).max(160),
+  fieldOfStudy: optionalText(160).default(''),
+  image: imageAssetSchema.default({}),
   startYear: z.number().int().min(1900).max(2200),
   endYear: z.number().int().min(1900).max(2200).nullable().default(null),
   notes: optionalText(3000).default(''),
@@ -139,7 +145,7 @@ export const resumeSchema = z.object({
   fileUrl: z.union([z.literal(''), storedFileUrl]).default(''),
   previewUrl: z.union([z.literal(''), storedFileUrl]).default(''),
   storagePath: z.string().trim().min(1).max(1024),
-  mediaProvider: z.enum(['', 'cloudinary']).default(''),
+  mediaProvider: z.enum(['', 'cloudinary', 'cloudflare-r2']).default(''),
   fileName: z.string().trim().min(1).max(255),
   sizeKB: z.number().positive().max(5120),
   version: z.string().trim().min(1).max(40),

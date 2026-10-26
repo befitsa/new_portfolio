@@ -7,7 +7,7 @@
     "dev:netlify": "npm exec --yes --package=netlify-cli -- netlify dev",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/contentSchemas.test.js tests/pdfValidation.test.js tests/netlifyApi.test.js",
+    "test": "node --test tests/contentSchemas.test.js tests/pdfValidation.test.js tests/netlifyApi.test.js tests/cloudflarePagesApi.test.js",
     "start": "npm run dev:netlify"
   },
   "dependencies": {

@@ -74,6 +74,7 @@ export function toPublicExperience(record) {
     responsibilities: Array.isArray(record.responsibilities) ? record.responsibilities : [],
     achievements: Array.isArray(record.achievements) ? record.achievements : [],
     logo: record.logo?.url || '',
+    image: record.image?.url || '',
     skills: Array.isArray(record.skills) ? record.skills : [],
     order: record.order ?? 0,
   }
@@ -87,9 +88,10 @@ export function toPublicEducation(record) {
   return {
     id: record.id,
     title: record.degree,
-    place: [record.institution, record.notes].filter(Boolean).join(' · '),
+    place: [record.institution, record.fieldOfStudy].filter(Boolean).join(' · '),
     date,
-    description: '',
+    description: record.notes || '',
+    image: record.image?.url || '',
     credentialUrl: record.credentialUrl || '',
     order: record.order ?? 0,
   }
