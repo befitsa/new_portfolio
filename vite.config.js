@@ -3,13 +3,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath, URL } from 'node:url'
-import { createLocalCmsPlugin } from './dev/localCmsServer.js'
 
 // Tailwind v4 ships an official Vite plugin, so no tailwind.config.js or
 // postcss.config.js is needed — the design tokens live in src/index.css.
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), createLocalCmsPlugin()],
+    plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

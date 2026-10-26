@@ -1,6 +1,6 @@
 import { normalizeProjectCategory } from './contentSchemas.js'
 
-/** Convert the CMS project shape to the legacy public portfolio view model. */
+/** Convert a published project record to the public portfolio view model. */
 export function toPublicProject(record) {
   const gallery = Array.isArray(record.gallery) ? record.gallery : []
   const highlights = Array.isArray(record.technicalHighlights)
@@ -22,7 +22,8 @@ export function toPublicProject(record) {
     timeline: record.timeline || '',
     status: 'Published',
     tech: Array.isArray(record.techStack) ? record.techStack : [],
-    image: record.heroImage?.url || '',
+    image: record.thumbnailImage?.url || record.heroImage?.url || '',
+    coverImage: record.heroImage?.url || record.thumbnailImage?.url || '',
     preview3d: null,
     liveUrl: record.links?.live || '',
     sourceUrl: record.links?.github || '',
@@ -37,6 +38,8 @@ export function toPublicProject(record) {
       description: [metric.unit, metric.description].filter(Boolean).join(' · '),
     })),
     metrics,
+    impact: record.leadership || '',
+    implementation: record.methodology || '',
     screenshots: gallery.map((image) => ({
       src: image.url,
       title: image.caption || 'Project interface',
@@ -68,6 +71,9 @@ export function toPublicExperience(record) {
     place,
     date,
     description: record.description || '',
+    responsibilities: Array.isArray(record.responsibilities) ? record.responsibilities : [],
+    achievements: Array.isArray(record.achievements) ? record.achievements : [],
+    logo: record.logo?.url || '',
     skills: Array.isArray(record.skills) ? record.skills : [],
     order: record.order ?? 0,
   }

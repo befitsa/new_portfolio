@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth, authConfigurationError, browserLocalPersistence } from './firebase.js'
-import { isLocalFilesystemCms } from '../services/cmsProvider.js'
 
-export const ADMIN_UID = '0SYXtQtU61hMim2S9a2aktAeeSA2'
+export const ADMIN_UIDS = Object.freeze((import.meta.env.VITE_ADMIN_UIDS || '0SYXtQtU61hMim2S9a2aktAeeSA2').split(',').map((value) => value.trim()).filter(Boolean))
+export const ADMIN_UID = ADMIN_UIDS[0] || ''
+const isAdminUid = (uid) => ADMIN_UIDS.includes(uid)
 
 const AdminAuthContext = createContext(null)
 
@@ -30,10 +31,6 @@ export function AdminAuthProvider({ children }) {
   const [state, setState] = useState({ loading: true, user: null, error: '' })
 
   useEffect(() => {
-    if (isLocalFilesystemCms) {
-      setState({ loading: false, user: { uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
-      return undefined
-    }
     if (!auth) {
       setState({ loading: false, user: null, error: authConfigurationError })
       return undefined
@@ -42,7 +39,7 @@ export function AdminAuthProvider({ children }) {
     let active = true
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!active) return
-      if (user && user.uid !== ADMIN_UID) {
+      if (user && !isAdminUid(user.uid)) {
         setState({ loading: false, user: null, error: 'This Firebase account is not authorized to access the admin dashboard.' })
         try {
           await signOut(auth)
@@ -64,13 +61,9 @@ export function AdminAuthProvider({ children }) {
 
   const value = useMemo(() => ({
     ...state,
-    configured: isLocalFilesystemCms || Boolean(auth),
+    configured: Boolean(auth),
     clearError: () => setState((current) => ({ ...current, error: '' })),
     login: async (username, password) => {
-      if (isLocalFilesystemCms) {
-        setState({ loading: false, user: { uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
-        return true
-      }
       if (!auth) {
         setState((current) => ({ ...current, error: authConfigurationError }))
         throw new Error(authConfigurationError)
@@ -79,7 +72,7 @@ export function AdminAuthProvider({ children }) {
       try {
         await setPersistence(auth, browserLocalPersistence)
         const credential = await signInWithEmailAndPassword(auth, username.trim(), password)
-        if (credential.user.uid !== ADMIN_UID) {
+        if (!isAdminUid(credential.user.uid)) {
           await signOut(auth)
           const error = new Error('This Firebase account is not authorized to access the admin dashboard.')
           error.code = 'admin/unauthorized'
@@ -97,7 +90,7 @@ export function AdminAuthProvider({ children }) {
       }
     },
     logout: async () => {
-      if (!isLocalFilesystemCms && auth) await signOut(auth)
+      if (auth) await signOut(auth)
       setState({ loading: false, user: null, error: '' })
     },
   }), [state])

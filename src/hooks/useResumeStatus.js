@@ -1,8 +1,9 @@
 // src/hooks/useResumeStatus.js
 import { useEffect, useMemo, useState } from 'react'
 import { usePublishedCollection } from './usePublishedCollection.js'
+import { profile } from '../data/profile.js'
 
-// A download is available only for a visible, published CMS resume record.
+// A download is available only for the visible, published resume record.
 // The backend validates the PDF bytes before creating that public record.
 export function useResumeStatus() {
   const published = usePublishedCollection('resumes')
@@ -11,7 +12,7 @@ export function useResumeStatus() {
     [published.data],
   )
   const href = activeResume?.fileUrl || ''
-  const downloadName = 'Fitsum-Mesfin-Resume.pdf'
+  const downloadName = profile.resume.downloadName
   const [status, setStatus] = useState('checking')
 
   useEffect(() => {

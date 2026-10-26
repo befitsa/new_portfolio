@@ -1,265 +1,91 @@
 import { useSyncExternalStore } from 'react'
-import { localCmsApi } from '../admin/localCmsStore.js'
-import { isPathBasedAdmin } from '../admin/cmsPaths.js'
-import { hasProductionCmsProvider, isLocalFilesystemCms, productionCmsApiUrl, productionCmsConfigurationError } from '../services/cmsProvider.js'
 import { auth } from './firebase.js'
-import { parseContent, siteSettingsSchema } from './db/contentSchemas.js'
 
-const statusLabels = {
-  checking: 'Checking CMS API…',
-  local: 'Local JSON + disk uploads',
-  firebase: 'Firebase CMS API',
-  unconfigured: 'Production CMS not configured',
-  serverError: 'Production CMS unavailable',
+export class AdminApiError extends Error {
+  constructor(message, status = 0) { super(message); this.name = 'AdminApiError'; this.status = status }
 }
 
-const productionMessage = `Production CMS is not configured: ${productionCmsConfigurationError} Rebuild the site after setting its Netlify variables.`
-
-export function isLocalCmsMode() {
-  return isLocalFilesystemCms && isPathBasedAdmin()
-}
-
-function encoded(value) {
-  return encodeURIComponent(value)
-}
-
-function errorState(status) {
-  if (status === 401 || status === 403) return 'auth'
-  if (status === 404) return 'not_found'
-  if (status === 409) return 'conflict'
-  if (status === 413 || status === 422) return 'validation'
-  return 'serverError'
-}
-
-export class CmsApiError extends Error {
-  constructor(state, message, status = 0) {
-    super(message)
-    this.name = 'CmsApiError'
-    this.state = state
-    this.status = status
-  }
-}
-
-async function apiRequest(path, { method = 'GET', body, signal } = {}) {
-  if (!productionCmsApiUrl) throw new CmsApiError('unconfigured', productionMessage)
-  const currentUser = auth?.currentUser
-  if (!currentUser) throw new CmsApiError('auth', 'Sign in to the administrator account before editing live content.', 401)
-
+async function request(path, { method = 'GET', body, signal } = {}) {
+  const user = auth?.currentUser
+  if (!user) throw new AdminApiError('Sign in with the administrator account to continue.', 401)
+  const token = await user.getIdToken()
   let response
   try {
-    const idToken = await currentUser.getIdToken()
-    response = await fetch(`${productionCmsApiUrl}/api${path}`, {
-      method,
-      cache: 'no-store',
-      signal,
-      headers: {
-        Accept: 'application/json',
-        'X-Firebase-Id-Token': idToken,
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
+    response = await fetch(`/api/admin${path}`, {
+      method, signal, cache: 'no-store',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Firebase-Id-Token': token },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
-  } catch (cause) {
-    if (cause?.name === 'AbortError') throw cause
-    throw new CmsApiError('serverError', cause?.message || 'Could not reach the production CMS API.')
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new AdminApiError('The Netlify content API could not be reached. Start Netlify Dev locally or check the deployment.')
   }
-
-  const text = await response.text()
-  let payload
-  try { payload = text ? JSON.parse(text) : null } catch { payload = null }
-  if (!response.ok) {
-    const message = typeof payload?.error === 'string' ? payload.error : `CMS API request failed (${response.status}).`
-    throw new CmsApiError(errorState(response.status), message, response.status)
-  }
-  if (!response.headers.get('content-type')?.toLowerCase().includes('application/json') || !payload || !Object.hasOwn(payload, 'data')) {
-    throw new CmsApiError('serverError', 'The production CMS API returned an invalid response.')
-  }
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new AdminApiError(payload.error || 'The content API request failed.', response.status)
   return payload.data
 }
 
-function uploadToSignedUrl(file, signedUpload, onProgress) {
-  return new Promise((resolve, reject) => {
+const enc = (value) => encodeURIComponent(value)
+
+export const adminApi = {
+  health: () => fetch('/api/health', { cache: 'no-store' }).then(async (response) => {
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new AdminApiError(payload.error || 'API health check failed.', response.status)
+    return payload.data
+  }),
+  list: (type) => request(`/content/${enc(type)}`),
+  get: (type, id) => request(`/content/${enc(type)}/${enc(id)}`),
+  create: (type, content) => request(`/content/${enc(type)}`, { method: 'POST', body: { content } }),
+  save: (type, id, content, expectedRevision) => request(`/content/${enc(type)}/${enc(id)}`, { method: 'PUT', body: { content, expectedRevision } }),
+  publish: (type, id, expectedRevision) => request(`/content/${enc(type)}/${enc(id)}/publish`, { method: 'POST', body: { expectedRevision } }),
+  unpublish: (type, id) => request(`/content/${enc(type)}/${enc(id)}/unpublish`, { method: 'POST' }),
+  delete: (type, id) => request(`/content/${enc(type)}/${enc(id)}`, { method: 'DELETE' }),
+  reorder: (type, ids) => request(`/content/${enc(type)}/reorder`, { method: 'PATCH', body: { ids } }),
+  getSettings: () => request('/settings'),
+  saveSettings: (content, expectedRevision) => request('/settings', { method: 'PUT', body: { content, expectedRevision } }),
+  publishSettings: (expectedRevision) => request('/settings/publish', { method: 'POST', body: { expectedRevision } }),
+  signUpload: (kind, fileName) => request('/uploads/sign', { method: 'POST', body: { kind, fileName } }),
+  completeUpload: (payload) => request('/uploads/complete', { method: 'POST', body: payload }),
+}
+
+export async function uploadMedia(file, kind, onProgress = () => {}) {
+  const limits = kind === 'resume' ? { bytes: 5 * 1024 * 1024, types: ['application/pdf'] } : { bytes: 8 * 1024 * 1024, types: ['image/jpeg', 'image/png', 'image/webp'] }
+  if (!limits.types.includes(file.type)) throw new Error(kind === 'resume' ? 'Choose a PDF file.' : 'Choose a JPEG, PNG, or WebP image.')
+  if (!file.size || file.size > limits.bytes) throw new Error(`File must be smaller than ${Math.floor(limits.bytes / 1024 / 1024)} MB.`)
+  const signed = await adminApi.signUpload(kind, file.name)
+  const form = new FormData()
+  form.append('file', file)
+  Object.entries(signed.fields).forEach(([key, value]) => form.append(key, value))
+  const result = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('PUT', signedUpload.url)
-    for (const [name, value] of Object.entries(signedUpload.requiredHeaders || {})) xhr.setRequestHeader(name, value)
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(Math.max(1, Math.round((event.loaded / event.total) * 85)))
-    }
-    xhr.onerror = () => reject(new CmsApiError('upload', 'The file could not be uploaded to managed storage.'))
+    xhr.open('POST', signed.uploadUrl)
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100)) }
     xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new CmsApiError('upload', `Managed storage rejected the upload (${xhr.status}).`, xhr.status))
-        return
-      }
-      resolve()
+      let response = {}
+      try { response = JSON.parse(xhr.responseText) } catch {}
+      if (xhr.status < 200 || xhr.status >= 300) reject(new Error(response.error?.message || 'Cloudinary upload failed.'))
+      else resolve(response)
     }
-    xhr.send(file)
+    xhr.onerror = () => reject(new Error('Cloudinary upload failed. Check your network and try again.'))
+    xhr.send(form)
   })
+  return adminApi.completeUpload({ assetId: result.public_id, kind, bytes: result.bytes, format: result.format, fileName: file.name })
 }
 
-const productionApi = {
-  list: (type, view = 'drafts') => apiRequest(`/${encoded(type)}?view=${encoded(view)}`),
-  get: (type, id, view = 'drafts') => apiRequest(`/${encoded(type)}/${encoded(id)}?view=${encoded(view)}`),
-  create: (type, content) => apiRequest(`/${encoded(type)}`, { method: 'POST', body: { content: parseContent(type, content) } }),
-  save: (type, id, content, expectedRevision = 0) => apiRequest(`/${encoded(type)}/${encoded(id)}`, {
-    method: 'PUT',
-    body: { content: parseContent(type, content), expectedRevision },
-  }),
-  publish: async (type, id, expectedRevision) => {
-    if (!Number.isInteger(expectedRevision)) {
-      const draft = await productionApi.get(type, id)
-      if (!draft) throw new CmsApiError('not_found', 'Draft was not found.', 404)
-      expectedRevision = draft.revision
-    }
-    return apiRequest(`/${encoded(type)}/${encoded(id)}/publish`, { method: 'POST', body: { expectedRevision } })
-  },
-  unpublish: (type, id) => apiRequest(`/${encoded(type)}/${encoded(id)}/unpublish`, { method: 'POST' }),
-  deleteItem: (type, id) => apiRequest(`/${encoded(type)}/${encoded(id)}`, { method: 'DELETE' }),
-  reorder: (type, items) => apiRequest(`/${encoded(type)}/reorder`, { method: 'PATCH', body: { items } }),
-  removeMedia: (id) => apiRequest(`/media/${encoded(id)}`, { method: 'DELETE' }),
-  getSettings: (view = 'drafts') => apiRequest(`/settings?view=${encoded(view)}`),
-  saveSettings: (content, expectedRevision = 0) => apiRequest('/settings', {
-    method: 'PUT',
-    body: { content: siteSettingsSchema.parse(content), expectedRevision },
-  }),
-  publishSettings: (expectedRevision) => apiRequest('/settings/publish', { method: 'POST', body: { expectedRevision } }),
-  importImage: (sourceUrl, alt = '', { private: privateUpload = false } = {}) => apiRequest('/media/import', {
-    method: 'POST',
-    body: { sourceUrl, alt, private: privateUpload },
-  }),
-  upload: async (file, { kind = 'image', alt = '', replaceMediaId = '', private: privateUpload = false, onProgress = () => {} } = {}) => {
-    if (!file) throw new CmsApiError('upload', 'No file was selected.', 400)
-    const isResume = kind === 'resume'
-    const allowed = isResume ? ['application/pdf'] : ['image/jpeg', 'image/png', 'image/webp']
-    if (!allowed.includes(file.type)) throw new CmsApiError('validation', isResume ? 'Choose a PDF resume.' : 'Choose a JPEG, PNG, or WebP image.', 422)
-
-    const signedUpload = await apiRequest('/media/upload-url', {
-      method: 'POST',
-      body: { kind, fileName: file.name, contentType: file.type },
-    })
-    if (file.size <= 0 || file.size > signedUpload.maxBytes) {
-      throw new CmsApiError('validation', `The file exceeds the ${isResume ? '5 MB' : '12 MB'} upload limit.`, 413)
-    }
-
-    onProgress(1)
-    await uploadToSignedUrl(file, signedUpload, onProgress)
-    onProgress(90)
-    const result = await apiRequest('/media/finalize', {
-      method: 'POST',
-      body: {
-        storagePath: signedUpload.storagePath,
-        kind,
-        alt,
-        replaceMediaId,
-        private: privateUpload || isResume,
-      },
-    })
-    onProgress(100)
-    return result
-  },
+let apiStatus = { state: 'checking', ready: false, checking: true, label: 'Checking Netlify API', message: '' }
+const listeners = new Set()
+export function useAdminApiStatus() {
+  return useSyncExternalStore((listener) => { listeners.add(listener); return () => listeners.delete(listener) }, () => apiStatus, () => apiStatus)
 }
-
-const unavailableApi = new Proxy({}, {
-  get() {
-    return async () => { throw new CmsApiError('unconfigured', productionMessage) }
-  },
-})
-
-export const adminApi = new Proxy(unavailableApi, {
-  get(target, property, receiver) {
-    if (isLocalCmsMode() && property in localCmsApi) {
-      const value = Reflect.get(localCmsApi, property, localCmsApi)
-      return typeof value === 'function' ? value.bind(localCmsApi) : value
-    }
-    if (hasProductionCmsProvider && property in productionApi) {
-      const value = Reflect.get(productionApi, property, productionApi)
-      return typeof value === 'function' ? value.bind(productionApi) : value
-    }
-    return Reflect.get(target, property, receiver)
-  },
-})
-
-let apiStatus = isLocalCmsMode()
-  ? { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
-  : hasProductionCmsProvider
-    ? { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: 'Checking administrator access and persistent production storage…', checkedAt: null }
-    : { state: 'unconfigured', ready: false, storageReady: false, checking: false, label: statusLabels.unconfigured, message: productionMessage, checkedAt: new Date().toISOString() }
-
-const statusListeners = new Set()
-
-function updateApiStatus(next) {
-  apiStatus = { ...next, label: next.label || statusLabels[next.state] || 'CMS unavailable' }
-  statusListeners.forEach((listener) => listener())
-}
-
-function subscribeApiStatus(listener) {
-  statusListeners.add(listener)
-  return () => statusListeners.delete(listener)
-}
-
-export function useCmsApiStatus() {
-  return useSyncExternalStore(subscribeApiStatus, () => apiStatus, () => apiStatus)
-}
-
-export async function checkCmsApiHealth() {
-  if (isLocalCmsMode()) {
-    updateApiStatus({ state: 'checking', ready: false, checking: true, message: 'Loading local portfolio content…', checkedAt: apiStatus.checkedAt })
-    try {
-      const health = await localCmsApi.health()
-      const note = health.recoveryNotice ? ` ${health.recoveryNotice}` : ''
-      updateApiStatus({
-        state: 'local', ready: true, storageReady: true, checking: false,
-        message: `Development mode: changes are saved in local JSON files and uploads are stored on this machine. They are not published to the live website.${note}`,
-        checkedAt: new Date().toISOString(),
-      })
-      return true
-    } catch (cause) {
-      const error = cause instanceof CmsApiError ? cause : new CmsApiError('serverError', cause?.message || 'Local portfolio storage could not be opened.')
-      updateApiStatus({ state: error.state, ready: false, checking: false, message: `${error.message} The admin interface remains in read-only mode.`, checkedAt: new Date().toISOString() })
-      return false
-    }
-  }
-
-  if (!hasProductionCmsProvider) {
-    updateApiStatus({ state: 'unconfigured', ready: false, storageReady: false, checking: false, message: productionMessage, checkedAt: new Date().toISOString() })
-    return false
-  }
-
-  updateApiStatus({ state: 'checking', ready: false, checking: true, message: 'Checking administrator access and persistent production storage…', checkedAt: apiStatus.checkedAt })
+export async function checkAdminApiHealth() {
+  apiStatus = { ...apiStatus, state: 'checking', checking: true, label: 'Checking Netlify API' }
+  listeners.forEach((listener) => listener())
   try {
-    const health = await apiRequest('/health')
-    const firestoreReady = health?.firestore?.ready === true
-    const storageReady = health?.storage?.ready === true
-    const ready = health?.ok === true && firestoreReady && storageReady
-    const unavailable = [
-      !firestoreReady ? health?.firestore?.message || 'Firestore is unavailable.' : '',
-      !storageReady ? health?.storage?.message || 'Cloud Storage is unavailable.' : '',
-      health?.configuration?.ready === false ? 'The CMS API deployment configuration is incomplete.' : '',
-    ].filter(Boolean)
-    updateApiStatus({
-      state: ready ? 'firebase' : 'serverError',
-      ready,
-      storageReady,
-      storageMessage: health?.storage?.message || '',
-      checking: false,
-      message: ready
-        ? 'Production CMS is connected. Admin writes use the authenticated Firebase API; published changes update the live Firestore subscriptions.'
-        : unavailable.join(' '),
-      projectId: health?.projectId || '',
-      checkedAt: new Date().toISOString(),
-    })
-    return ready
-  } catch (cause) {
-    const error = cause instanceof CmsApiError ? cause : new CmsApiError('serverError', 'The production CMS health check failed.')
-    updateApiStatus({
-      state: error.state === 'unconfigured' ? 'unconfigured' : 'serverError',
-      ready: false,
-      storageReady: false,
-      checking: false,
-      message: error.message,
-      storageMessage: error.message,
-      checkedAt: new Date().toISOString(),
-    })
-    return false
+    const health = await adminApi.health()
+    apiStatus = { state: health.ready ? 'netlify' : 'unconfigured', ready: health.ready, checking: false, label: health.ready ? 'Netlify + Firestore' : 'Setup needed', message: health.message || '' }
+  } catch (error) {
+    apiStatus = { state: 'unavailable', ready: false, checking: false, label: 'API unavailable', message: error.message }
   }
+  listeners.forEach((listener) => listener())
+  return apiStatus.ready
 }

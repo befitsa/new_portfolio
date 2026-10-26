@@ -21,7 +21,7 @@ export const profile = {
     alt: 'Portrait of Fitsum Mesfin',
   },
 
-  // Download is enabled only when the CMS publishes a real PDF.
+  // Download is enabled only when an administrator publishes a real PDF.
   resume: {
     downloadName: 'Fitsum-Mesfin-Resume.pdf',
   },

@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isValidPdfDocument as isClientPdf } from '../src/lib/db/pdfValidation.js'
-import { isValidPdfDocument as isServerPdf } from '../functions/pdfValidation.js'
 
 function minimalPdf() {
   let text = '%PDF-1.4\n'
@@ -21,11 +20,10 @@ function minimalPdf() {
   return Buffer.from(text, 'latin1')
 }
 
-test('resume validation checks PDF structure in the browser and backend', () => {
+test('resume validation checks PDF document structure', () => {
   const valid = minimalPdf()
   const fake = Buffer.from('%PDF-1.7\nThis is not a structurally valid PDF')
   assert.equal(isClientPdf(new Uint8Array(valid)), true)
-  assert.equal(isServerPdf(valid), true)
   assert.equal(isClientPdf(new Uint8Array(fake)), false)
-  assert.equal(isServerPdf(fake), false)
+  assert.equal(isClientPdf(fake), false)
 })

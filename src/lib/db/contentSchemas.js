@@ -9,8 +9,7 @@ const httpUrlSchema = z.string().url().refine((value) => {
   }
 }, 'URL must use HTTP or HTTPS.')
 const optionalUrl = z.union([z.literal(''), httpUrlSchema])
-const localFileUrl = z.string().refine((value) => /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value) && !value.split('/').includes('..'), 'Local file URL must be a safe development upload path.')
-const storedFileUrl = z.union([httpUrlSchema, localFileUrl])
+const storedFileUrl = httpUrlSchema
 const optionalText = (max = 5000) => z.string().trim().max(max)
 const imageUrl = z.union([
   z.literal(''),
@@ -20,6 +19,8 @@ const imageUrl = z.union([
 const imageAssetSchema = z.object({
   url: imageUrl.default(''),
   storagePath: z.string().trim().max(1024).default(''),
+  mediaProvider: z.enum(['', 'cloudinary']).default(''),
+  format: z.enum(['', 'jpg', 'jpeg', 'png', 'webp']).default(''),
   caption: optionalText(300).default(''),
   order: z.number().int().nonnegative().default(0),
 })
@@ -47,6 +48,7 @@ export const projectSchema = z.object({
   featured: z.boolean().default(false),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
+  thumbnailImage: imageAssetSchema.default({}),
   heroImage: imageAssetSchema.default({}),
   gallery: z.array(imageAssetSchema).max(30).default([]),
   links: z.object({
@@ -86,6 +88,9 @@ export const experienceSchema = z.object({
   location: optionalText(120).default(''),
   employmentType: optionalText(80).default(''),
   description: optionalText(5000).default(''),
+  responsibilities: z.array(z.string().trim().min(1).max(1000)).max(30).default([]),
+  achievements: z.array(z.string().trim().min(1).max(1000)).max(30).default([]),
+  logo: imageAssetSchema.default({}),
   skills: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
@@ -129,30 +134,17 @@ export const educationSchema = z.object({
 })
 
 export const resumeSchema = z.object({
-  fileUrl: storedFileUrl,
+  title: optionalText(160).default(''),
+  description: optionalText(1000).default(''),
+  fileUrl: z.union([z.literal(''), storedFileUrl]).default(''),
   previewUrl: z.union([z.literal(''), storedFileUrl]).default(''),
   storagePath: z.string().trim().min(1).max(1024),
+  mediaProvider: z.enum(['', 'cloudinary']).default(''),
   fileName: z.string().trim().min(1).max(255),
   sizeKB: z.number().positive().max(5120),
   version: z.string().trim().min(1).max(40),
   notes: optionalText(1000).default(''),
   isActive: z.boolean().default(false),
-  visibility: z.boolean().default(true),
-  order: z.number().int().nonnegative().default(0),
-})
-
-export const mediaSchema = z.object({
-  url: storedFileUrl,
-  storagePath: z.string().trim().min(1).max(1024),
-  type: z.enum(['image', 'pdf', 'other']),
-  sizeBytes: z.number().int().positive().max(12 * 1024 * 1024),
-  fileName: optionalText(255).default(''),
-  mimeType: optionalText(100).default(''),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  sourceUrl: optionalUrl.default(''),
-  alt: optionalText(300).default(''),
-  usedIn: z.array(z.string().trim().min(1).max(240)).max(100).default([]),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
 })
@@ -184,22 +176,4 @@ export const contentSchemas = Object.freeze({
   experiences: experienceSchema,
   education: educationSchema,
   resumes: resumeSchema,
-  media: mediaSchema,
 })
-
-/**
- * @typedef {keyof typeof contentSchemas} ContentType
- * @typedef {import('zod').infer<typeof projectSchema>} ProjectContent
- * @typedef {import('zod').infer<typeof experienceSchema>} ExperienceContent
- * @typedef {import('zod').infer<typeof educationSchema>} EducationContent
- * @typedef {import('zod').infer<typeof resumeSchema>} ResumeContent
- * @typedef {import('zod').infer<typeof mediaSchema>} MediaContent
- * @typedef {import('zod').infer<typeof siteSettingsSchema>} SiteSettings
- * @typedef {{ id: string; status: 'draft' | 'published' | 'unpublished'; revision: number; publishedRevision: number; basePublishedRevision?: number; createdAt?: import('firebase/firestore').Timestamp; updatedAt?: import('firebase/firestore').Timestamp; publishedAt?: import('firebase/firestore').Timestamp; publishedBy?: string; visibility: boolean; order: number }} ContentMetadata
- */
-
-export function parseContent(type, value) {
-  const schema = contentSchemas[type]
-  if (!schema) throw new Error(`Unsupported CMS content type: ${type}`)
-  return schema.parse(value)
-}

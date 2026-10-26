@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import {
   educationSchema,
   experienceSchema,
-  mediaSchema,
   projectSchema,
   resumeSchema,
   siteSettingsSchema,
 } from '../src/lib/db/contentSchemas.js'
+import { toPublicProject } from '../src/lib/db/presentation.js'
 
 test('project schema applies safe defaults and limits synopsis length', () => {
   const project = projectSchema.parse({
@@ -40,6 +40,19 @@ test('project categories use the public filter labels and local image paths stay
   assert.equal(projectSchema.safeParse({ title: 'Remote path', slug: 'remote-path', heroImage: { url: '//outside.example/image.webp' } }).success, false)
 })
 
+test('project thumbnail and case study cover are published independently', () => {
+  const project = toPublicProject({
+    id: 'portfolio-project',
+    title: 'Portfolio project',
+    slug: 'portfolio-project',
+    category: 'Web',
+    thumbnailImage: { url: 'https://res.cloudinary.com/demo/image/upload/thumb.webp' },
+    heroImage: { url: 'https://res.cloudinary.com/demo/image/upload/cover.webp' },
+  })
+  assert.equal(project.image, 'https://res.cloudinary.com/demo/image/upload/thumb.webp')
+  assert.equal(project.coverImage, 'https://res.cloudinary.com/demo/image/upload/cover.webp')
+})
+
 test('experience schema validates dates and current role rules', () => {
   const base = {
     role: 'Engineer',
@@ -69,19 +82,13 @@ test('education schema rejects an end year before the start year', () => {
   }).success, false)
 })
 
-test('resume, media, and settings schemas reject invalid external data', () => {
+test('resume and settings schemas reject invalid external data', () => {
   assert.equal(resumeSchema.safeParse({
     fileUrl: 'javascript:alert(1)',
     storagePath: 'drafts/resume/file.pdf',
     fileName: 'file.pdf',
     sizeKB: 100,
     version: '1',
-  }).success, false)
-  assert.equal(mediaSchema.safeParse({
-    url: 'not-a-url',
-    storagePath: 'drafts/media/image.png',
-    type: 'image',
-    sizeBytes: 1024,
   }).success, false)
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',

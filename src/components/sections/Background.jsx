@@ -11,7 +11,7 @@ import Reveal from '../common/Reveal'
 import Section from '../common/Section'
 
 // Timeline: a mint line draws itself down as you scroll, and each entry slides in from the side.
-function Timeline({ items }) {
+export function BackgroundTimeline({ items }) {
   const root = useRef(null)
   const reduced = useReducedMotion()
 
@@ -40,7 +40,9 @@ function Timeline({ items }) {
           <p className="font-display text-sm font-medium text-forest">{entry.date}</p>
           <h3 className="mt-2 font-display text-[clamp(1.6rem,3vw,2.5rem)] leading-tight font-semibold">{entry.title}</h3>
           <p className="mt-1 text-forest/75">{entry.place}</p>
+          {entry.logo && <img src={entry.logo} alt="" className="mt-3 size-12 rounded-lg border border-forest/10 bg-white object-contain p-1" />}
           {entry.description && <p className="mt-3 max-w-lg text-forest/75">{entry.description}</p>}
+          {(entry.responsibilities?.length > 0 || entry.achievements?.length > 0) && <ul className="mt-3 max-w-xl list-disc space-y-1.5 pl-5 text-sm leading-6 text-forest/75">{[...(entry.responsibilities || []), ...(entry.achievements || [])].map((item, index) => <li key={`${entry.id}-detail-${index}`}>{item}</li>)}</ul>}
           {entry.credentialUrl && <a className="mt-3 inline-flex text-sm font-semibold text-forest underline underline-offset-4" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View credential</a>}
           {entry.skills?.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-2" aria-label="Skills used">
@@ -139,7 +141,7 @@ export default function Background() {
                 ) : (active === 'education' ? publishedEducation.error : publishedExperience.error) ? (
                   <p className="border-l border-forest/20 py-4 pl-8 text-forest/70" role="alert">{active === 'education' ? 'Education' : 'Experience'} entries could not be loaded right now.</p>
                 ) : current.items.length > 0 ? (
-                  <Timeline items={current.items} />
+            <BackgroundTimeline items={current.items} />
                 ) : (
                   <div className="border-l border-dashed border-forest/20 py-4 pl-8">
                     <p className="font-display text-2xl font-semibold">No {active} entries have been published yet.</p>

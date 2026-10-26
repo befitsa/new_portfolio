@@ -166,20 +166,21 @@ export default function ProjectDetailsPage({ project }) {
   const [coverImageFailed, setCoverImageFailed] = useState(false)
   const reduced = useReducedMotion()
 
-  useEffect(() => setCoverImageFailed(false), [project.image])
+  const coverImage = project.coverImage || project.image
+  useEffect(() => setCoverImageFailed(false), [coverImage])
   const galleryImages = useMemo(() => {
-    const cover = project.image
-      ? [{ src: project.image, title: `${project.title} — Project preview`, alt: `${project.title} project preview` }]
+    const cover = coverImage
+      ? [{ src: coverImage, title: `${project.title} — Project preview`, alt: `${project.title} project preview` }]
       : []
     const screenshots = Array.isArray(project.screenshots)
-      ? project.screenshots.filter((image) => image?.src && image.src !== project.image)
+      ? project.screenshots.filter((image) => image?.src && image.src !== coverImage)
       : []
     return [...cover, ...screenshots.map((image) => ({
       src: image.src,
       title: image.title || 'Project interface',
       alt: image.alt || `${project.title} interface`,
     }))]
-  }, [project])
+  }, [project, coverImage])
 
   const closeViewer = useCallback(() => setSelectedImage(null), [])
   const navigateViewer = useCallback((direction) => {
@@ -302,11 +303,11 @@ export default function ProjectDetailsPage({ project }) {
                 <span className="size-2 rounded-full bg-[#f18875]" /><span className="size-2 rounded-full bg-[#f1c265]" /><span className="size-2 rounded-full bg-[#83c69a]" />
               </div>
               <span className="text-[8px] font-semibold tracking-[.12em] text-forest/50 uppercase sm:text-[9px]">{project.title} preview</span>
-              <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.image && !coverImageFailed ? 'Select to enlarge' : 'Preview unavailable'}</span>
+              <span className="text-[8px] text-forest/45 sm:text-[9px]">{coverImage && !coverImageFailed ? 'Select to enlarge' : 'Preview unavailable'}</span>
             </div>
-            {project.image && !coverImageFailed ? (
+            {coverImage && !coverImageFailed ? (
               <button type="button" onClick={() => setSelectedImage(0)} aria-label={`Enlarge ${project.title} preview`} className="block w-full cursor-zoom-in bg-[#eef4ef] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-mint">
-                <img src={project.image} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
+                <img src={coverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
               </button>
             ) : (
               <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
@@ -342,7 +343,9 @@ export default function ProjectDetailsPage({ project }) {
                   <p className="mt-2 text-xs leading-6 text-forest/70 sm:text-sm">{project.problem}</p>
                 </div>
               )}
-              {!project.summary && !project.problem && (
+              {project.implementation && <div className="mt-4"><h3 className="text-xs font-semibold text-forest">Implementation process</h3><p className="mt-2 text-xs leading-6 text-forest/70 sm:text-sm">{project.implementation}</p></div>}
+              {project.impact && <div className="mt-4"><h3 className="text-xs font-semibold text-forest">Impact and outcomes</h3><p className="mt-2 text-xs leading-6 text-forest/70 sm:text-sm">{project.impact}</p></div>}
+              {!project.summary && !project.problem && !project.implementation && !project.impact && (
                 <p className="mt-4 text-xs leading-6 text-forest/70 sm:text-sm">
                   {project.description && !project.isPlaceholder ? project.description : 'A project summary and problem statement have not been provided.'}
                 </p>
