@@ -5,7 +5,7 @@ export const profile = {
   name: 'FITSUM MESFIN',
   firstName: 'FITSUM',
   lastName: 'MESFIN',
-  monogram: 'FM',
+  monogram: '',
   title: 'Software Developer',
   email: 'Befitsa123@gmail.com',
   about:
