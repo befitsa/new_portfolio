@@ -36,6 +36,49 @@ const imageAssetSchema = z.object({
   order: z.number().int().nonnegative().default(0),
 })
 
+function technologyIdFor(name, index) {
+  const slug = name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return `${slug || 'technology'}-${index + 1}`
+}
+
+/** Normalize current and legacy technology fields into editable technology records. */
+export function normalizeTechnologies(value) {
+  const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  const seenNames = new Set()
+  const seenIds = new Set()
+  const normalized = []
+
+  for (const entry of values) {
+    const name = String(typeof entry === 'string' ? entry : entry?.name || entry?.title || '').trim()
+    const nameKey = name.toLowerCase()
+    if (!name || seenNames.has(nameKey)) continue
+    seenNames.add(nameKey)
+
+    const logoAsset = entry && typeof entry === 'object' && entry.logo && typeof entry.logo === 'object'
+      ? entry.logo
+      : null
+    const rawId = entry && typeof entry === 'object' ? String(entry.id || '').trim() : ''
+    let id = rawId || technologyIdFor(name, normalized.length)
+    if (seenIds.has(id)) id = technologyIdFor(name, normalized.length)
+    while (seenIds.has(id)) id = `${id}-${normalized.length + 1}`
+    seenIds.add(id)
+
+    const logo = logoAsset?.url || (typeof entry?.logo === 'string' ? entry.logo : '') || entry?.logoUrl || ''
+    normalized.push({
+      id,
+      name,
+      subtitle: String(typeof entry === 'object' ? entry?.subtitle || entry?.description || '' : '').trim(),
+      logo,
+      storagePath: String(logoAsset?.storagePath || entry?.storagePath || '').trim(),
+      mediaProvider: ['cloudinary', 'cloudflare-r2'].includes(logoAsset?.mediaProvider || entry?.mediaProvider)
+        ? (logoAsset?.mediaProvider || entry?.mediaProvider)
+        : '',
+    })
+  }
+
+  return normalized
+}
+
 export function normalizeProjectCategory(value) {
   if (value === 'Mobile App' || value === 'Mobile') return 'Mobile'
   if (value === 'UI/UX') return 'UI/UX'
@@ -56,7 +99,7 @@ const projectCategorySchema = z.union([
   z.enum(['Web Design', 'Mobile App']),
 ]).transform(normalizeProjectCategory)
 
-export const projectSchema = z.object({
+const projectContentSchema = z.object({
   title: z.string().trim().min(1).max(120),
   slug: z.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   synopsis: optionalText(200).default(''),
@@ -76,7 +119,14 @@ export const projectSchema = z.object({
     figma: optionalUrl.default(''),
     live: optionalUrl.default(''),
   }).default({ github: '', figma: '', live: '' }),
-  techStack: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
+  technologies: z.array(z.object({
+    id: z.string().trim().min(1).max(128),
+    name: z.string().trim().min(1).max(60),
+    subtitle: optionalText(120).default(''),
+    logo: imageUrl.default(''),
+    storagePath: z.string().trim().max(1024).default(''),
+    mediaProvider: z.enum(['', 'cloudinary', 'cloudflare-r2']).default(''),
+  })).default([]),
   coreProblem: optionalText(6000).default(''),
   strategicObjectives: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
   leadership: optionalText(6000).default(''),
@@ -97,6 +147,15 @@ export const projectSchema = z.object({
     metaDescription: optionalText(180).default(''),
   }).default({}),
 })
+
+export const projectSchema = z.preprocess((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const { techStack, ...project } = value
+  return {
+    ...project,
+    technologies: normalizeTechnologies(value.technologies ?? techStack),
+  }
+}, projectContentSchema)
 
 export const experienceSchema = z.object({
   role: z.string().trim().min(1).max(120),

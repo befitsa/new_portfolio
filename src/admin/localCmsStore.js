@@ -92,7 +92,7 @@ export const localCmsApi = Object.freeze({
   create: (type, content) => request(`/${encoded(type)}`, { method: 'POST', body: { content } }),
   save: (type, id, content, expectedRevision = 0) => request(`/${encoded(type)}/${encoded(id)}`, { method: 'PUT', body: { content, expectedRevision } }),
   publish: (type, id, expectedRevision) => request(`/${encoded(type)}/${encoded(id)}/publish`, { method: 'POST', body: { expectedRevision } }),
-  unpublish: (type, id) => request(`/${encoded(type)}/${encoded(id)}/unpublish`, { method: 'POST' }),
+  unpublish: (type, id, expectedRevision) => request(`/${encoded(type)}/${encoded(id)}/unpublish`, { method: 'POST', body: { expectedRevision } }),
   deleteItem: (type, id) => request(`/${encoded(type)}/${encoded(id)}`, { method: 'DELETE' }),
   reorder: (type, items) => request(`/${encoded(type)}/reorder`, { method: 'PATCH', body: { items } }),
   removeMedia: (id) => request(`/media/${encoded(id)}`, { method: 'DELETE' }),

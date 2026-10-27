@@ -30,11 +30,23 @@ function isoDate(value) {
 function toAdminRecord(type, draft, published) {
   const record = draft || published
   if (!record || record.status === 'deleted') return null
-  const live = published?.status === 'published' ? published : null
+  const draftStatus = draft?.status
+  const live = published?.status === 'published'
+    && published.visibility !== false
+    && !['unpublished', 'deleted'].includes(draftStatus)
+    ? published
+    : null
+  const status = draftStatus === 'draft'
+    ? (live ? 'published' : 'draft')
+    : live
+      ? 'published'
+      : draftStatus === 'unpublished' || published?.status === 'unpublished' || record.visibility === false
+        ? 'unpublished'
+        : record.status
   return {
     id: record.id,
     type,
-    status: live ? 'published' : record.status,
+    status,
     revision: Number(draft?.revision || published?.revision || 0),
     publishedRevision: Number(live?.revision || draft?.publishedRevision || 0),
     createdAt: isoDate(record.createdAt),
@@ -111,6 +123,7 @@ const adminApi = {
     }
   },
   async list(type) { await requireAdmin(); return listRecords(type) },
+  async listMedia(view = 'published') { await requireAdmin(); return localCmsApi.list('media', view) },
   async get(type, id) { await requireAdmin(); return getRecord(type, id) },
   async create(type, content) {
     await requireAdmin()
@@ -127,14 +140,18 @@ const adminApi = {
     await localCmsApi.publish(type, id, expectedRevision)
     return getRecord(type, id)
   },
-  async unpublish(type, id) {
+  async unpublish(type, id, expectedRevision) {
     await requireAdmin()
-    await localCmsApi.unpublish(type, id)
+    await localCmsApi.unpublish(type, id, expectedRevision)
     return getRecord(type, id)
   },
   async delete(type, id) {
     await requireAdmin()
     return localCmsApi.deleteItem(type, id)
+  },
+  async deleteMedia(id) {
+    await requireAdmin()
+    return localCmsApi.removeMedia(id)
   },
   async reorder(type, ids) {
     await requireAdmin()

@@ -18,11 +18,15 @@ import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 const sections = [
   { id: 'overview', label: 'Overview' },
-  { id: 'technical-highlights', label: 'Technical Highlights' },
   { id: 'impact-outcomes', label: 'Impact & Outcomes' },
+  { id: 'technical-highlights', label: 'Technical Highlights' },
   { id: 'tech-stack', label: 'Tech Stack' },
   { id: 'interface-gallery', label: 'Interface Gallery' },
 ]
+
+const pastelCardPalette = ['#e8f1f5', '#eaf3e8', '#fbf2d5', '#f7f1e6', '#e7eee4', '#f4ecd9']
+const sectionLabelClass = 'text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase'
+const sectionTitleClass = 'mt-2 font-serif text-2xl font-medium leading-tight sm:text-3xl'
 
 function displayValue(value) {
   if (typeof value === 'string') return value
@@ -35,6 +39,30 @@ function EvidenceNote({ children }) {
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-[#b56a20]" aria-hidden="true" />
       <p>{children}</p>
     </div>
+  )
+}
+
+function TechnologyCard({ technology, index, reduced }) {
+  const [imageFailed, setImageFailed] = useState(false)
+  const name = displayValue(technology.name || technology.title)
+  const subtitle = technology.subtitle || technology.description || ''
+  const logo = typeof technology.logo === 'string' ? technology.logo : technology.logo?.url || ''
+  useEffect(() => setImageFailed(false), [logo])
+
+  return (
+    <motion.li
+      whileHover={reduced ? undefined : { y: -3 }}
+      className="flex min-h-[14.75rem] w-full max-w-[15.5rem] flex-col items-center justify-center rounded-2xl border border-forest/10 px-5 py-6 text-center shadow-[0_5px_16px_rgba(31,57,42,.05)] transition-shadow hover:shadow-[0_8px_20px_rgba(31,57,42,.09)]"
+      style={{ backgroundColor: pastelCardPalette[(index + 1) % pastelCardPalette.length] }}
+    >
+      <span className="grid size-20 shrink-0 place-items-center text-2xl font-semibold text-forest/70">
+        {logo && !imageFailed
+          ? <img src={logo} alt={`${name} logo`} onError={() => setImageFailed(true)} className="h-full w-full object-contain" />
+          : <span aria-label={`${name} logo unavailable`}>{name.trim().charAt(0).toUpperCase() || '?'}</span>}
+      </span>
+      <span className="mt-3 block w-full break-words text-base font-semibold leading-snug text-forest [overflow-wrap:anywhere] sm:text-lg">{name}</span>
+      {subtitle && <span className="mt-3 block w-full break-words text-xs leading-relaxed text-forest/70 [overflow-wrap:anywhere] sm:text-sm">{subtitle}</span>}
+    </motion.li>
   )
 }
 
@@ -234,6 +262,7 @@ export default function ProjectDetailsPage({ project }) {
   const metrics = Array.isArray(project.metrics) ? project.metrics.filter(Boolean) : []
   const technologies = Array.isArray(project.tech) ? project.tech.filter(Boolean) : []
   const screenshots = Array.isArray(project.screenshots) ? project.screenshots.filter((image) => image?.src) : []
+  const implementationLines = String(project.implementation || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const titleWords = project.title.trim().split(/\s+/)
   const titleAccent = titleWords.pop()
 
@@ -249,9 +278,6 @@ export default function ProjectDetailsPage({ project }) {
           <a href="/#projects" className="hidden min-h-10 items-center gap-2 rounded-full border border-forest/15 bg-white px-4 text-xs font-semibold text-forest transition hover:border-forest/40 sm:inline-flex">
             <ArrowLeft size={14} aria-hidden="true" /> All Projects
           </a>
-          {project.sourceUrl && <ActionLink href={project.sourceUrl} secondary><Code2 size={14} aria-hidden="true" /> View Code</ActionLink>}
-          {project.liveUrl && <ActionLink href={project.liveUrl}><ExternalLink size={14} aria-hidden="true" /> Live Demo</ActionLink>}
-          {project.figmaUrl && <ActionLink href={project.figmaUrl} secondary><ExternalLink size={14} aria-hidden="true" /> Figma Prototype</ActionLink>}
         </div>
       </header>
 
@@ -281,21 +307,6 @@ export default function ProjectDetailsPage({ project }) {
               </span>
             </div>
           </div>
-
-          {metrics.length > 0 && (
-            <div className="mx-auto mt-7 grid max-w-6xl gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-              {metrics.map((metric, index) => {
-                const item = typeof metric === 'string' ? { label: metric } : metric
-                return (
-                  <article key={`${item.label || item.title || 'metric'}-${index}`} className="rounded-xl border border-forest/10 bg-white/90 p-3 shadow-[0_5px_18px_rgba(31,57,42,.04)]">
-                    {item.label && <p className="text-[9px] font-semibold tracking-[.12em] text-forest/55 uppercase">{item.label}</p>}
-                    {item.value && <p className="mt-1 font-serif text-xl">{item.value}</p>}
-                    {item.description && <p className="mt-1 text-[10px] leading-relaxed text-forest/55">{item.description}</p>}
-                  </article>
-                )
-              })}
-            </div>
-          )}
 
           <div className="mx-auto mt-6 max-w-6xl overflow-hidden rounded-[1.25rem] border border-forest/10 bg-white shadow-[0_12px_32px_rgba(31,57,42,.09)]">
             <div className="flex items-center justify-between border-b border-forest/10 bg-[#f7faf7] px-4 py-2.5 sm:px-6">
@@ -334,17 +345,20 @@ export default function ProjectDetailsPage({ project }) {
         <section id="overview" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto grid max-w-6xl gap-7 px-5 sm:px-8 lg:grid-cols-[1.2fr_.8fr] lg:gap-12">
             <div>
-              <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">01 / Overview</p>
-              <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Executive Summary &amp; Problem Statement</h2>
+              <p className={sectionLabelClass}>01 / Overview</p>
+              <h2 className={sectionTitleClass}>Executive Summary &amp; Problem Statement</h2>
               {project.summary && <MarkdownContent className="portfolio-markdown mt-4 text-xs leading-6 text-forest/70 sm:text-sm" source={project.summary} />}
               {project.problem && (
-                <div className="mt-4">
-                  <h3 className="text-xs font-semibold text-forest">Problem statement</h3>
-                  <p className="mt-2 text-xs leading-6 text-forest/70 sm:text-sm">{project.problem}</p>
-                </div>
+                <article className="mt-4 rounded-2xl border border-forest/10 p-4 shadow-[0_5px_16px_rgba(31,57,42,.035)] sm:p-5" style={{ backgroundColor: pastelCardPalette[0] }}>
+                  <h3 className="text-sm font-medium text-forest">Problem statement</h3>
+                  <p className="mt-2 whitespace-pre-line text-xs leading-6 text-forest/75 sm:text-sm">{project.problem}</p>
+                </article>
               )}
-              {project.implementation && <div className="mt-4"><h3 className="text-xs font-semibold text-forest">Implementation process</h3><p className="mt-2 text-xs leading-6 text-forest/70 sm:text-sm">{project.implementation}</p></div>}
-              {project.impact && <div className="mt-4"><h3 className="text-xs font-semibold text-forest">Impact and outcomes</h3><p className="mt-2 text-xs leading-6 text-forest/70 sm:text-sm">{project.impact}</p></div>}
+              {project.implementation && <section className="mt-4 rounded-2xl border border-forest/10 p-4 shadow-[0_5px_16px_rgba(31,57,42,.035)] sm:p-5" style={{ backgroundColor: pastelCardPalette[1] }}>
+                <h3 className="text-sm font-semibold text-forest">Implementation process</h3>
+                {implementationLines.length > 1 ? <ol className="mt-3 grid gap-2 sm:grid-cols-2">{implementationLines.map((line, index) => <li key={`${index}-${line}`} className="min-w-0 rounded-xl border border-forest/10 p-3 text-xs leading-6 text-forest/75 sm:text-sm" style={{ backgroundColor: pastelCardPalette[(index + 1) % pastelCardPalette.length] }}><span className="mb-1 block text-[9px] font-bold tracking-[.12em] text-forest/55 uppercase">Step {index + 1}</span><span className="whitespace-pre-line">{line}</span></li>)}</ol> : <p className="mt-2 whitespace-pre-line text-xs leading-6 text-forest/75 sm:text-sm">{project.implementation}</p>}
+              </section>}
+              {project.impact && <article className="mt-4 rounded-2xl border border-forest/10 p-4 shadow-[0_5px_16px_rgba(31,57,42,.035)] sm:p-5" style={{ backgroundColor: pastelCardPalette[2] }}><h3 className="text-sm font-semibold text-forest">Impact and outcomes</h3><p className="mt-2 whitespace-pre-line text-xs leading-6 text-forest/75 sm:text-sm">{project.impact}</p></article>}
               {!project.summary && !project.problem && !project.implementation && !project.impact && (
                 <p className="mt-4 text-xs leading-6 text-forest/70 sm:text-sm">
                   {project.description && !project.isPlaceholder ? project.description : 'A project summary and problem statement have not been provided.'}
@@ -352,7 +366,7 @@ export default function ProjectDetailsPage({ project }) {
               )}
             </div>
             <aside className="rounded-xl border border-[#f1d7dc] bg-[#fff8f8] p-4 sm:p-5">
-              <h3 className="text-xs font-bold text-[#7e3745]">Project information</h3>
+              <h3 className="text-sm font-semibold text-[#7e3745]">Project information</h3>
               <ul className="mt-3 space-y-2.5 text-[11px] leading-relaxed text-[#704d54] sm:text-xs">
                 <li><strong>Category:</strong> {project.category}</li>
                 {project.role && <li><strong>Role:</strong> {project.role}</li>}
@@ -363,20 +377,59 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
+        <section id="impact-outcomes" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
+          <div className="mx-auto max-w-6xl px-5 sm:px-8">
+            <p className={sectionLabelClass}>02 / Results</p>
+            <h2 className={sectionTitleClass}>Impact &amp; Measured Outcomes</h2>
+            <div className="mt-6">
+              {outcomes.length ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {outcomes.map((outcome, index) => {
+                    const item = typeof outcome === 'string' ? { title: outcome } : outcome
+                    return (
+                      <article key={`${item.title || item.name}-${index}`} className="rounded-2xl border border-forest/10 p-4 shadow-[0_5px_16px_rgba(31,57,42,.035)] sm:p-5" style={{ backgroundColor: pastelCardPalette[index % pastelCardPalette.length] }}>
+                        <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
+                        {item.description && <p className="mt-2 text-xs leading-relaxed text-forest/65">{item.description}</p>}
+                      </article>
+                    )
+                  })}
+                </div>
+              ) : metrics.length === 0 ? (
+                <EvidenceNote>No measured outcomes have been supplied for this project.</EvidenceNote>
+              ) : null}
+            </div>
+            {metrics.length > 0 && (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {metrics.map((metric, index) => {
+                  const item = typeof metric === 'string' ? { value: metric } : metric
+                  const supportingDescription = [item.unit, item.description].filter(Boolean).join(' · ')
+                  return (
+                    <article key={`outcome-${item.label || item.title || index}`} className="rounded-2xl border border-forest/10 p-4 shadow-[0_5px_16px_rgba(31,57,42,.035)] sm:p-5" style={{ backgroundColor: pastelCardPalette[index % pastelCardPalette.length] }}>
+                      <p className="text-sm font-semibold text-forest">{item.label || item.title}</p>
+                      {item.value && <p className="mt-2 font-serif text-3xl leading-tight text-forest">{item.value}</p>}
+                      {supportingDescription && <p className="mt-2 text-[11px] leading-relaxed text-forest/65 sm:text-xs">{supportingDescription}</p>}
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
         <section id="technical-highlights" className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">02 / Engineering</p>
-            <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Technical Highlights &amp; Architecture</h2>
+            <p className={sectionLabelClass}>03 / Engineering</p>
+            <h2 className={sectionTitleClass}>Technical Highlights &amp; Architecture</h2>
             <div className="mt-6">
               {features.length ? (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {features.map((feature, index) => {
                     const item = typeof feature === 'string' ? { title: feature } : feature
                     return (
-                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className="min-h-32 rounded-xl border border-forest/10 bg-white p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]">
-                        <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
-                        {item.description && <p className="mt-2 text-[11px] leading-relaxed text-forest/65">{item.description}</p>}
-                        {item.implementation && <p className="mt-2 text-[11px] leading-relaxed text-forest/65"><strong>Implementation:</strong> {item.implementation}</p>}
+                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className="min-h-32 rounded-2xl border border-forest/10 p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)] sm:p-5" style={{ backgroundColor: pastelCardPalette[index % pastelCardPalette.length] }}>
+                        <h3 className="text-sm font-semibold text-forest">{displayValue(item.title || item.name)}</h3>
+                        {item.description && <p className="mt-2 text-xs leading-relaxed text-forest/70 sm:text-sm">{item.description}</p>}
+                        {item.implementation && <p className="mt-2 text-xs leading-relaxed text-forest/70 sm:text-sm"><strong>Implementation:</strong> {item.implementation}</p>}
                       </motion.article>
                     )
                   })}
@@ -388,71 +441,14 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
-        <section id="impact-outcomes" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
+        <section id="tech-stack" className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 text-forest sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">03 / Results</p>
-            <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Impact &amp; Measured Outcomes</h2>
+            <p className={sectionLabelClass}>04 / Tools &amp; Stack</p>
+            <h2 className={sectionTitleClass}>Technologies Employed</h2>
             <div className="mt-6">
-              {outcomes.length ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {outcomes.map((outcome, index) => {
-                    const item = typeof outcome === 'string' ? { title: outcome } : outcome
-                    return (
-                      <article key={`${item.title || item.name}-${index}`} className="rounded-xl border border-forest/10 bg-[#fbfdfb] p-4 sm:p-5">
-                        <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
-                        {item.description && <p className="mt-2 text-xs leading-relaxed text-forest/65">{item.description}</p>}
-                      </article>
-                    )
-                  })}
-                </div>
-              ) : (
-                <EvidenceNote>No measured outcomes have been supplied for this project.</EvidenceNote>
-              )}
-            </div>
-            {metrics.length > 0 && (
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                {metrics.map((metric, index) => {
-                  const item = typeof metric === 'string' ? { value: metric } : metric
-                  return (
-                    <article key={`outcome-${item.label || item.title || index}`} className="rounded-xl border border-forest/10 bg-[#f7fbf8] p-4 text-center">
-                      {item.value && <p className="font-serif text-3xl">{item.value}</p>}
-                      <p className="mt-1 text-xs font-semibold text-forest">{item.label || item.title}</p>
-                      {item.description && <p className="mt-1 text-[10px] leading-relaxed text-forest/60">{item.description}</p>}
-                    </article>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section id="tech-stack" className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
-          <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <p className="text-center text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">04 / Tools &amp; Stack</p>
-            <h2 className="mt-2 text-center font-serif text-2xl sm:text-3xl">Technologies Employed</h2>
-            <div className="mx-auto mt-6 max-w-4xl">
               {technologies.length ? (
-                <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {technologies.map((technology, index) => {
-                    const item = typeof technology === 'string' ? { name: technology } : technology
-                    const card = (
-                      <>
-                        <span className="grid size-8 place-items-center rounded-lg bg-[#eff8f2] font-serif text-sm text-[#398b69]">{displayValue(item.name || item.title).charAt(0)}</span>
-                        <span className="mt-3 block text-xs font-semibold">{displayValue(item.name || item.title)}</span>
-                        {item.description && <span className="mt-1 block text-[10px] leading-relaxed text-forest/60">{item.description}</span>}
-                        {item.url && <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-forest">Documentation <ExternalLink size={11} aria-hidden="true" /></span>}
-                      </>
-                    )
-                    return (
-                      <li key={`${displayValue(item.name || item.title)}-${index}`}>
-                        {item.url ? (
-                          <a href={item.url} target="_blank" rel="noopener noreferrer" className="block h-full rounded-xl border border-forest/10 bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-mint">{card}</a>
-                        ) : (
-                          <div className="h-full rounded-xl border border-forest/10 bg-white p-4">{card}</div>
-                        )}
-                      </li>
-                    )
-                  })}
+                <ul className="mx-auto flex max-w-6xl flex-wrap justify-center gap-3 sm:gap-5">
+                  {technologies.map((technology, index) => <TechnologyCard key={`${technology.id || displayValue(technology.name || technology.title)}-${index}`} technology={technology} index={index} reduced={reduced} />)}
                 </ul>
               ) : (
                 <EvidenceNote>No technologies have been added to this project record.</EvidenceNote>
@@ -461,10 +457,18 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
+        {(project.sourceUrl || project.liveUrl || project.figmaUrl) && <section aria-label="Project links" className="border-b border-forest/10 bg-white px-5 py-6 sm:px-8 sm:py-8">
+          <div className="mx-auto flex max-w-6xl flex-wrap justify-center gap-2.5 sm:gap-3">
+            {project.sourceUrl && <ActionLink href={project.sourceUrl} secondary><Code2 size={14} aria-hidden="true" />View Code</ActionLink>}
+            {project.liveUrl && <ActionLink href={project.liveUrl}><ExternalLink size={14} aria-hidden="true" />Live Demo</ActionLink>}
+            {project.figmaUrl && <ActionLink href={project.figmaUrl} secondary><ExternalLink size={14} aria-hidden="true" />Figma Prototype</ActionLink>}
+          </div>
+        </section>}
+
         <section id="interface-gallery" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">05 / User Experience</p>
-            <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Interface Gallery &amp; User Journeys</h2>
+            <p className={sectionLabelClass}>05 / User Experience</p>
+            <h2 className={sectionTitleClass}>Interface Gallery &amp; User Journeys</h2>
             {screenshots.length ? (
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 {screenshots.map((image, index) => (
@@ -483,8 +487,8 @@ export default function ProjectDetailsPage({ project }) {
         </section>
 
         <section className="bg-[#eaf3ed] px-5 py-12 text-center sm:px-8 sm:py-16">
-          <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">Next milestone</p>
-          <h2 className="mx-auto mt-2 max-w-2xl font-serif text-2xl leading-tight sm:text-4xl">Interested in Building a High-Impact Solution?</h2>
+          <p className={sectionLabelClass}>Next milestone</p>
+          <h2 className={`${sectionTitleClass} mx-auto max-w-2xl`}>Interested in Building a High-Impact Solution?</h2>
           <p className="mx-auto mt-3 max-w-xl text-xs leading-relaxed text-forest/65 sm:text-sm">Let&apos;s discuss your next project, or return to the portfolio to explore the other work.</p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             {profile.email && (

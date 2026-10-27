@@ -119,6 +119,11 @@ test('local JSON CMS persists CRUD, publication, drafts, settings, and deletes a
     const settings = await store.getSettings()
     const savedSettings = await store.saveSettings({ ...settings, name: 'Local Filesystem Profile' }, settings.revision)
     assert.equal((await store.publishedSettings()).name, settings.name)
+    await assert.rejects(
+      store.saveSettings({ ...settings, name: 'Stale Profile Edit' }, settings.revision),
+      { status: 409 },
+      'settings reject stale edits instead of overwriting a newer draft',
+    )
     await store.publishSettings(savedSettings.revision)
     assert.equal((await store.publishedSettings()).name, 'Local Filesystem Profile')
 
@@ -158,6 +163,146 @@ test('local image upload and replacement persist bytes and update published proj
 
     const restarted = createLocalCmsStore(directory)
     assert.equal((await restarted.get('projects', draft.id, 'published')).heroImage.url, replacement.url)
+  })
+})
+
+test('replacing and deleting media keeps every record reference intact and protects used files', async () => {
+  await withStore(async (directory) => {
+    const store = createLocalCmsStore(directory)
+    const original = await store.upload({ bytes: imageBytes, fileName: 'shared.png', mimeType: 'image/png', kind: 'image' })
+    const image = () => ({ url: original.url, storagePath: original.storagePath, caption: 'Shared image', order: 0 })
+    const projectDraft = await store.create('projects', project({
+      slug: 'shared-media-project',
+      thumbnailImage: image(),
+      heroImage: image(),
+      gallery: [image()],
+      technologies: [{ id: 'react', name: 'React', subtitle: 'UI', logo: original.url, storagePath: original.storagePath, mediaProvider: '' }],
+    }))
+    const experienceDraft = await store.create('experiences', {
+      role: 'Engineer', company: 'Local Studio', startDate: '2022-01-01', isCurrent: true,
+      logo: image(), image: image(),
+    })
+    const educationDraft = await store.create('education', {
+      degree: 'BSc', institution: 'Local University', startYear: 2020, endYear: 2024, image: image(),
+    })
+    for (const [type, record] of [['projects', projectDraft], ['experiences', experienceDraft], ['education', educationDraft]]) {
+      await store.publish(type, record.id, record.revision)
+    }
+
+    const listed = await store.list('media', 'published')
+    assert.equal(listed.length, 1)
+    assert.deepEqual(new Set(listed[0].usedIn), new Set(['Local disk project', 'Engineer', 'Local University']))
+    await assert.rejects(store.deleteItem('media', original.id), { status: 409 })
+
+    const replacementBytes = Buffer.from(imageBytes)
+    replacementBytes[20] ^= 0x01
+    const replacement = await store.upload({
+      bytes: replacementBytes,
+      fileName: 'shared-replacement.png',
+      mimeType: 'image/png',
+      kind: 'image',
+      replaceMediaId: original.id,
+    })
+    assert.equal(replacement.id, original.id)
+    for (const [type, id] of [['projects', projectDraft.id], ['experiences', experienceDraft.id], ['education', educationDraft.id]]) {
+      for (const view of ['drafts', 'published']) {
+        const record = await store.get(type, id, view)
+        const serialized = JSON.stringify(record)
+        assert.equal(serialized.includes(original.storagePath), false)
+        assert.equal(serialized.includes(replacement.storagePath), true)
+      }
+    }
+    assert.equal(await store.serveUpload(original.storagePath), null)
+    assert.deepEqual((await store.serveUpload(replacement.storagePath)).contents, replacementBytes)
+    await assert.rejects(store.deleteItem('media', replacement.id), { status: 409 })
+
+    const unused = await store.upload({ bytes: imageBytes, fileName: 'unused.png', mimeType: 'image/png', kind: 'image' })
+    assert.deepEqual((await store.get('media', unused.id, 'published')).usedIn, [])
+    await store.deleteItem('media', unused.id)
+    assert.equal(await store.serveUpload(unused.storagePath), null)
+    assert.equal((await store.list('media', 'published')).some((item) => item.id === unused.id), false)
+  })
+})
+
+test('unpublish and republish use revisions consistently for every content collection', async () => {
+  await withStore(async (directory) => {
+    const store = createLocalCmsStore(directory)
+    const resume = await store.upload({ bytes: validPdf(), fileName: 'resume.pdf', mimeType: 'application/pdf', kind: 'resume' })
+    const entries = [
+      ['projects', await store.create('projects', project({ slug: 'lifecycle-project' }))],
+      ['experiences', await store.create('experiences', { role: 'Engineer', company: 'Studio', startDate: '2022-01-01', isCurrent: true })],
+      ['education', await store.create('education', { degree: 'BSc', institution: 'University', startYear: 2020, endYear: 2024 })],
+      ['resumes', resume],
+    ]
+
+    for (const [type, initial] of entries) {
+      await store.publish(type, initial.id, initial.revision)
+      const published = await store.get(type, initial.id, 'published')
+      assert.equal(published.status, 'published', `${type} initially publishes`)
+      const hidden = await store.unpublish(type, initial.id, published.revision)
+      assert.equal(hidden.status, 'unpublished', `${type} unpublishes`)
+      assert.equal(hidden.revision, published.revision + 1, `${type} advances its revision`)
+      assert.equal(await store.publishedDocument(type, initial.id), null, `${type} is removed from public reads`)
+      const draft = await store.get(type, initial.id, 'drafts')
+      assert.equal(draft.status, 'unpublished', `${type} remains editable in the admin store`)
+      assert.equal((await store.unpublish(type, initial.id, published.revision)).revision, hidden.revision, `${type} unpublish retry is idempotent`)
+      await assert.rejects(
+        store.save(type, initial.id, { ...draft }, published.revision),
+        { status: 409 },
+        `${type} rejects stale edits after unpublishing`,
+      )
+      const content = { ...draft }
+      delete content.id
+      delete content.status
+      delete content.revision
+      delete content.publishedRevision
+      delete content.basePublishedRevision
+      delete content.createdAt
+      delete content.updatedAt
+      delete content.updatedBy
+      delete content.publishedAt
+      delete content.publishedBy
+      delete content.deletedAt
+      if (type === 'projects') content.synopsis = 'Edited after unpublishing.'
+      if (type === 'experiences') content.description = 'Edited after unpublishing.'
+      if (type === 'education') content.notes = 'Edited after unpublishing.'
+      if (type === 'resumes') content.description = 'Edited after unpublishing.'
+      const edited = await store.save(type, initial.id, content, draft.revision)
+      await store.publish(type, initial.id, edited.revision)
+      const visibleAgain = await store.get(type, initial.id, 'published')
+      assert.equal(visibleAgain.status, 'published', `${type} republishes`)
+      assert.equal(visibleAgain.id, initial.id, `${type} keeps its stable ID`)
+      assert.ok((await store.publishedRecords(type)).some((record) => record.id === initial.id), `${type} returns to public reads`)
+    }
+  })
+})
+
+test('technology logo references persist through project drafts, edits, publishing, and reloads', async () => {
+  await withStore(async (directory) => {
+    const store = createLocalCmsStore(directory)
+    const uploaded = []
+    for (const name of ['React', 'JavaScript', 'Firebase', 'Vite', 'React-next']) {
+      uploaded.push(await store.upload({ bytes: imageBytes, fileName: `${name.toLowerCase()}.png`, mimeType: 'image/png', kind: 'image' }))
+    }
+    const makeTechnology = (name, asset) => ({ id: name.toLowerCase(), name, subtitle: `${name} stack`, logo: asset.url, storagePath: asset.storagePath, mediaProvider: '' })
+    const initialTechnologies = [makeTechnology('React', uploaded[0]), makeTechnology('JavaScript', uploaded[1]), makeTechnology('Firebase', uploaded[2])]
+    const draft = await store.create('projects', project({ technologies: initialTechnologies }))
+    assert.equal((await store.publishedRecords('projects')).length, 0)
+    assert.deepEqual((await store.get('projects', draft.id)).technologies, initialTechnologies)
+
+    const updatedTechnologies = [
+      { ...makeTechnology('React', uploaded[4]), name: 'React UI' },
+      makeTechnology('Firebase', uploaded[2]),
+      makeTechnology('Vite', uploaded[3]),
+    ]
+    const updated = await store.save('projects', draft.id, project({ technologies: updatedTechnologies }), draft.revision)
+    assert.deepEqual(updated.technologies.map(({ name }) => name), ['React UI', 'Firebase', 'Vite'])
+    await store.publish('projects', updated.id, updated.revision)
+
+    const restarted = createLocalCmsStore(directory)
+    const published = await restarted.publishedDocument('projects', draft.id)
+    assert.deepEqual(published.technologies, updatedTechnologies)
+    assert.deepEqual((await restarted.serveUpload(published.technologies[0].storagePath)).contents, imageBytes)
   })
 })
 
@@ -263,9 +408,37 @@ test('local HTTP API protects edits and exposes published records to the local p
     })
     assert.equal(imageUpload.status, 200)
     assert.match(imageUpload.body.data.url, /^\/__local-cms\/uploads\//)
+    const unauthorizedMediaList = await callPlugin(middleware, { url: '/api/media?view=published' })
+    assert.equal(unauthorizedMediaList.status, 401)
+    const mediaList = await callPlugin(middleware, {
+      url: '/api/media?view=published',
+      headers: { 'x-firebase-id-token': token },
+    })
+    assert.equal(mediaList.status, 200)
+    assert.deepEqual(mediaList.body.data.find((item) => item.id === imageUpload.body.data.id).usedIn, [])
     const imageRead = await callPlugin(middleware, { url: imageUpload.body.data.url })
     assert.equal(imageRead.status, 200)
     assert.deepEqual(imageRead.body, imageBytes)
+
+    const unusedUpload = await callPlugin(middleware, {
+      url: '/api/media/upload',
+      method: 'POST',
+      body: multipart(boundary, { kind: 'image' }, {
+        name: 'unused.png',
+        type: 'image/png',
+        bytes: imageBytes,
+      }),
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'x-firebase-id-token': token },
+    })
+    const deletedUnused = await callPlugin(middleware, {
+      url: `/api/media/${unusedUpload.body.data.id}`,
+      method: 'DELETE',
+      headers: { 'x-firebase-id-token': token },
+    })
+    assert.equal(deletedUnused.status, 200)
+    assert.equal(deletedUnused.body.data.status, 'deleted')
+    const deletedFile = await callPlugin(middleware, { url: unusedUpload.body.data.url })
+    assert.equal(deletedFile.status, 404)
 
     const savedWithImage = await callPlugin(middleware, {
       url: `/api/projects/${record.id}`,
@@ -291,6 +464,11 @@ test('local HTTP API protects edits and exposes published records to the local p
     assert.equal(publishedAfter.status, 200)
     assert.equal(publishedAfter.body.data[0].title, 'Local disk project')
     assert.equal(publishedAfter.body.data[0].heroImage.url, imageUpload.body.data.url)
+    const referencedMedia = await callPlugin(middleware, {
+      url: '/api/media?view=published',
+      headers: { 'x-firebase-id-token': token },
+    })
+    assert.deepEqual(referencedMedia.body.data.find((item) => item.id === imageUpload.body.data.id).usedIn, ['Local disk project'])
 
     const pdfBoundary = 'local-cms-http-pdf'
     const resumeUpload = await callPlugin(middleware, {
@@ -342,9 +520,11 @@ test('local HTTP API protects edits and exposes published records to the local p
     const unpublish = await callPlugin(middleware, {
       url: `/api/projects/${record.id}/unpublish`,
       method: 'POST',
-      headers: { 'x-firebase-id-token': token },
+      body: JSON.stringify({ expectedRevision: publishedAfter.body.data[0].revision }),
+      headers: { 'content-type': 'application/json', 'x-firebase-id-token': token },
     })
     assert.equal(unpublish.status, 200)
+    assert.equal(unpublish.body.data.revision, publishedAfter.body.data[0].revision + 1)
     const publicAfterUnpublish = await callPlugin(middleware, { url: '/api/public/projects' })
     assert.equal(publicAfterUnpublish.body.data.length, 0)
 

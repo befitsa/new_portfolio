@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { toPublicEducation, toPublicExperience } from '../src/lib/db/presentation.js'
+import { toPublicEducation, toPublicExperience, toPublicProject } from '../src/lib/db/presentation.js'
 import { educationQualifications } from '../src/lib/db/contentSchemas.js'
 
 test('public education view keeps institution, qualification, and field as separate display values', () => {
@@ -53,4 +53,20 @@ test('public experience view exposes an attached cover letter only when present'
     fileUrl: experience.coverLetter.fileUrl,
   })
   assert.equal(toPublicExperience({ ...experience, coverLetter: undefined }).coverLetter, null)
+})
+
+test('public project exposes outcome metrics once and preserves separate outcome content', () => {
+  const metrics = [{ label: 'Reusable components', value: '12', unit: '', description: 'Shared UI patterns' }]
+  const project = toPublicProject({ id: 'case-study', title: 'Case study', slug: 'case-study', metrics })
+  assert.deepEqual(project.metrics, metrics)
+  assert.deepEqual(project.outcomes, [])
+
+  const withOutcomes = toPublicProject({
+    id: 'case-study',
+    title: 'Case study',
+    slug: 'case-study',
+    metrics,
+    outcomes: [{ title: 'Simpler workflows', description: 'Clearer navigation' }],
+  })
+  assert.deepEqual(withOutcomes.outcomes, [{ title: 'Simpler workflows', description: 'Clearer navigation' }])
 })

@@ -41,6 +41,47 @@ test('project categories use the public filter labels and local image paths stay
   assert.equal(projectSchema.safeParse({ title: 'Remote path', slug: 'remote-path', heroImage: { url: '//outside.example/image.webp' } }).success, false)
 })
 
+test('project technologies normalize legacy values and keep uploaded logo references', () => {
+  const legacy = projectSchema.parse({
+    title: 'Legacy technologies',
+    slug: 'legacy-technologies',
+    technologies: ' React, JavaScript, Firebase, React ',
+  })
+  assert.deepEqual(legacy.technologies.map((technology) => technology.name), ['React', 'JavaScript', 'Firebase'])
+  const oldTechStack = projectSchema.parse({
+    title: 'Older project model',
+    slug: 'older-project-model',
+    techStack: [' React ', 'JavaScript', 'React'],
+  })
+  assert.deepEqual(oldTechStack.technologies.map((technology) => technology.name), ['React', 'JavaScript'])
+
+  const project = projectSchema.parse({
+    title: 'Technology logos',
+    slug: 'technology-logos',
+    techStack: [' React ', 'React', 'Vite'],
+    technologies: [
+      { id: 'react', name: 'React', subtitle: 'UI library', logo: { url: '/__local-cms/uploads/123e4567-e89b-12d3-a456-426614174000/react.png', storagePath: 'uploads/123e4567-e89b-12d3-a456-426614174000/react.png' } },
+      { id: 'vite', name: 'Vite', description: 'Build tool', logo: 'https://cdn.example.com/vite.svg', storagePath: 'portfolio/vite-logo' },
+    ],
+  })
+  assert.deepEqual(project.technologies.map((technology) => technology.name), ['React', 'Vite'])
+  assert.equal(project.technologies[0].logo, '/__local-cms/uploads/123e4567-e89b-12d3-a456-426614174000/react.png')
+  assert.equal(project.technologies[0].storagePath, 'uploads/123e4567-e89b-12d3-a456-426614174000/react.png')
+  assert.equal(Object.hasOwn(project, 'techStack'), false)
+
+  const publicProject = toPublicProject({ id: 'technology-logos', ...project })
+  assert.deepEqual(publicProject.tech.map(({ name, subtitle, logo }) => [name, subtitle, logo]), [
+    ['React', 'UI library', '/__local-cms/uploads/123e4567-e89b-12d3-a456-426614174000/react.png'],
+    ['Vite', 'Build tool', 'https://cdn.example.com/vite.svg'],
+  ])
+})
+
+test('project technology lists have no fixed count limit', () => {
+  const technologies = Array.from({ length: 45 }, (_, index) => ({ id: `technology-${index}`, name: `Technology ${index}` }))
+  const project = projectSchema.parse({ title: 'Large stack', slug: 'large-stack', technologies })
+  assert.equal(project.technologies.length, 45)
+})
+
 test('project thumbnail and case study cover are published independently', () => {
   const project = toPublicProject({
     id: 'portfolio-project',

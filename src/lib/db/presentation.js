@@ -1,4 +1,4 @@
-import { normalizeProjectCategory } from './contentSchemas.js'
+import { normalizeProjectCategory, normalizeTechnologies } from './contentSchemas.js'
 
 /** Convert a published project record to the public portfolio view model. */
 export function toPublicProject(record) {
@@ -21,7 +21,7 @@ export function toPublicProject(record) {
     role: record.role || '',
     timeline: record.timeline || '',
     status: 'Published',
-    tech: Array.isArray(record.techStack) ? record.techStack : [],
+    tech: normalizeTechnologies(record.technologies ?? record.techStack),
     image: record.thumbnailImage?.url || record.heroImage?.url || '',
     coverImage: record.heroImage?.url || record.thumbnailImage?.url || '',
     preview3d: null,
@@ -32,11 +32,7 @@ export function toPublicProject(record) {
     features: highlights.length
       ? highlights
       : objectives.map((title) => ({ title, description: '' })),
-    outcomes: metrics.map((metric) => ({
-      title: metric.label,
-      value: metric.value,
-      description: [metric.unit, metric.description].filter(Boolean).join(' · '),
-    })),
+    outcomes: Array.isArray(record.outcomes) ? record.outcomes : [],
     metrics,
     impact: record.leadership || '',
     implementation: record.methodology || '',

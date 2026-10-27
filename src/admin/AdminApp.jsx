@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, BriefcaseBusiness, Check, CircleUserRound, Clock3, ExternalLink, Eye, FileText, Filter, FolderKanban, GraduationCap, HardDrive, Image, LayoutDashboard, LogOut, Menu, Plus, Save, Search, Settings, ShieldCheck, SortAsc, Trash2, Upload, X } from 'lucide-react'
 import { profile } from '../data/profile.js'
 import { useAdminAuth, AdminAuthProvider } from '../lib/adminAuth.jsx'
@@ -7,7 +7,7 @@ import AdminLogin, { adminHomePath, adminLoginPath, safeAdminReturnPath } from '
 import BrandLink from '../components/common/BrandLink.jsx'
 import ProjectDetailsPage from '../components/projects/ProjectDetailsPage.jsx'
 import { toPublicProject, toPublicExperience, toPublicEducation } from '../lib/db/presentation.js'
-import { educationQualifications } from '../lib/db/contentSchemas.js'
+import { educationQualifications, normalizeTechnologies } from '../lib/db/contentSchemas.js'
 import { BackgroundTimeline } from '../components/sections/Background.jsx'
 import { PortfolioProfileProvider } from '../context/PortfolioProfileContext.jsx'
 import { ADMIN_SECTIONS, adminPathForSection, adminSectionForPath } from './adminRoutes.js'
@@ -28,7 +28,13 @@ function publicPortfolioHref() {
   return `${window.location.origin}/`
 }
 const readRoute = () => adminSectionForPath(window.location.pathname)
-const blankProject = () => ({ title: '', slug: '', synopsis: '', executiveSummary: '', category: 'Web', role: '', timeline: '', readTime: 0, featured: false, visibility: true, order: Date.now(), thumbnailImage: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, heroImage: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, gallery: [], links: { github: '', figma: '', live: '' }, techStack: [], coreProblem: '', strategicObjectives: [], leadership: '', methodology: '', technicalHighlights: [], metrics: [], seo: {} })
+const blankProject = () => ({ title: '', slug: '', synopsis: '', executiveSummary: '', category: 'Web', role: '', timeline: '', readTime: 0, featured: false, visibility: true, order: Date.now(), thumbnailImage: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, heroImage: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, gallery: [], links: { github: '', figma: '', live: '' }, technologies: [], coreProblem: '', strategicObjectives: [], leadership: '', methodology: '', technicalHighlights: [], metrics: [], seo: {} })
+const newTechnology = () => ({ id: globalThis.crypto?.randomUUID?.() || `technology-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: '', subtitle: '', logo: '', storagePath: '', mediaProvider: '' })
+const normalizeProjectDraft = (value) => {
+  const { techStack, ...project } = value || {}
+  return { ...project, technologies: normalizeTechnologies(value?.technologies ?? techStack) }
+}
+const projectTechnologies = (value) => normalizeTechnologies(value?.technologies ?? value?.techStack)
 const blankExperience = (order) => ({ role: '', company: '', logoInitials: '', startDate: new Date().toISOString().slice(0, 10), endDate: '', isCurrent: false, location: '', employmentType: '', description: '', responsibilities: [], achievements: [], logo: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, image: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, skills: [], visibility: true, order })
 const blankEducation = (order) => ({ degree: '', institution: '', fieldOfStudy: '', image: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, startYear: new Date().getFullYear(), endYear: null, notes: '', credentialUrl: '', visibility: true, order })
 const blankResume = (order) => ({ title: '', description: '', fileUrl: '', previewUrl: '', storagePath: '', mediaProvider: '', fileName: '', sizeKB: 0, version: '1.0', notes: '', isActive: true, visibility: true, order })
@@ -252,18 +258,21 @@ function collectMedia(data) {
           const isResumeFile = type === 'resumes' && Boolean(value.fileUrl || value.previewUrl || value.storagePath)
           const isCoverLetterFile = type === 'experiences' && path === 'coverLetter' && Boolean(value.fileUrl || value.previewUrl || value.storagePath)
           const isPdfFile = isResumeFile || isCoverLetterFile
-          const isImage = type !== 'resumes' && Boolean(value.storagePath || value.url) && (value.mediaProvider === 'cloudinary' || /\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(value.url || '') || path.includes('Image') || path.includes('gallery') || path.endsWith('.logo'))
+          const isTechnologyLogo = type === 'projects' && path.startsWith('technologies.') && typeof value.logo === 'string' && Boolean(value.logo)
+          const isImage = type !== 'resumes' && (isTechnologyLogo || Boolean(value.storagePath || value.url) && (value.mediaProvider === 'cloudinary' || /\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(value.url || '') || path.includes('Image') || path.includes('gallery') || path.endsWith('.logo')))
           if (isPdfFile || isImage) {
-            const src = isPdfFile ? value.previewUrl || value.fileUrl : value.url
+            const src = isPdfFile ? value.previewUrl || value.fileUrl : isTechnologyLogo ? value.logo : value.url
             const key = value.storagePath || src
             if (key && src) {
               const asset = {
                 id: key,
+                storagePath: value.storagePath || '',
                 src,
                 fileName: value.fileName || value.caption || (isPdfFile ? (isCoverLetterFile ? 'Cover letter PDF' : 'Resume PDF') : 'Portfolio images'),
                 format: isPdfFile ? 'PDF' : String(value.format || src.split('.').pop().split(/[?#]/)[0] || 'IMAGE').toUpperCase(),
                 type,
                 record,
+                mediaProvider: value.mediaProvider || '',
                 version: version === 'published' && record.status === 'published' ? 'published' : 'draft',
                 isResumeFile,
                 isPdfFile,
@@ -278,6 +287,28 @@ function collectMedia(data) {
       }
     }
   }
+  for (const media of data.media || []) {
+    const key = media.storagePath || media.url || media.id
+    if (!key) continue
+    const attached = assets.get(key)
+    assets.set(key, {
+      ...(attached || {}),
+      id: key,
+      mediaId: media.id,
+      storagePath: media.storagePath || attached?.storagePath || '',
+      src: media.url || attached?.src || '',
+      fileName: media.fileName || attached?.fileName || 'Portfolio image',
+      format: String(media.mimeType || attached?.format || 'IMAGE').split('/').pop().toUpperCase(),
+      type: attached?.type || 'media',
+      record: attached?.record || null,
+      mediaProvider: media.mediaProvider || attached?.mediaProvider || '',
+      version: 'published',
+      isResumeFile: false,
+      isPdfFile: false,
+      title: attached?.title || (media.usedIn?.length ? media.usedIn[0] : 'Unused image'),
+      usedIn: media.usedIn || [],
+    })
+  }
   return [...assets.values()]
 }
 
@@ -289,7 +320,7 @@ function SummaryCard({ label, value, detail, icon: Icon }) {
   </article>
 }
 
-function ProjectManagement({ records, loading, error, onCreate, onEdit, onAction, onReorder, globalSearch, locationKey }) {
+function ProjectManagement({ records, loading, error, onCreate, onEdit, onAction, onReorder, isActionPending, globalSearch, locationKey }) {
   const [search, setSearch] = useState(() => globalSearch || new URLSearchParams(window.location.search).get('search') || '')
   const initialFilter = new URLSearchParams(window.location.search).get('filter')
   const [filter, setFilter] = useState(initialFilter === 'drafts' ? 'Drafts' : 'All Projects')
@@ -314,7 +345,7 @@ function ProjectManagement({ records, loading, error, onCreate, onEdit, onAction
   const shown = useMemo(() => {
     let result = records.filter((record) => {
       const content = record.draftData || {}
-      const terms = [content.title, content.synopsis, content.slug, content.category, ...(content.techStack || [])].join(' ').toLowerCase()
+      const terms = [content.title, content.synopsis, content.slug, content.category, ...projectTechnologies(content).map((tech) => tech.name)].join(' ').toLowerCase()
       const matchesSearch = terms.includes(search.trim().toLowerCase())
       const matchesFilter = filter === 'All Projects' || (filter === 'Published' && record.status === 'published') || (filter === 'Drafts' && record.status !== 'published') || (filter === 'Featured' && content.featured)
       return matchesSearch && matchesFilter && (category === 'All categories' || content.category === category)
@@ -356,12 +387,12 @@ function ProjectManagement({ records, loading, error, onCreate, onEdit, onAction
             <div className="p-3.5">
               <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate font-serif text-lg font-semibold leading-tight text-[#1b3028]">{content.title || 'Untitled project'}</h2><p className="mt-1 text-[9px] text-[#77796f]">{content.category || 'Portfolio project'}{content.timeline ? ` · ${content.timeline}` : ''}</p></div><button onClick={() => onReorder(record, -1)} disabled={sort !== 'Display order' || records.indexOf(record) === 0} className="grid size-7 shrink-0 place-items-center rounded-md border border-[#e9e3d8] text-[#737b70] hover:bg-[#f4f1e9] disabled:opacity-30" aria-label={`Move ${content.title || 'project'} up`} title="Move up in display order">↑</button></div>
               <p className="mt-2 line-clamp-2 min-h-8 text-[10px] leading-4 text-[#73766e]">{content.synopsis || content.executiveSummary || 'Add a short project summary.'}</p>
-              <div className="mt-2 flex min-h-5 flex-wrap gap-1">{(content.techStack || []).slice(0, 4).map((tech) => <span key={tech} className="rounded-full bg-[#f0f2ed] px-2 py-1 text-[8px] font-medium text-[#5c6b5f]">{tech}</span>)}</div>
+              <div className="mt-2 flex min-h-5 flex-wrap gap-1">{projectTechnologies(content).slice(0, 4).map((tech) => <span key={tech.id} className="rounded-full bg-[#f0f2ed] px-2 py-1 text-[8px] font-medium text-[#5c6b5f]">{tech.name}</span>)}</div>
               <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[#eee9df] pt-3">
                 <Button className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onEdit(record, true)}><Eye size={12} />Preview</Button>
                 <Button className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onEdit(record)}><Settings size={12} />Edit</Button>
-                {record.status === 'published' ? <Button className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('unpublish', record)}>Unpublish</Button> : <Button kind="publish" className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('publish', record)}><Check size={12} />Publish</Button>}
-                <Button kind="danger" className="ml-auto min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('delete', record)} aria-label={`Delete ${content.title || 'project'}`}><Trash2 size={12} /></Button>
+                {record.status === 'published' ? <Button disabled={isActionPending(record.type, record.id)} className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('unpublish', record)}>Unpublish</Button> : <Button disabled={isActionPending(record.type, record.id)} kind="publish" className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('publish', record)}><Check size={12} />Publish</Button>}
+                <Button disabled={isActionPending(record.type, record.id)} kind="danger" className="ml-auto min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('delete', record)} aria-label={`Delete ${content.title || 'project'}`}><Trash2 size={12} /></Button>
               </div>
             </div>
           </article>
@@ -371,7 +402,7 @@ function ProjectManagement({ records, loading, error, onCreate, onEdit, onAction
   </>
 }
 
-function BackgroundManager({ data, loading, error, onCreate, onEdit, onAction, onReorder }) {
+function BackgroundManager({ data, loading, error, onCreate, onEdit, onAction, onReorder, isActionPending }) {
   const [tab, setTab] = useState('Work Experience')
   const experiences = data.experiences || []
   const education = data.education || []
@@ -397,7 +428,7 @@ function BackgroundManager({ data, loading, error, onCreate, onEdit, onAction, o
   </>
 }
 
-function ContentList({ type, records = [], loading, error, onEdit, onCreate, onAction, onReorder }) {
+function ContentList({ type, records = [], loading, error, onEdit, onCreate, onAction, onReorder, isActionPending }) {
   const shown = records
   const isExperience = type === 'experiences'
   const createLabel = isExperience ? 'Add Experience' : 'Add Education'
@@ -434,8 +465,8 @@ function ContentList({ type, records = [], loading, error, onEdit, onCreate, onA
             <Button className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onEdit(record)}><Settings size={12} />Edit</Button>
             <Button className="min-h-8 rounded-md px-2 text-[9px]" onClick={() => onReorder(record, -1)} disabled={index === 0} aria-label="Move entry up">↑</Button>
             <Button className="min-h-8 rounded-md px-2 text-[9px]" onClick={() => onReorder(record, 1)} disabled={index === shown.length - 1} aria-label="Move entry down">↓</Button>
-            {record.status === 'published' ? <Button className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('unpublish', record)}>Unpublish</Button> : <Button kind="publish" className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('publish', record)}><Check size={12} />Publish</Button>}
-            <Button kind="danger" className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('delete', record)} aria-label={`Delete ${title}`}><Trash2 size={12} /></Button>
+            {record.status === 'published' ? <Button disabled={isActionPending(record.type, record.id)} className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('unpublish', record)}>Unpublish</Button> : <Button disabled={isActionPending(record.type, record.id)} kind="publish" className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('publish', record)}><Check size={12} />Publish</Button>}
+            <Button disabled={isActionPending(record.type, record.id)} kind="danger" className="min-h-8 rounded-md px-2.5 text-[9px]" onClick={() => onAction('delete', record)} aria-label={`Delete ${title}`}><Trash2 size={12} /></Button>
           </div>
         </div>
       </article>
@@ -443,38 +474,72 @@ function ContentList({ type, records = [], loading, error, onEdit, onCreate, onA
   </>
 }
 
-function MediaUpload({ kind = 'image', onComplete, disabled, buttonLabel }) {
+function MediaUpload({ kind = 'image', onComplete, disabled, buttonLabel, onUploadingChange }) {
   const [progress, setProgress] = useState(-1)
   const [error, setError] = useState('')
   const upload = async (file) => {
     if (!file) return
     setProgress(0); setError('')
+    onUploadingChange?.(true)
     try { const result = await uploadMedia(file, kind, setProgress); onComplete(result) }
     catch (cause) { setError(cause.message || 'Upload failed.') }
-    finally { setProgress(-1) }
+    finally { setProgress(-1); onUploadingChange?.(false) }
   }
   const isPdf = kind === 'resume' || kind === 'cover-letter'
   const buttonText = buttonLabel || (kind === 'cover-letter' ? 'Choose PDF' : kind === 'resume' ? 'Upload PDF' : 'Upload image')
   return <div className="flex flex-wrap items-center gap-3"><label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-forest/15 bg-white px-4 text-sm font-semibold hover:bg-forest/5"><Upload size={15} />{progress >= 0 ? `Uploading ${progress}%` : buttonText}<input className="sr-only" type="file" accept={isPdf ? 'application/pdf,.pdf' : 'image/jpeg,image/png,image/webp'} disabled={disabled || progress >= 0} onChange={(event) => { upload(event.target.files?.[0]); event.target.value = '' }} /></label>{progress >= 0 && <progress className="w-32 accent-forest" max="100" value={progress} aria-label="Upload progress" />}{error && <span className="text-xs text-red-700" role="alert">{error}</span>}</div>
 }
 
-function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = false }) {
+function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = false, existingMedia = [] }) {
   const [saving, setSaving] = useState(false)
-  const [content, setContent] = useState(() => structuredClone(record?.draftData || (type === 'projects' ? blankProject() : type === 'experiences' ? blankExperience(Date.now()) : type === 'education' ? blankEducation(Date.now()) : blankResume(Date.now()))))
+  const [content, setContent] = useState(() => {
+    const initial = structuredClone(record?.draftData || (type === 'projects' ? blankProject() : type === 'experiences' ? blankExperience(Date.now()) : type === 'education' ? blankEducation(Date.now()) : blankResume(Date.now())))
+    return type === 'projects' ? normalizeProjectDraft(initial) : initial
+  })
   const [currentRecord, setCurrentRecord] = useState(record)
   const [preview, setPreview] = useState(initialPreview)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [technologyErrors, setTechnologyErrors] = useState({})
+  const [technologyUploads, setTechnologyUploads] = useState({})
   const set = (key, value) => setContent((old) => ({ ...old, [key]: value }))
+  const setTechnology = (id, changes) => setContent((old) => ({
+    ...old,
+    technologies: (old.technologies || []).map((technology) => technology.id === id ? { ...technology, ...changes } : technology),
+  }))
+  const validateTechnologies = () => {
+    if (type !== 'projects') return true
+    const rows = content.technologies || []
+    const nameCounts = new Map()
+    for (const row of rows) {
+      const key = (row.name || '').trim().toLowerCase()
+      if (key) nameCounts.set(key, (nameCounts.get(key) || 0) + 1)
+    }
+    const nextErrors = Object.fromEntries(rows.flatMap((row) => {
+      const name = (row.name || '').trim()
+      if (!name) return [[row.id, 'Enter a technology name or remove this entry.']]
+      if (nameCounts.get(name.toLowerCase()) > 1) return [[row.id, 'Technology names must be unique.']]
+      return []
+    }))
+    setTechnologyErrors(nextErrors)
+    if (Object.keys(nextErrors).length) {
+      setError('Review the technology entries: each needs a name and names must be unique.')
+      return false
+    }
+    return true
+  }
+  const hasTechnologyUpload = Object.values(technologyUploads).some(Boolean)
   const legacyEducationQualification = type === 'education' && content.degree && !educationQualifications.includes(content.degree)
     ? content.degree
     : ''
   const save = async () => {
+    if (!validateTechnologies()) return
+    if (hasTechnologyUpload) { setError('Wait for technology logo uploads to finish before saving.'); return }
     setSaving(true); setError(''); setNotice('')
     try {
       const next = currentRecord ? await adminApi.save(type, currentRecord.id, content, currentRecord.revision) : await adminApi.create(type, content)
       setCurrentRecord(next)
-      if (next?.draftData) setContent(structuredClone(next.draftData))
+      if (next?.draftData) setContent(type === 'projects' ? normalizeProjectDraft(next.draftData) : structuredClone(next.draftData))
       setNotice('Draft saved. It is not public until you publish it.')
       onSaved(next)
     } catch (cause) {
@@ -484,6 +549,8 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
     finally { setSaving(false) }
   }
   const publish = async () => {
+    if (!validateTechnologies()) return
+    if (hasTechnologyUpload) { setError('Wait for technology logo uploads to finish before publishing.'); return }
     setSaving(true); setError(''); setNotice('')
     try {
       const saved = currentRecord ? (JSON.stringify(content) === JSON.stringify(currentRecord.draftData) ? currentRecord : await adminApi.save(type, currentRecord.id, content, currentRecord.revision)) : await adminApi.create(type, content)
@@ -534,7 +601,51 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
           <Field label="Technical highlights (one per line)"><Textarea value={lineValue(content.technicalHighlights?.map((item) => item.title))} onChange={(event) => set('technicalHighlights', lines(event.target.value).map((title) => ({ title, description: '', tags: [] })))} /></Field>
           <Field label="Implementation process"><Textarea value={content.methodology} onChange={(event) => set('methodology', event.target.value)} /></Field><Field label="Impact and outcomes"><Textarea value={content.leadership} onChange={(event) => set('leadership', event.target.value)} /></Field>
           <Field label="Outcome metrics (label | value | description, one per line)"><Textarea value={lineValue(content.metrics?.map((metric) => [metric.label, metric.value, metric.description].filter(Boolean).join(' | ')))} onChange={(event) => set('metrics', lines(event.target.value).map((row) => { const [label, value, description = ''] = row.split('|').map((part) => part.trim()); return { label, value, unit: '', description } }).filter((metric) => metric.label && metric.value))} /></Field>
-          <Field label="Technologies (comma separated)"><Input value={csvValue(content.techStack)} onChange={(event) => set('techStack', csv(event.target.value))} /></Field>
+          <section className="space-y-3 rounded-xl border border-[#e4dfd4] bg-[#fbfaf5] p-4 sm:col-span-2 sm:p-5" aria-labelledby="project-technologies-heading">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 id="project-technologies-heading" className="text-sm font-semibold text-[#34473d]">Project Technologies</h3>
+                <p className="mt-1 text-[10px] leading-5 text-[#77796f]">Add a name and optional logo for each technology. Logos are saved with the project.</p>
+              </div>
+              <Button type="button" className="min-h-9 rounded-lg px-3 text-[10px]" onClick={() => set('technologies', [...(content.technologies || []), newTechnology()])} disabled={saving}>
+                <Plus size={13} />Add Technology
+              </Button>
+            </div>
+            {content.technologies?.length ? <div className="space-y-2.5">
+              {content.technologies.map((technology, index) => (
+                <div key={technology.id} className="grid gap-3 rounded-lg border border-[#e8e2d7] bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,.85fr)_auto] sm:items-center">
+                  <div className="grid gap-2">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold text-[#5f6d60]" htmlFor={`technology-name-${technology.id}`}>Technology {index + 1} name</label>
+                      <Input id={`technology-name-${technology.id}`} maxLength={60} value={technology.name} aria-invalid={Boolean(technologyErrors[technology.id])} aria-describedby={technologyErrors[technology.id] ? `technology-error-${technology.id}` : undefined} onChange={(event) => { setTechnology(technology.id, { name: event.target.value }); setTechnologyErrors((old) => ({ ...old, [technology.id]: '' })) }} placeholder="e.g. React" />
+                      {technologyErrors[technology.id] && <p id={`technology-error-${technology.id}`} role="alert" className="mt-1 text-[10px] text-red-700">{technologyErrors[technology.id]}</p>}
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-semibold text-[#5f6d60]" htmlFor={`technology-subtitle-${technology.id}`}>Technology {index + 1} subtitle</label>
+                      <Input id={`technology-subtitle-${technology.id}`} maxLength={120} value={technology.subtitle || ''} onChange={(event) => setTechnology(technology.id, { subtitle: event.target.value })} placeholder="e.g. Web Frontend" />
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="mb-1 text-[10px] font-semibold text-[#5f6d60]">Technology {index + 1} logo</p>
+                    <div className="flex min-w-0 items-start gap-3">
+                      {technology.logo ? <img src={technology.logo} alt={`${technology.name || `Technology ${index + 1}`} logo preview`} className="size-12 shrink-0 rounded-lg border border-[#e8e2d7] bg-[#fbfaf5] object-contain p-1.5" /> : <span className="grid size-12 shrink-0 place-items-center rounded-lg border border-dashed border-[#d7d3c9] bg-[#fbfaf5] text-[9px] font-semibold text-[#899084]">Preview</span>}
+                      <div className="min-w-0 flex-1">
+                        <MediaUpload buttonLabel={technology.logo ? 'Replace logo' : 'Upload logo'} disabled={saving} onComplete={(media) => setTechnology(technology.id, { logo: media.url, storagePath: media.storagePath || '', mediaProvider: media.mediaProvider || '' })} onUploadingChange={(uploading) => setTechnologyUploads((old) => ({ ...old, [technology.id]: uploading }))} />
+                        {existingMedia.length > 0 && <label className="mt-2 block min-w-0 text-[9px] font-semibold text-[#687468]">
+                          <span className="mb-1 block">Or choose an existing logo</span>
+                          <select className="min-h-8 w-full rounded-md border border-[#e7e2d9] bg-white px-2 text-[10px] font-normal" value={existingMedia.find((asset) => asset.storagePath && asset.storagePath === technology.storagePath || asset.src === technology.logo)?.id || ''} onChange={(event) => { const asset = existingMedia.find((entry) => entry.id === event.target.value); if (asset) setTechnology(technology.id, { logo: asset.src, storagePath: asset.storagePath || '', mediaProvider: asset.mediaProvider || '' }) }}>
+                            <option value="">Choose existing image…</option>
+                            {existingMedia.map((asset) => <option key={asset.id} value={asset.id}>{asset.title} · {asset.fileName}</option>)}
+                          </select>
+                        </label>}
+                      </div>
+                    </div>
+                  </div>
+                  <Button type="button" kind="danger" className="min-h-9 justify-center rounded-lg px-3 text-[10px] sm:justify-self-end" onClick={() => { set('technologies', content.technologies.filter((entry) => entry.id !== technology.id)); setTechnologyErrors((old) => { const next = { ...old }; delete next[technology.id]; return next }); setTechnologyUploads((old) => { const next = { ...old }; delete next[technology.id]; return next }) }} disabled={saving} aria-label={`Remove technology ${technology.name || index + 1}`}><Trash2 size={13} />Remove</Button>
+                </div>
+              ))}
+            </div> : <p className="rounded-lg border border-dashed border-[#ddd8cd] bg-white px-3 py-4 text-center text-[10px] text-[#77796f]">No technologies added yet.</p>}
+          </section>
           <Field label="GitHub URL"><Input type="url" value={content.links.github} onChange={(event) => set('links', { ...content.links, github: event.target.value })} /></Field>
           <Field label="Live demo URL"><Input type="url" value={content.links.live} onChange={(event) => set('links', { ...content.links, live: event.target.value })} /></Field>
           <Field label="Figma URL"><Input type="url" value={content.links.figma} onChange={(event) => set('links', { ...content.links, figma: event.target.value })} /></Field>
@@ -575,14 +686,14 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
           <Field label="Optional description"><Textarea value={content.description} onChange={(event) => set('description', event.target.value)} /></Field><Field label="Download file name"><Input value={content.fileName} onChange={(event) => set('fileName', event.target.value)} /></Field>
           <label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(content.isActive)} onChange={(event) => set('isActive', event.target.checked)} />Make this the active public resume when published</label>
         </>}
-        <div className="sm:col-span-2 flex flex-wrap justify-between gap-3 border-t border-forest/10 pt-5"><Button type="button" onClick={() => setPreview(true)}><Eye size={15} />Preview</Button><div className="flex flex-wrap gap-2"><Button disabled={saving || (type === 'resumes' && !content.storagePath)} type="submit"><Save size={15} />{saving ? 'Saving…' : 'Save Draft'}</Button><Button type="button" kind="publish" disabled={saving || (type === 'resumes' && !content.storagePath)} onClick={publish}><Check size={15} />{saving ? 'Publishing…' : 'Publish'}</Button></div></div>
+        <div className="sm:col-span-2 flex flex-wrap justify-between gap-3 border-t border-forest/10 pt-5"><Button type="button" onClick={() => setPreview(true)}><Eye size={15} />Preview</Button><div className="flex flex-wrap gap-2"><Button disabled={saving || hasTechnologyUpload || (type === 'resumes' && !content.storagePath)} type="submit"><Save size={15} />{saving ? 'Saving…' : 'Save Draft'}</Button><Button type="button" kind="publish" disabled={saving || hasTechnologyUpload || (type === 'resumes' && !content.storagePath)} onClick={publish}><Check size={15} />{saving ? 'Publishing…' : 'Publish'}</Button></div></div>
       </form>
     </div>
     {preview && <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#f3f2eb]" role="dialog" aria-modal="true" aria-label="Content preview"><div className="sticky top-0 z-10 flex min-h-14 items-center justify-between bg-[#fbfaf5]/95 px-4"><span className="font-semibold">Preview · {title}</span><Button onClick={() => setPreview(false)}><X size={16} />Close preview</Button></div>{type === 'projects' ? <PortfolioProfileProvider value={profile}><ProjectDetailsPage project={projectView} /></PortfolioProfileProvider> : type === 'resumes' ? <div className="mx-auto max-w-4xl p-5"><h2 className="mb-3 font-display text-2xl">{content.title || content.fileName}</h2>{content.previewUrl ? <iframe className="h-[80vh] w-full rounded-xl border bg-white" src={content.previewUrl} title="Resume preview" /> : <p>Upload a PDF to preview it.</p>}</div> : <section className="mx-auto my-12 max-w-4xl rounded-2xl bg-soft-green p-8 sm:p-12"><p className="mb-8 text-xs font-bold uppercase tracking-widest">{type === 'education' ? 'Education' : 'Experience'}</p><BackgroundTimeline items={[backgroundView]} />{type === 'experiences' && content.coverLetter?.previewUrl && <div className="mt-10 border-t border-forest/10 pt-6"><h2 className="mb-3 font-display text-lg font-semibold text-forest">Cover letter PDF preview</h2><iframe className="h-[min(65vh,720px)] min-h-80 w-full rounded-xl border border-forest/10 bg-white" src={content.coverLetter.previewUrl} title={`Cover letter PDF preview: ${content.coverLetter.fileName}`} /></div>}</section>}</div>}
   </div>
 }
 
-function ResumeManager({ records = [], loading, error, onEdit, onCreate, onAction }) {
+function ResumeManager({ records = [], loading, error, onEdit, onCreate, onAction, isActionPending }) {
   const active = records.find((item) => item.status === 'published' && item.publishedData?.isActive)
   const [selectedId, setSelectedId] = useState('')
   const selected = records.find((item) => item.id === selectedId) || active || records[0]
@@ -617,8 +728,8 @@ function ResumeManager({ records = [], loading, error, onEdit, onCreate, onActio
               <button onClick={() => setSelectedId(record.id)} className="min-w-0 flex-1 text-left"><span className="block truncate text-[10px] font-semibold text-[#34473d]">{content.title || content.fileName || 'Resume version'}</span><span className="mt-0.5 block text-[8px] text-[#81847b]">v{content.version || '1.0'} · {content.fileName || 'PDF'}{isActive ? ' · Active' : ''}</span></button>
               <span className={`rounded-full px-2 py-1 text-[8px] font-semibold ${badgeStyle(record)}`}>{badge(record)}</span>
               <button onClick={() => onEdit(record)} aria-label={`Edit ${content.title || 'resume'}`} className="grid size-7 place-items-center rounded-md border border-[#e9e3d8] text-[#627267] hover:bg-[#f4f1e9]"><Settings size={12} /></button>
-              {record.status === 'published' ? <button onClick={() => onAction('unpublish', record)} className="grid size-7 place-items-center rounded-md border border-[#e9e3d8] text-[#627267] hover:bg-[#f4f1e9]" aria-label="Unpublish resume"><X size={12} /></button> : <button onClick={() => onAction('publish', record)} className="grid size-7 place-items-center rounded-md border border-[#cddbcf] bg-[#edf4ed] text-[#476a58] hover:bg-[#dfeadf]" aria-label="Publish resume"><Check size={12} /></button>}
-              <button onClick={() => onAction('delete', record)} className="grid size-7 place-items-center rounded-md border border-[#f0d8d2] text-[#a34f41] hover:bg-[#fff3f0]" aria-label="Delete resume"><Trash2 size={12} /></button>
+              {record.status === 'published' ? <button disabled={isActionPending(record.type, record.id)} onClick={() => onAction('unpublish', record)} className="grid size-7 place-items-center rounded-md border border-[#e9e3d8] text-[#627267] hover:bg-[#f4f1e9] disabled:opacity-50" aria-label="Unpublish resume"><X size={12} /></button> : <button disabled={isActionPending(record.type, record.id)} onClick={() => onAction('publish', record)} className="grid size-7 place-items-center rounded-md border border-[#cddbcf] bg-[#edf4ed] text-[#476a58] hover:bg-[#dfeadf] disabled:opacity-50" aria-label="Publish resume"><Check size={12} /></button>}
+              <button disabled={isActionPending(record.type, record.id)} onClick={() => onAction('delete', record)} className="grid size-7 place-items-center rounded-md border border-[#f0d8d2] text-[#a34f41] hover:bg-[#fff3f0] disabled:opacity-50" aria-label="Delete resume"><Trash2 size={12} /></button>
             </div>
           })}</div>}
         </section>
@@ -631,7 +742,7 @@ function ResumeManager({ records = [], loading, error, onEdit, onCreate, onActio
   </>
 }
 
-function MediaLibrary({ data, loading, error, onCreateProject, onEdit }) {
+function MediaLibrary({ data, loading, error, onCreateProject, onEdit, onDeleteMedia, isMediaActionPending }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All assets')
   const assets = useMemo(() => collectMedia(data), [data])
@@ -641,7 +752,7 @@ function MediaLibrary({ data, loading, error, onCreateProject, onEdit }) {
   })
   return <>
     <PageTitle eyebrow="PORTFOLIO ASSETS" title="Media Library" description="Browse the images and documents attached to your portfolio records." action={<Button kind="primary" onClick={onCreateProject}><Plus size={14} />Add project images</Button>} />
-    <p className="mb-4 rounded-lg border border-[#e9e3d8] bg-[#fffefa] px-4 py-3 text-[10px] leading-5 text-[#6d746b]">Assets are stored with the project, experience, or resume that uses them. Edit the source record to replace or remove an asset.</p>
+    <p className="mb-4 rounded-lg border border-[#e9e3d8] bg-[#fffefa] px-4 py-3 text-[10px] leading-5 text-[#6d746b]">Assets used by portfolio records stay protected. Unused uploaded images can be removed here; use Edit source to replace or detach an image in a record.</p>
     <div className="mb-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="All Assets" value={error ? '—' : assets.length} detail={error ? 'Portfolio data unavailable' : 'Unique stored media'} icon={Image} /><SummaryCard label="Images" value={error ? '—' : assets.filter((asset) => !asset.isPdfFile).length} detail={error ? 'Portfolio data unavailable' : 'Project and experience images'} icon={FolderKanban} /><SummaryCard label="PDF Documents" value={error ? '—' : assets.filter((asset) => asset.isPdfFile).length} detail={error ? 'Portfolio data unavailable' : 'Resume and cover letter PDFs'} icon={FileText} /></div>
     <div className="overflow-hidden rounded-xl border border-[#e9e3d8] bg-[#fffefa] shadow-[0_2px_8px_rgba(52,45,32,.04)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eee9df] px-3 py-2.5">
@@ -653,7 +764,7 @@ function MediaLibrary({ data, loading, error, onCreateProject, onEdit }) {
          <div className="relative aspect-[4/3] overflow-hidden bg-[#e6ebe6]">{asset.isPdfFile ? <div className="grid h-full place-items-center text-[#64766a]"><FileText size={32} /><span className="mt-2 text-[9px] font-semibold tracking-wide">PDF DOCUMENT</span></div> : <img src={asset.src} alt={asset.fileName} className="h-full w-full object-cover" />}
           <span className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[8px] font-bold ${asset.version === 'published' ? 'bg-[#e5efe5] text-[#45654d]' : 'bg-[#f1eadb] text-[#806748]'}`}>{asset.version === 'published' ? 'Published' : 'Private draft'}</span>
         </div>
-        <div className="p-3"><p className="truncate text-[10px] font-semibold text-[#34473d]">{asset.fileName}</p><p className="mt-1 truncate text-[9px] text-[#81847b]">{asset.title} · {asset.type === 'projects' ? 'Project' : asset.type === 'experiences' ? 'Experience' : asset.type === 'education' ? 'Education' : 'Resume'} · {asset.format}</p><div className="mt-3 flex gap-1.5"><a href={asset.src} target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#e9e3d8] px-2.5 text-[9px] font-semibold text-[#5e6a60] hover:bg-[#f4f1e9]"><ExternalLink size={11} />Preview</a><button onClick={() => onEdit(asset.type, asset.record)} className="inline-flex min-h-7 items-center gap-1 rounded-md bg-[#315746] px-2.5 text-[9px] font-semibold text-white hover:bg-[#244b3a]">Edit source</button></div></div>
+        <div className="p-3"><p className="truncate text-[10px] font-semibold text-[#34473d]">{asset.fileName}</p><p className="mt-1 truncate text-[9px] text-[#81847b]">{asset.title} · {asset.type === 'projects' ? 'Project' : asset.type === 'experiences' ? 'Experience' : asset.type === 'education' ? 'Education' : asset.type === 'resumes' ? 'Resume' : 'Media'} · {asset.format}</p><div className="mt-3 flex flex-wrap gap-1.5"><a href={asset.src} target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#e9e3d8] px-2.5 text-[9px] font-semibold text-[#5e6a60] hover:bg-[#f4f1e9]"><ExternalLink size={11} />Preview</a>{asset.record && <button onClick={() => onEdit(asset.type, asset.record)} className="inline-flex min-h-7 items-center gap-1 rounded-md bg-[#315746] px-2.5 text-[9px] font-semibold text-white hover:bg-[#244b3a]">Edit source</button>}{asset.mediaId && <button disabled={asset.usedIn?.length > 0 || isMediaActionPending(asset.mediaId)} onClick={() => onDeleteMedia(asset)} className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#f0d8d2] px-2.5 text-[9px] font-semibold text-[#a34f41] hover:bg-[#fff3f0] disabled:cursor-not-allowed disabled:opacity-50" title={asset.usedIn?.length ? `Used in ${asset.usedIn.join(', ')}` : 'Delete unused image'}><Trash2 size={11} />{asset.usedIn?.length ? 'In use' : 'Delete'}</button>}</div></div>
       </article>)}</div>}
     </div>
   </>
@@ -730,26 +841,34 @@ function Workspace({ onLogout }) {
   const [route, setRoute] = useState(readRoute)
   const [locationKey, setLocationKey] = useState(window.location.search)
   const [projectSearch, setProjectSearch] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
-  const [data, setData] = useState({ projects: [], experiences: [], education: [], resumes: [] })
+  const [data, setData] = useState({ projects: [], experiences: [], education: [], resumes: [], media: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [editor, setEditor] = useState(null)
+  const [pendingActions, setPendingActions] = useState(new Set())
+  const actionLocks = useRef(new Set())
+  const refreshSequence = useRef(0)
   const status = useAdminApiStatus()
+  const existingMedia = useMemo(() => collectMedia(data).filter((asset) => !asset.isPdfFile), [data])
   const navigate = useCallback((path) => {
     window.history.pushState({}, '', routeFor(path))
     window.dispatchEvent(new PopStateEvent('popstate'))
   }, [])
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current
     setLoading(true)
     setError('')
     try {
-      const entries = await Promise.all(contentTypes.map(async (type) => [type, await adminApi.list(type)]))
-      setData(Object.fromEntries(entries))
+      const [entries, media] = await Promise.all([
+        Promise.all(contentTypes.map(async (type) => [type, await adminApi.list(type)])),
+        adminApi.listMedia(),
+      ])
+      if (sequence === refreshSequence.current) setData({ ...Object.fromEntries(entries), media })
     } catch (cause) {
-      setError(displayAdminError(cause, 'Could not load portfolio content.'))
+      if (sequence === refreshSequence.current) setError(displayAdminError(cause, 'Could not load portfolio content.'))
     } finally {
-      setLoading(false)
+      if (sequence === refreshSequence.current) setLoading(false)
     }
   }, [])
   useEffect(() => { refresh(); checkAdminApiHealth() }, [refresh])
@@ -770,18 +889,61 @@ function Workspace({ onLogout }) {
   }, [editor])
   const notify = (message) => { setNotice(message); setTimeout(() => setNotice(''), 4500) }
   const editRecord = (type, record = null, initialPreview = false) => setEditor({ type, record, initialPreview })
+  const setActionPending = (key, pending) => {
+    setPendingActions((current) => {
+      const next = new Set(current)
+      if (pending) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
+  const isActionPending = (type, id) => pendingActions.has(`${type}:${id}`)
+  const isMediaActionPending = (id) => pendingActions.has(`media:${id}`)
   const action = async (name, record) => {
+    const key = `${record.type}:${record.id}`
+    if (actionLocks.current.has(key)) return
+    actionLocks.current.add(key)
+    setActionPending(key, true)
     const title = record.draftData?.title || record.draftData?.role || record.draftData?.degree || record.draftData?.fileName || 'this item'
-    if (name === 'delete' && !window.confirm(`Delete “${title}”? This removes it from the local portfolio preview immediately and cannot be undone.`)) return
-    if (name === 'unpublish' && !window.confirm('Unpublish this item? It will no longer appear in the local portfolio preview.')) return
+    if (name === 'delete' && !window.confirm(`Delete “${title}”? This removes it from the local portfolio preview immediately and cannot be undone.`)) {
+      actionLocks.current.delete(key)
+      setActionPending(key, false)
+      return
+    }
+    if (name === 'unpublish' && !window.confirm('Unpublish this item? It will no longer appear in the local portfolio preview.')) {
+      actionLocks.current.delete(key)
+      setActionPending(key, false)
+      return
+    }
     try {
       if (name === 'publish') { await adminApi.publish(record.type, record.id, record.revision); notify('Content published to the local portfolio preview. This does not update the live website.') }
-      if (name === 'unpublish') { await adminApi.unpublish(record.type, record.id); notify('Content unpublished from the local portfolio preview.') }
+      if (name === 'unpublish') { await adminApi.unpublish(record.type, record.id, record.revision); notify('Content unpublished from the local portfolio preview.') }
       if (name === 'delete') { await adminApi.delete(record.type, record.id); notify('Content deleted.') }
       await refresh()
     } catch (cause) {
       console.error(`[Portfolio Admin] Failed to ${name} ${record.type} record ${record.id}.`, cause)
       setError(displayAdminError(cause, 'This action could not be completed.'))
+    } finally {
+      actionLocks.current.delete(key)
+      setActionPending(key, false)
+    }
+  }
+  const deleteMedia = async (asset) => {
+    const key = `media:${asset.mediaId}`
+    if (!asset.mediaId || asset.usedIn?.length || actionLocks.current.has(key)) return
+    if (!window.confirm(`Delete unused image “${asset.fileName}”? This permanently removes its stored file.`)) return
+    actionLocks.current.add(key)
+    setActionPending(key, true)
+    try {
+      await adminApi.deleteMedia(asset.mediaId)
+      await refresh()
+      notify('Unused media deleted.')
+    } catch (cause) {
+      console.error(`[Portfolio Admin] Failed to delete media ${asset.mediaId}.`, cause)
+      setError(displayAdminError(cause, 'This media file could not be deleted.'))
+    } finally {
+      actionLocks.current.delete(key)
+      setActionPending(key, false)
     }
   }
   const reorder = async (type, record, delta) => {
@@ -799,15 +961,15 @@ function Workspace({ onLogout }) {
 
   let content
   if (route === 'Dashboard') content = <DashboardPage data={data} loading={loading} error={error} status={status} onNavigate={navigate} onCreateProject={() => editRecord('projects')} onCreateExperience={() => editRecord('experiences')} onCreateEducation={() => editRecord('education')} onCreateResume={() => editRecord('resumes')} />
-  else if (route === 'Background Management') content = <BackgroundManager data={data} loading={loading} error={error} onCreate={(type) => editRecord(type)} onEdit={(record, initialPreview = false) => editRecord(record.type, record, initialPreview)} onAction={action} onReorder={(record, delta) => reorder(record.type, record, delta)} />
-  else if (route === 'Projects Management') content = <ProjectManagement records={data.projects} loading={loading} error={error} onCreate={() => editRecord('projects')} onEdit={(record, initialPreview = false) => editRecord('projects', record, initialPreview)} onAction={action} onReorder={(record, delta) => reorder('projects', record, delta)} globalSearch={projectSearch} locationKey={locationKey} />
-  else if (route === 'Resume Management') content = <ResumeManager records={data.resumes} loading={loading} error={error} onCreate={() => editRecord('resumes')} onEdit={(record, initialPreview = false) => editRecord('resumes', record, initialPreview)} onAction={action} />
-  else if (route === 'Media Library') content = <MediaLibrary data={data} loading={loading} error={error} onCreateProject={() => editRecord('projects')} onEdit={(type, record) => editRecord(type, record)} />
+  else if (route === 'Background Management') content = <BackgroundManager data={data} loading={loading} error={error} onCreate={(type) => editRecord(type)} onEdit={(record, initialPreview = false) => editRecord(record.type, record, initialPreview)} onAction={action} isActionPending={isActionPending} onReorder={(record, delta) => reorder(record.type, record, delta)} />
+  else if (route === 'Projects Management') content = <ProjectManagement records={data.projects} loading={loading} error={error} onCreate={() => editRecord('projects')} onEdit={(record, initialPreview = false) => editRecord('projects', record, initialPreview)} onAction={action} isActionPending={isActionPending} onReorder={(record, delta) => reorder('projects', record, delta)} globalSearch={projectSearch} locationKey={locationKey} />
+  else if (route === 'Resume Management') content = <ResumeManager records={data.resumes} loading={loading} error={error} onCreate={() => editRecord('resumes')} onEdit={(record, initialPreview = false) => editRecord('resumes', record, initialPreview)} onAction={action} isActionPending={isActionPending} />
+  else if (route === 'Media Library') content = <MediaLibrary data={data} loading={loading} error={error} onCreateProject={() => editRecord('projects')} onEdit={(type, record) => editRecord(type, record)} onDeleteMedia={deleteMedia} isMediaActionPending={isMediaActionPending} />
   else content = <SettingsPage projects={data.projects} />
   return <AdminShell active={route} onLogout={onLogout} onNavigate={navigate} projectSearch={projectSearch} onProjectSearchChange={setProjectSearch}>
     <Notice message={notice} />
     {content}
-    {editor && <EditDialog key={`${editor.type}-${editor.record?.id || 'new'}-${editor.initialPreview ? 'preview' : 'edit'}`} type={editor.type} record={editor.record} initialPreview={editor.initialPreview} notify={notify} onClose={() => setEditor(null)} onSaved={refresh} />}
+    {editor && <EditDialog key={`${editor.type}-${editor.record?.id || 'new'}-${editor.initialPreview ? 'preview' : 'edit'}`} type={editor.type} record={editor.record} initialPreview={editor.initialPreview} existingMedia={existingMedia} notify={notify} onClose={() => setEditor(null)} onSaved={refresh} />}
   </AdminShell>
 }
 

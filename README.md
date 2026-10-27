@@ -27,6 +27,12 @@ The file-backed provider is intentionally not used in production. A production V
 
 Cover letter uploads currently use the local disk provider, so they preview and publish only in the local development site. No production upload or publishing environment variables are configured; live cover letters require a persistent production content API and file storage binding before deployment.
 
+### Production CMS configuration still required
+
+This repository has no deployable `/api` handlers or `netlify.toml`; `netlify/functions/` is empty. The checked-in Firestore rules deny all client access and expect a server using the Firebase Admin SDK, but that server, its service credentials, and a production media bucket are not configured. The browser admin intentionally returns `503` outside Vite development.
+
+Before enabling live editing, deploy authenticated server handlers for the public reads and admin create, edit, publish, unpublish, delete, reorder, settings, and media routes. Those handlers must verify Firebase ID tokens and an admin UID allowlist, persist revisioned content, and store uploads in durable object storage. For the existing Firestore plan, this requires a Netlify Functions configuration, the Firebase Admin SDK, server-only Firebase service-account environment variables, and a configured Firebase Storage bucket with access rules. Keep service credentials out of `VITE_*` variables. Until those pieces exist, live CMS publishing and media uploads cannot be enabled or verified from this repository.
+
 Existing Firestore/Cloudinary or previously deployed Cloudflare content is not imported, overwritten, or deleted by this local provider. `.local-cms/content.json` was preserved during this change; its current collections are empty. Production data remains in its existing provider and requires a separately planned, access-authorized migration before changing the production read/write source.
 
 The local Vite server continues to use the project's current port, `5173`. It has no production storage bindings or deployment secrets to configure.

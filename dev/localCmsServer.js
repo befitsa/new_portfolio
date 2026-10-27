@@ -6,6 +6,7 @@ import { contentSchemas, parseContent, siteSettingsSchema } from '../src/lib/db/
 import { isValidPdfDocument } from '../src/lib/db/pdfValidation.js'
 
 const COLLECTIONS = Object.keys(contentSchemas)
+const MEDIA_COLLECTION = 'media'
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024
 const MAX_PDF_BYTES = 5 * 1024 * 1024
 const JSON_LIMIT = 2 * 1024 * 1024
@@ -221,7 +222,13 @@ export function createLocalCmsStore(dataDirectory) {
     for (const view of ['drafts', 'published']) {
       for (const project of current[view].projects) {
         if (project.status === 'deleted') continue
-        if (project.heroImage?.storagePath === storagePath || project.gallery?.some((asset) => asset.storagePath === storagePath)) {
+        const technologyUses = (project.technologies || []).some((technology) => technology.storagePath === storagePath)
+        if (
+          project.thumbnailImage?.storagePath === storagePath
+          || project.heroImage?.storagePath === storagePath
+          || project.gallery?.some((asset) => asset.storagePath === storagePath)
+          || technologyUses
+        ) {
           usedIn.add(project.title || project.slug || 'Project')
         }
       }
@@ -231,6 +238,14 @@ export function createLocalCmsStore(dataDirectory) {
       for (const experience of current[view].experiences) {
         if (experience.status !== 'deleted' && experience.coverLetter?.storagePath === storagePath) {
           usedIn.add(`${experience.role || experience.company || 'Experience'} cover letter`)
+        }
+        if (experience.status !== 'deleted' && (experience.logo?.storagePath === storagePath || experience.image?.storagePath === storagePath)) {
+          usedIn.add(experience.role || 'Experience image')
+        }
+      }
+      for (const education of current[view].education) {
+        if (education.status !== 'deleted' && education.image?.storagePath === storagePath) {
+          usedIn.add(education.institution || 'Education image')
         }
       }
     }
@@ -319,18 +334,47 @@ export function createLocalCmsStore(dataDirectory) {
         if (previousPath) {
           for (const view of ['drafts', 'published']) {
             for (const project of current[view].projects) {
+              if (project.status === 'deleted') continue
               let changed = false
               const replaceAsset = (asset) => {
                 if (asset?.storagePath !== previousPath) return asset
                 changed = true
-                return { ...asset, url, storagePath }
+                return { ...asset, url, storagePath, mediaProvider: '' }
               }
+              project.thumbnailImage = replaceAsset(project.thumbnailImage)
               project.heroImage = replaceAsset(project.heroImage)
               project.gallery = (project.gallery || []).map(replaceAsset)
+              project.technologies = (project.technologies || []).map((technology) => {
+                if (technology?.storagePath !== previousPath) return technology
+                changed = true
+                return { ...technology, logo: url, storagePath, mediaProvider: '' }
+              })
               if (changed) {
                 project.revision = Number(project.revision || 0) + 1
                 project.updatedAt = now
                 project.updatedBy = 'local-filesystem'
+              }
+            }
+            for (const type of ['experiences', 'education']) {
+              for (const record of current[view][type]) {
+                if (record.status === 'deleted') continue
+                let changed = false
+                const replaceAsset = (asset) => {
+                  if (asset?.storagePath !== previousPath) return asset
+                  changed = true
+                  return { ...asset, url, storagePath, mediaProvider: '' }
+                }
+                if (type === 'experiences') {
+                  record.logo = replaceAsset(record.logo)
+                  record.image = replaceAsset(record.image)
+                } else {
+                  record.image = replaceAsset(record.image)
+                }
+                if (changed) {
+                  record.revision = Number(record.revision || 0) + 1
+                  record.updatedAt = now
+                  record.updatedBy = 'local-filesystem'
+                }
               }
             }
           }
@@ -366,16 +410,18 @@ export function createLocalCmsStore(dataDirectory) {
       return { ok: true, mode: 'local-filesystem', storage: 'local-disk', fileUploads: true }
     },
     async list(type, view = 'drafts') {
-      if (!COLLECTIONS.includes(type)) throw new CmsRequestError('Unsupported content collection.', 404)
+      if (!COLLECTIONS.includes(type) && type !== MEDIA_COLLECTION) throw new CmsRequestError('Unsupported content collection.', 404)
       const current = await initialize()
       const records = clone(current[view === 'published' ? 'published' : 'drafts'][type])
-      if (type === 'media') return records.map((record) => ({ ...record, usedIn: mediaUsage(current, record.storagePath) }))
+      if (type === MEDIA_COLLECTION) return records.filter((record) => record.status !== 'deleted').map((record) => ({ ...record, usedIn: mediaUsage(current, record.storagePath) }))
       return records.sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
     },
     async get(type, id, view = 'drafts') {
-      if (!COLLECTIONS.includes(type)) throw new CmsRequestError('Unsupported content collection.', 404)
+      if (!COLLECTIONS.includes(type) && type !== MEDIA_COLLECTION) throw new CmsRequestError('Unsupported content collection.', 404)
       const current = await initialize()
-      return clone(current[view === 'published' ? 'published' : 'drafts'][type].find((item) => item.id === id) || null)
+      const record = current[view === 'published' ? 'published' : 'drafts'][type].find((item) => item.id === id)
+      if (type === MEDIA_COLLECTION && record) return { ...clone(record), usedIn: mediaUsage(current, record.storagePath) }
+      return clone(record || null)
     },
     async create(type, content) {
       if (!COLLECTIONS.includes(type)) throw new CmsRequestError('Unsupported content collection.', 404)
@@ -394,6 +440,9 @@ export function createLocalCmsStore(dataDirectory) {
         const content = parseContent(type, contentFrom(draft))
         if (type === 'projects') checkSlug(current, content.slug, id)
         const now = timestamp()
+        // Publishing is an explicit request to make this record public again.
+        // Unpublish marks its stored content invisible; restore visibility here.
+        content.visibility = true
         if (type === 'resumes') {
           for (const view of ['drafts', 'published']) for (const item of current[view].resumes) {
             if (item.id !== id && item.isActive) item.isActive = false
@@ -420,18 +469,25 @@ export function createLocalCmsStore(dataDirectory) {
         return { id, type, revision: published.revision, mode: 'local-filesystem' }
       })
     },
-    async unpublish(type, id) {
+    async unpublish(type, id, expectedRevision) {
       if (!COLLECTIONS.includes(type)) throw new CmsRequestError('Unsupported content collection.', 404)
       return mutate((current) => {
         const matching = ['drafts', 'published'].flatMap((view) => current[view][type].filter((item) => item.id === id))
         if (!matching.length) throw new CmsRequestError('Content item not found.', 404)
+        const primary = current.drafts[type].find((item) => item.id === id) || current.published[type].find((item) => item.id === id)
+        const alreadyUnpublished = matching.every((item) => item.status === 'unpublished' && item.visibility === false && item.isActive === false)
+        if (alreadyUnpublished) return { id, status: 'unpublished', revision: primary.revision, mode: 'local-filesystem' }
+        if (expectedRevision !== undefined && Number(primary.revision) !== Number(expectedRevision)) {
+          throw new CmsRequestError('This item changed in another tab. Reload it before unpublishing.', 409)
+        }
         const now = timestamp()
-        for (const item of matching) Object.assign(item, { status: 'unpublished', visibility: false, isActive: false, updatedAt: now })
-        return { id, status: 'unpublished', mode: 'local-filesystem' }
+        const revision = Math.max(...matching.map((item) => Number(item.revision) || 0)) + 1
+        for (const item of matching) Object.assign(item, { status: 'unpublished', visibility: false, isActive: false, revision, updatedAt: now })
+        return { id, status: 'unpublished', revision, mode: 'local-filesystem' }
       })
     },
     async deleteItem(type, id) {
-      if (!COLLECTIONS.includes(type)) throw new CmsRequestError('Unsupported content collection.', 404)
+      if (!COLLECTIONS.includes(type) && type !== MEDIA_COLLECTION) throw new CmsRequestError('Unsupported content collection.', 404)
       let storagePath = ''
       const result = await mutate((current) => {
         const item = currentRecord(current, type, id)
@@ -675,6 +731,12 @@ export function createLocalCmsPlugin({
               return json(res, 200, await store.publishSettings(body.expectedRevision))
             }
           }
+          if (segments[1] === MEDIA_COLLECTION && segments.length === 2 && req.method === 'GET') {
+            return json(res, 200, await store.list(MEDIA_COLLECTION, url.searchParams.get('view') || 'drafts'))
+          }
+          if (segments[1] === MEDIA_COLLECTION && segments.length === 3 && req.method === 'GET') {
+            return json(res, 200, await store.get(MEDIA_COLLECTION, decodeURIComponent(segments[2]), url.searchParams.get('view') || 'drafts'))
+          }
           if (segments[1] === 'media' && segments[2] === 'upload' && req.method === 'POST') {
             const upload = parseMultipart(await readRequest(req, MAX_IMAGE_BYTES + 256 * 1024), req.headers['content-type'])
             const result = await store.upload(upload)
@@ -710,7 +772,7 @@ export function createLocalCmsPlugin({
             const id = decodeURIComponent(segments[2])
             return json(res, 200, segments[3] === 'publish'
               ? await store.publish(type, id, body.expectedRevision)
-              : await store.unpublish(type, id))
+              : await store.unpublish(type, id, body.expectedRevision))
           }
           return json(res, 404, 'Local CMS route not found.')
         } catch (error) {
