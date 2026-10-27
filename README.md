@@ -1,55 +1,32 @@
 # Fitsum Mesfin Portfolio
 
-The repository contains the React/Vite public portfolio and a protected Portfolio Admin Dashboard. Cloudflare Pages serves both the site and its API. Published content is read from D1; uploaded images and resumes are stored in a private R2 bucket. Publishing does not require a Git commit or frontend redeployment.
+This repository contains the React/Vite portfolio and a protected Portfolio Admin Dashboard. The current content editor is a **local development tool**: it saves drafts, published records, and uploaded files on the machine running Vite. Publishing here updates only that machine's local portfolio preview; it does not change the hosted website or any production database.
 
-## Production architecture
+## Run locally
 
-- Firebase Authentication issues administrator ID tokens. The Pages Function verifies Google's token signature, Firebase project, expiry, and the server-side `CMS_ADMIN_UIDS` allowlist.
-- Cloudflare D1 stores draft and published snapshots in `content_records`. Every write checks the record revision to avoid silently overwriting concurrent edits.
-- Cloudflare R2 stores uploads privately. The API validates file type, file signature, and size before storing them. Short-lived HMAC-signed media URLs are returned for previews and published files.
-- `/api/*` is handled by `functions/api/[[path]].js`; `public/_routes.json` excludes these routes from the static-site SPA fallback.
-- No Netlify, Firestore, Cloudinary, browser storage, or deployed filesystem is used by the Cloudflare Pages API.
+1. Use Node.js 20 or newer and install dependencies with `npm install`.
+2. Copy `.env.example` to `.env.local` and set `VITE_ADMIN_FIREBASE_API_KEY` to the public Web API key for the existing Firebase Auth project `user-auth-vp`. Keep `.env.local` out of version control.
+3. Run `npm run dev`. Vite listens on port `5173`; open `/admin` to sign in and use the dashboard.
+4. Run `npm test` and `npm run build` to validate the project.
 
-## Required Cloudflare resources
+Firebase Email/Password authentication is used for administrator login. The frontend checks the signed-in UID against `VITE_ADMIN_UIDS`; the local API independently verifies the Firebase ID-token signature, project, expiry, and allowlisted UID before accepting admin writes. If `VITE_ADMIN_UIDS` is unset, the existing administrator UID is used. Do not put passwords or service-account credentials in `.env.local`.
 
-Create these resources in the same Cloudflare account as the Pages project:
+The local API is registered only with the Vite development server and accepts requests from the local machine. Public routes expose only published records. Admin writes require an authenticated allowlisted Firebase user. The server validates structured content, file type and bytes, and protects draft updates with revision checks.
 
-1. A D1 database (for example, `portfolio-content`).
-2. A private R2 bucket (for example, `portfolio-media`). Do not enable public bucket access.
-3. Apply [`cloudflare/schema.sql`](./cloudflare/schema.sql) to the D1 database using its dashboard SQL console or `wrangler d1 execute <database-name> --remote --file=cloudflare/schema.sql`.
-4. In **Workers & Pages → your Pages project → Settings → Functions → Bindings**, add:
-   - D1 database binding **`DB`** pointing to the created database.
-   - R2 bucket binding **`MEDIA`** pointing to the private bucket.
-5. In **Settings → Variables and Secrets**, configure these for the production environment:
-   - `FIREBASE_PROJECT_ID` (plain-text variable): `user-auth-vp`.
-   - `FIREBASE_WEB_API_KEY` (plain-text variable): the public web API key for the existing Firebase Auth app. The server uses Firebase account lookup to reject disabled and revoked admin sessions; this key is not a secret.
-   - `CMS_ADMIN_UIDS` (plain-text variable): comma-separated Firebase Auth UIDs allowed to edit the portfolio.
-   - `MEDIA_SIGNING_SECRET` (secret): at least 32 random bytes. Generate it locally with a password manager or cryptographically secure generator; never commit it or use a `VITE_` prefix.
-   - `VITE_ADMIN_FIREBASE_API_KEY` (build-time variable): the public web API key for the existing Firebase Auth app.
-   - `VITE_ADMIN_UIDS` (build-time variable): mirror the allowed UID list used by the server.
-   - Optional `VITE_PUBLIC_PORTFOLIO_URL`: set only if the public portfolio lives on a different URL; by default the dashboard opens the same Pages origin.
-6. In Firebase Authentication, add the Cloudflare Pages production hostname and custom domain to **Authorized domains**. Confirm Email/Password sign-in is enabled if used by the current admin sign-in page.
-7. Redeploy Pages after adding bindings or build variables. Bindings configured only after a deployment are not available to that deployment.
+## Local data and uploads
 
-The D1 binding, R2 binding, Firebase project ID and web API key, administrator allowlist, and media signing secret are runtime requirements. `/api/health` reports `ready: false` until they are all present and the D1/R2 bindings respond. The Firebase web API key is public client configuration; no Firebase service-account key or Cloudinary secret is needed.
+- Structured content is stored in `.local-cms/content.json`.
+- Uploaded images, PDF resumes, and experience cover letters are stored in `.local-cms/uploads/`.
+- The local CMS creates the data file on first use and preserves existing local content. Keep `.local-cms/` backed up if you need to retain local edits; it is ignored by Git.
+- Drafts stay hidden from the local public preview until published. Unpublishing hides the public snapshot but preserves the record for later editing.
+- Image uploads from the dashboard accept JPEG, PNG, and WebP files up to 8 MB. Resume uploads and experience cover letters accept structurally valid PDFs up to 5 MB. Cover letter metadata is saved on the experience draft and copied into its public snapshot only when that experience is published.
 
-For `FIREBASE_WEB_API_KEY`, use an API key that can call Firebase Identity Toolkit from the Pages Function. Restrict its allowed APIs to Identity Toolkit; HTTP-referrer-only restrictions can block server-side account verification.
+## Production and existing content
 
-## Deployment
+The file-backed provider is intentionally not used in production. A production Vite build does not include the local API server, and the admin client refuses to send CMS writes outside development. Do not interpret a successful local save or publish as a live-site update; the hosted portfolio requires a separately configured persistent production content provider before live editing can be enabled.
 
-Set the Cloudflare Pages build command to `npm run build` and the output directory to `dist`, then deploy the repository. The Pages Function and `_routes.json` are part of the deployment. After deploy:
+Cover letter uploads currently use the local disk provider, so they preview and publish only in the local development site. No production upload or publishing environment variables are configured; live cover letters require a persistent production content API and file storage binding before deployment.
 
-1. Open `https://<production-host>/api/health`. It must return HTTP 200 JSON with `{"data":{"ready":true}}`.
-2. Sign into `/admin` using an allowlisted Firebase account.
-3. Verify a draft save, publish, unpublish, project image upload, resume PDF upload, and public portfolio content read. Confirm the records appear in D1 and uploaded objects appear in R2.
-4. Check `/api/health` after changing environment variables or bindings; deploy again if Pages has not picked up the new configuration.
+Existing Firestore/Cloudinary or previously deployed Cloudflare content is not imported, overwritten, or deleted by this local provider. `.local-cms/content.json` was preserved during this change; its current collections are empty. Production data remains in its existing provider and requires a separately planned, access-authorized migration before changing the production read/write source.
 
-For local validation, run `npm test` and `npm run build`. To run the Pages Function locally against Cloudflare resources, use the Cloudflare Wrangler CLI with a Pages project configuration and local secrets; never put production signing secrets in the repository.
-
-## Admin behavior and limits
-
-The API persists draft and published snapshots separately. Unpublishing removes the public snapshot but keeps the draft available for editing. Project, Experience, Education, Resume, and site settings records use the same API and storage. Image files are limited to 8 MB; resume PDFs are limited to 5 MB and structurally validated before storage. Published content APIs return published snapshots only.
-
-This D1/R2 API starts with an empty database and bucket. It does not automatically import any existing Firestore records or Cloudinary files. If the existing Firestore project contains portfolio content, export and migrate that content and its media before switching the live site to this API; do not delete or disable the old backend until that migration is verified.
-
-Production operations cannot be confirmed by a local build. Configure the Cloudflare resources and Firebase host allowlist above, migrate any existing content, deploy the Pages project, and perform the production checks before treating the CMS as live.
+The local Vite server continues to use the project's current port, `5173`. It has no production storage bindings or deployment secrets to configure.

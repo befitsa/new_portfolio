@@ -7,14 +7,16 @@ import AdminLogin, { adminHomePath, adminLoginPath, safeAdminReturnPath } from '
 import BrandLink from '../components/common/BrandLink.jsx'
 import ProjectDetailsPage from '../components/projects/ProjectDetailsPage.jsx'
 import { toPublicProject, toPublicExperience, toPublicEducation } from '../lib/db/presentation.js'
+import { educationQualifications } from '../lib/db/contentSchemas.js'
 import { BackgroundTimeline } from '../components/sections/Background.jsx'
 import { PortfolioProfileProvider } from '../context/PortfolioProfileContext.jsx'
+import { ADMIN_SECTIONS, adminPathForSection, adminSectionForPath } from './adminRoutes.js'
 
-const sections = ['Dashboard', 'Projects', 'Background & Credentials', 'Resume Management', 'Media Library', 'Portfolio Settings']
 const contentTypes = ['projects', 'experiences', 'education', 'resumes']
 const basePath = () => window.location.pathname.startsWith('/admin') ? '/admin' : ''
 const routeFor = (path) => `${basePath()}${path === '/' ? '' : path}` || '/'
 function publicPortfolioHref() {
+  if (import.meta.env.DEV) return `${window.location.origin}/`
   const configuredUrl = import.meta.env.VITE_PUBLIC_PORTFOLIO_URL?.trim()
   if (configuredUrl) return configuredUrl
   const configuredSubdomain = (import.meta.env.VITE_ADMIN_SUBDOMAIN || 'dev').trim().toLowerCase()
@@ -25,15 +27,7 @@ function publicPortfolioHref() {
   }
   return `${window.location.origin}/`
 }
-const readRoute = () => {
-  const path = window.location.pathname.replace(/^\/admin/, '').replace(/\/+$/, '') || '/'
-  if (path === '/background') return 'Background & Credentials'
-  if (path.startsWith('/projects')) return 'Projects'
-  if (path === '/resume') return 'Resume Management'
-  if (path === '/media') return 'Media Library'
-  if (path === '/settings') return 'Portfolio Settings'
-  return 'Dashboard'
-}
+const readRoute = () => adminSectionForPath(window.location.pathname)
 const blankProject = () => ({ title: '', slug: '', synopsis: '', executiveSummary: '', category: 'Web', role: '', timeline: '', readTime: 0, featured: false, visibility: true, order: Date.now(), thumbnailImage: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, heroImage: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, gallery: [], links: { github: '', figma: '', live: '' }, techStack: [], coreProblem: '', strategicObjectives: [], leadership: '', methodology: '', technicalHighlights: [], metrics: [], seo: {} })
 const blankExperience = (order) => ({ role: '', company: '', logoInitials: '', startDate: new Date().toISOString().slice(0, 10), endDate: '', isCurrent: false, location: '', employmentType: '', description: '', responsibilities: [], achievements: [], logo: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, image: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, skills: [], visibility: true, order })
 const blankEducation = (order) => ({ degree: '', institution: '', fieldOfStudy: '', image: { url: '', storagePath: '', mediaProvider: '', caption: '', order: 0 }, startYear: new Date().getFullYear(), endYear: null, notes: '', credentialUrl: '', visibility: true, order })
@@ -46,8 +40,7 @@ function AdminShell({ children, active, onLogout, onNavigate, projectSearch, onP
   const status = useAdminApiStatus()
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const icons = [LayoutDashboard, FolderKanban, BriefcaseBusiness, FileText, Image, Settings]
-  const route = (label) => ({ Dashboard: '/', Projects: '/projects', 'Background & Credentials': '/background', 'Resume Management': '/resume', 'Media Library': '/media', 'Portfolio Settings': '/settings' })[label]
-  const statusLabel = status.checking ? 'Checking connection' : status.ready ? 'Services connected' : status.state === 'unconfigured' ? 'Setup needed' : 'Connection unavailable'
+    const statusLabel = status.checking ? 'Checking local storage' : status.ready ? 'Local storage ready' : 'Local storage unavailable'
   const logout = async () => {
     try { await onLogout(); window.location.replace(adminLoginPath()) } catch { setLogoutError('Sign out failed. Try again.') }
   }
@@ -55,7 +48,7 @@ function AdminShell({ children, active, onLogout, onNavigate, projectSearch, onP
     onNavigate(path)
     setMenuOpen(false)
   }
-  return <div className="min-h-screen bg-[#f5f1e8] text-[#22352d] md:grid md:grid-cols-[214px_minmax(0,1fr)]">
+  return <div className="admin-dashboard min-h-screen bg-[#f5f1e8] text-[#22352d] md:grid md:grid-cols-[214px_minmax(0,1fr)]">
     {menuOpen && <button className="fixed inset-0 z-40 bg-black/30 md:hidden" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
     <aside className={`fixed inset-y-0 left-0 z-50 flex w-[270px] flex-col border-r border-[#d8cfbc] bg-[#eee8d9] px-3.5 py-4 transition-transform md:sticky md:top-0 md:h-screen md:w-auto md:translate-x-0 ${menuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex min-h-10 items-center px-2">
@@ -63,8 +56,8 @@ function AdminShell({ children, active, onLogout, onNavigate, projectSearch, onP
       </div>
       <p className="mt-7 px-2 text-[9px] font-bold tracking-[.16em] text-[#817967]">CONTENT CORE</p>
       <nav className="mt-3 grid gap-1" aria-label="Admin navigation">
-        {sections.map((label, index) => { const Icon = icons[index]; const selected = active === label
-          return <a key={label} href={routeFor(route(label))} aria-current={selected ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(route(label)) }} className={`flex min-h-10 items-center gap-2.5 rounded-lg px-2.5 text-[12px] font-semibold transition-colors ${selected ? 'bg-[#dfe9dc] text-[#254c3e]' : 'text-[#5e6257] hover:bg-white/60 hover:text-[#254c3e]'}`}><Icon size={15} strokeWidth={1.9} />{label}</a>
+        {ADMIN_SECTIONS.map(({ label }, index) => { const Icon = icons[index]; const path = adminPathForSection(label); const selected = active === label
+          return <a key={label} href={routeFor(path)} aria-current={selected ? 'page' : undefined} onClick={(event) => { event.preventDefault(); navigate(path) }} className={`flex min-h-10 items-center gap-2.5 rounded-lg px-2.5 text-[12px] font-semibold transition-colors ${selected ? 'bg-[#dfe9dc] text-[#254c3e]' : 'text-[#5e6257] hover:bg-white/60 hover:text-[#254c3e]'}`}><Icon size={15} strokeWidth={1.9} />{label}</a>
         })}
       </nav>
       <div className="mt-auto grid gap-3 border-t border-[#d8cfbc] pt-3">
@@ -72,11 +65,12 @@ function AdminShell({ children, active, onLogout, onNavigate, projectSearch, onP
         <div className="rounded-lg border border-white/70 bg-[#f9f6ef] p-2.5">
           <p className="flex items-center gap-2 text-[10px] leading-4 text-[#666b60]" role="status">
             <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${status.ready ? 'bg-emerald-600' : status.checking ? 'bg-amber-400' : 'bg-[#b77f4d]'}`} aria-hidden="true" />
-            {statusLabel}
+            {status.label || statusLabel}
           </p>
+          {status.message && <p className="mt-1 text-[9px] leading-4 text-[#77796f]">{status.message}</p>}
         </div>
         <div className="flex items-center gap-2 rounded-lg border border-white/70 bg-[#f9f6ef] p-2">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#dce8dc] text-[10px] font-bold text-[#315c4c]">FM</span>
+          <img src="/images/logo.png" alt="Fitsum logo" className="size-7 shrink-0 rounded-full object-contain" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[10px] font-bold tracking-wide text-[#3c473f]">FITSUM MESFIN</span>
             <span className="block text-[9px] text-[#77796f]">Portfolio admin</span>
@@ -112,7 +106,7 @@ function AdminShell({ children, active, onLogout, onNavigate, projectSearch, onP
 }
 
 function PageTitle({ eyebrow = 'PORTFOLIO ADMIN', title, description, action }) {
-  return <div className="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p className="flex items-center gap-1.5 text-[9px] font-bold tracking-[.13em] text-[#77715e]"><span className="inline-block size-1.5 rounded-full bg-[#31835f]" />{eyebrow}</p><h1 className="mt-1.5 font-serif text-[30px] font-semibold leading-[1.05] tracking-[-.035em] text-[#172d25] sm:text-[36px]">{title}</h1>{description && <p className="mt-2 max-w-3xl text-[11px] leading-5 text-[#73766e]">{description}</p>}</div>{action}</div>
+  return <div className="admin-page-heading mb-6 flex flex-wrap items-end justify-between gap-4"><div className="min-w-0"><p className="flex items-center gap-1.5 text-[9px] font-bold tracking-[.13em] text-[#77715e]"><span className="inline-block size-1.5 rounded-full bg-[#31835f]" />{eyebrow}</p><h1 className="admin-page-title mt-1.5">{title}</h1>{description && <p className="mt-2 max-w-3xl text-[11px] leading-5 text-[#73766e]">{description}</p>}</div>{action}</div>
 }
 function Notice({ message, error }) { return message ? <p className={`mb-5 rounded-xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`} role={error ? 'alert' : 'status'}>{message}</p> : null }
 function Button({ children, kind = 'light', disabled, onClick, type = 'button', className = '', ...props }) {
@@ -211,10 +205,10 @@ function DashboardPage({ data, loading, error, status, onCreateProject, onCreate
         </div>
 
         <div className="rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-4 shadow-[0_2px_8px_rgba(52,45,32,.04)] sm:p-5">
-          <div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold tracking-[.12em] text-[#77715e]">LIVE SITE</p><h2 className="mt-1 font-serif text-xl font-semibold text-[#1b3028]">Website preview</h2></div><a href={publicPortfolioHref()} target="_blank" rel="noreferrer" aria-label="Open public portfolio" className="grid size-8 place-items-center rounded-md border border-[#e9e3d8] text-[#66766a] hover:bg-[#f2f5ef]"><ExternalLink size={14} /></a></div>
+          <div className="flex items-start justify-between gap-3"><div><p className="text-[9px] font-bold tracking-[.12em] text-[#77715e]">LOCAL PREVIEW</p><h2 className="mt-1 font-serif text-xl font-semibold text-[#1b3028]">Website preview</h2></div><a href={publicPortfolioHref()} target="_blank" rel="noreferrer" aria-label="Open local portfolio preview" className="grid size-8 place-items-center rounded-md border border-[#e9e3d8] text-[#66766a] hover:bg-[#f2f5ef]"><ExternalLink size={14} /></a></div>
           <div className="mt-4 overflow-hidden rounded-lg border border-[#e9e3d8] bg-[#f1f4ef]">
             <div className="flex items-center gap-1.5 border-b border-[#e4e8e0] bg-[#fffefa] px-3 py-2"><span className="size-1.5 rounded-full bg-[#d5a27b]" /><span className="size-1.5 rounded-full bg-[#d7c68f]" /><span className="size-1.5 rounded-full bg-[#91b99c]" />            <span className="ml-auto truncate text-[8px] text-[#898b82]">{new URL(publicPortfolioHref(), window.location.origin).host}</span></div>
-            <div className="p-4 sm:p-5"><span className="grid size-7 place-items-center rounded-full bg-[#164a3a] text-[9px] font-bold text-white">FM</span><p className="mt-3 font-serif text-lg font-semibold text-[#17342a]">FITSUM MESFIN</p><p className="mt-1 text-[9px] text-[#73786e]">Software Developer · React Developer · Flutter Developer</p></div>
+            <div className="p-4 sm:p-5"><img src="/images/logo.png" alt="Fitsum logo" className="size-7 shrink-0 rounded-full object-contain" /><p className="mt-3 font-serif text-lg font-semibold text-[#17342a]">FITSUM MESFIN</p><p className="mt-1 text-[9px] text-[#73786e]">Software Developer · React Developer · Flutter Developer</p></div>
           </div>
           <a href={publicPortfolioHref()} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[#705039] px-3 text-[10px] font-semibold text-white transition hover:bg-[#5d422f]">View Live Website <ArrowUpRight size={12} /></a>
         </div>
@@ -256,20 +250,23 @@ function collectMedia(data) {
           }
           if (!value || typeof value !== 'object') return
           const isResumeFile = type === 'resumes' && Boolean(value.fileUrl || value.previewUrl || value.storagePath)
+          const isCoverLetterFile = type === 'experiences' && path === 'coverLetter' && Boolean(value.fileUrl || value.previewUrl || value.storagePath)
+          const isPdfFile = isResumeFile || isCoverLetterFile
           const isImage = type !== 'resumes' && Boolean(value.storagePath || value.url) && (value.mediaProvider === 'cloudinary' || /\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(value.url || '') || path.includes('Image') || path.includes('gallery') || path.endsWith('.logo'))
-          if (isResumeFile || isImage) {
-            const src = isResumeFile ? value.previewUrl || value.fileUrl : value.url
+          if (isPdfFile || isImage) {
+            const src = isPdfFile ? value.previewUrl || value.fileUrl : value.url
             const key = value.storagePath || src
             if (key && src) {
               const asset = {
                 id: key,
                 src,
-                fileName: value.fileName || value.caption || (isResumeFile ? 'Resume PDF' : 'Portfolio image'),
-                format: isResumeFile ? 'PDF' : String(value.format || src.split('.').pop().split(/[?#]/)[0] || 'IMAGE').toUpperCase(),
+                fileName: value.fileName || value.caption || (isPdfFile ? (isCoverLetterFile ? 'Cover letter PDF' : 'Resume PDF') : 'Portfolio images'),
+                format: isPdfFile ? 'PDF' : String(value.format || src.split('.').pop().split(/[?#]/)[0] || 'IMAGE').toUpperCase(),
                 type,
                 record,
                 version: version === 'published' && record.status === 'published' ? 'published' : 'draft',
                 isResumeFile,
+                isPdfFile,
                 title: record.draftData?.title || record.draftData?.role || record.draftData?.degree || record.draftData?.fileName || 'Untitled',
               }
               if (!assets.has(key) || (version === 'published' && record.status === 'published')) assets.set(key, asset)
@@ -408,19 +405,27 @@ function ContentList({ type, records = [], loading, error, onEdit, onCreate, onA
     {error && <Notice error message={error} />}
     {loading ? <div className="rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-8 text-center text-[11px] text-[#74776f]" role="status">Loading portfolio content…</div> : error ? <div className="rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-8 text-center text-[11px] text-[#74776f]" role="status">These entries are unavailable until the portfolio service can be reached.</div> : shown.length === 0 ? <section className="rounded-xl border border-dashed border-[#ded8cc] bg-[#fffefa]/80 p-10 text-center"><span className="mx-auto grid size-10 place-items-center rounded-lg bg-[#edf3ed] text-[#476a58]">{isExperience ? <BriefcaseBusiness size={18} /> : <GraduationCap size={18} />}</span><h2 className="mt-3 font-serif text-xl font-semibold text-[#273b31]">No {isExperience ? 'work experience' : 'education'} entries yet</h2><p className="mt-1 text-[11px] text-[#77796f]">Add your history and publish each item when it is ready.</p><Button className="mt-4" kind="primary" onClick={onCreate}><Plus size={14} />{createLabel}</Button></section> : <div className="grid gap-3">{shown.map((record, index) => {
       const content = record.draftData || {}
-      const title = content.role || content.degree || 'Untitled entry'
-      const organization = content.company || content.institution || ''
+      const coverLetter = content.coverLetter || (record.status === 'published' ? record.publishedData?.coverLetter : null)
+      const title = isExperience ? content.role || 'Untitled entry' : content.institution || 'Untitled institution'
+      const organization = content.company || ''
       const dateRange = isExperience
         ? `${content.startDate || ''} – ${content.isCurrent ? 'Present' : content.endDate || '—'}`
         : `${content.startYear || ''} – ${content.endYear || 'Present'}`
       const description = content.description || content.notes || ''
-      const tags = content.skills || (content.fieldOfStudy ? [content.fieldOfStudy] : [])
+      const tags = content.skills || []
       return <article key={record.id} className="rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-4 shadow-[0_2px_8px_rgba(52,45,32,.04)] sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2"><h2 className="font-serif text-lg font-semibold leading-tight text-[#1b3028]">{title}</h2><span className={`rounded-full px-2 py-1 text-[8px] font-bold ${badgeStyle(record)}`}>{badge(record)}</span></div>
-            <p className="mt-1 text-[10px] font-semibold text-[#58685d]">{organization}{content.location ? ` · ${content.location}` : ''}{content.employmentType ? ` · ${content.employmentType}` : ''}</p>
+            <div className={`grid gap-3 ${isExperience ? '' : 'sm:grid-cols-[minmax(0,1fr)_minmax(10rem,0.65fr)] sm:items-center sm:gap-6'}`}>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2"><h2 className={`break-words font-serif text-lg font-semibold leading-tight text-[#1b3028] ${isExperience ? '' : 'sm:text-xl'}`}>{title}</h2><span className={`rounded-full px-2 py-1 text-[8px] font-bold ${badgeStyle(record)}`}>{badge(record)}</span></div>
+                <p className={`mt-1 ${isExperience ? 'text-[10px] font-semibold text-[#58685d]' : 'text-sm font-medium leading-5 text-[#58685d]'}`}>{isExperience ? organization : content.degree}</p>
+            {isExperience && <p className="mt-1 text-[10px] font-semibold text-[#58685d]">{content.location}{content.employmentType ? ` · ${content.employmentType}` : ''}</p>}
+              </div>
+              {!isExperience && content.fieldOfStudy && <div className="min-w-0 sm:text-right"><p className="break-words text-sm font-semibold leading-5 text-[#34473d]">{content.fieldOfStudy}</p><p className="mt-0.5 text-xs leading-5 text-[#81847b]">Field of Study</p></div>}
+            </div>
             <p className="mt-1 text-[9px] text-[#81847b]">{dateRange}</p>
+            {isExperience && coverLetter?.fileName && <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-[#f0f3ee] px-2 py-1 text-[9px] font-semibold text-[#476a58]"><FileText size={11} aria-hidden="true" /><span className="max-w-56 truncate">{coverLetter.fileName}</span><span className="rounded bg-white px-1 py-0.5 text-[8px] font-bold">PDF</span></p>}
             {description && <p className="mt-3 max-w-3xl whitespace-pre-line text-[10px] leading-5 text-[#6f746c]">{description}</p>}
             {tags.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{tags.map((tag) => <span key={tag} className="rounded-full bg-[#f0f2ed] px-2 py-1 text-[8px] text-[#5c6b5f]">{tag}</span>)}</div>}
           </div>
@@ -438,7 +443,7 @@ function ContentList({ type, records = [], loading, error, onEdit, onCreate, onA
   </>
 }
 
-function MediaUpload({ kind = 'image', onComplete, disabled }) {
+function MediaUpload({ kind = 'image', onComplete, disabled, buttonLabel }) {
   const [progress, setProgress] = useState(-1)
   const [error, setError] = useState('')
   const upload = async (file) => {
@@ -448,7 +453,9 @@ function MediaUpload({ kind = 'image', onComplete, disabled }) {
     catch (cause) { setError(cause.message || 'Upload failed.') }
     finally { setProgress(-1) }
   }
-  return <div className="flex flex-wrap items-center gap-3"><label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-forest/15 bg-white px-4 text-sm font-semibold hover:bg-forest/5"><Upload size={15} />{progress >= 0 ? `Uploading ${progress}%` : kind === 'resume' ? 'Upload PDF' : 'Upload image'}<input className="sr-only" type="file" accept={kind === 'resume' ? 'application/pdf,.pdf' : 'image/jpeg,image/png,image/webp'} disabled={disabled || progress >= 0} onChange={(event) => { upload(event.target.files?.[0]); event.target.value = '' }} /></label>{progress >= 0 && <progress className="w-32 accent-forest" max="100" value={progress} aria-label="Upload progress" />}{error && <span className="text-xs text-red-700" role="alert">{error}</span>}</div>
+  const isPdf = kind === 'resume' || kind === 'cover-letter'
+  const buttonText = buttonLabel || (kind === 'cover-letter' ? 'Choose PDF' : kind === 'resume' ? 'Upload PDF' : 'Upload image')
+  return <div className="flex flex-wrap items-center gap-3"><label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-forest/15 bg-white px-4 text-sm font-semibold hover:bg-forest/5"><Upload size={15} />{progress >= 0 ? `Uploading ${progress}%` : buttonText}<input className="sr-only" type="file" accept={isPdf ? 'application/pdf,.pdf' : 'image/jpeg,image/png,image/webp'} disabled={disabled || progress >= 0} onChange={(event) => { upload(event.target.files?.[0]); event.target.value = '' }} /></label>{progress >= 0 && <progress className="w-32 accent-forest" max="100" value={progress} aria-label="Upload progress" />}{error && <span className="text-xs text-red-700" role="alert">{error}</span>}</div>
 }
 
 function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = false }) {
@@ -456,24 +463,37 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
   const [content, setContent] = useState(() => structuredClone(record?.draftData || (type === 'projects' ? blankProject() : type === 'experiences' ? blankExperience(Date.now()) : type === 'education' ? blankEducation(Date.now()) : blankResume(Date.now()))))
   const [currentRecord, setCurrentRecord] = useState(record)
   const [preview, setPreview] = useState(initialPreview)
+  const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const set = (key, value) => setContent((old) => ({ ...old, [key]: value }))
+  const legacyEducationQualification = type === 'education' && content.degree && !educationQualifications.includes(content.degree)
+    ? content.degree
+    : ''
   const save = async () => {
-    setSaving(true); setError('')
+    setSaving(true); setError(''); setNotice('')
     try {
       const next = currentRecord ? await adminApi.save(type, currentRecord.id, content, currentRecord.revision) : await adminApi.create(type, content)
-      setCurrentRecord(next); notify('Draft saved. It is not public until you publish it.'); onSaved(next)
-    }     catch (cause) { setError(displayAdminError(cause, 'Could not save the draft.')) }
+      setCurrentRecord(next)
+      if (next?.draftData) setContent(structuredClone(next.draftData))
+      setNotice('Draft saved. It is not public until you publish it.')
+      onSaved(next)
+    } catch (cause) {
+      console.error(`[Portfolio Admin] Failed to save ${type} draft.`, cause)
+      setError(displayAdminError(cause, 'Could not save the draft.'))
+    }
     finally { setSaving(false) }
   }
   const publish = async () => {
-    setSaving(true); setError('')
+    setSaving(true); setError(''); setNotice('')
     try {
       const saved = currentRecord ? (JSON.stringify(content) === JSON.stringify(currentRecord.draftData) ? currentRecord : await adminApi.save(type, currentRecord.id, content, currentRecord.revision)) : await adminApi.create(type, content)
       setCurrentRecord(saved)
       const result = await adminApi.publish(type, saved.id, saved.revision)
-      notify('Content published to the public portfolio.'); onSaved(result); onClose()
-    } catch (cause) { setError(displayAdminError(cause, 'Could not publish this content.')) }
+      notify('Content published to the local portfolio preview. This does not update the live website.'); onSaved(result); onClose()
+    } catch (cause) {
+      console.error(`[Portfolio Admin] Failed to publish ${type}.`, cause)
+      setError(displayAdminError(cause, 'Could not publish this content.'))
+    }
     finally { setSaving(false) }
   }
   const upload = (target) => (media) => {
@@ -488,6 +508,7 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
     else if (target === 'gallery') set('gallery', [...(content.gallery || []), { ...media, caption: '', order: content.gallery?.length || 0 }])
     else if (target === 'logo') set('logo', { ...media, caption: '', order: 0 })
     else if (target === 'experienceImage') set('image', { ...content.image, ...media, caption: content.image?.caption || '', order: 0 })
+    else if (target === 'coverLetter') { set('coverLetter', media); setNotice('PDF uploaded and attached. Save as a draft to keep it private, or publish the experience when it is ready.') }
     else if (target === 'educationImage') set('image', { ...content.image, ...media, caption: content.image?.caption || '', order: 0 })
   }
   const title = content.title || content.role || content.degree || content.fileName || 'New content'
@@ -496,9 +517,10 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
   return <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#f5f1e8]" role="dialog" aria-modal="true" aria-label={`${type} editor`}>
     <div className="sticky top-0 z-10 flex min-h-14 items-center justify-between border-b border-[#e4dfd4] bg-[#fffefa]/95 px-4 backdrop-blur"><button onClick={() => { if (window.confirm('Close this editor? Unsaved changes will be lost.')) onClose() }} className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-[#42574a]"><ArrowLeft size={17} />Back</button><span className="max-w-[42vw] truncate text-sm font-semibold">{title}</span><button aria-label="Close editor" onClick={() => { if (window.confirm('Close this editor? Unsaved changes will be lost.')) onClose() }}><X size={20} /></button></div>
     <div className="mx-auto max-w-5xl p-4 sm:p-8">
-      <PageTitle eyebrow={type.toUpperCase()} title={currentRecord ? `Edit ${title}` : `Create ${type === 'projects' ? 'project' : type === 'resumes' ? 'resume' : 'entry'}`} description="Save updates as a draft. The published version stays live until you explicitly publish the new draft." />
+      <PageTitle eyebrow={type.toUpperCase()} title={currentRecord ? `Edit ${title}` : `Create ${type === 'projects' ? 'project' : type === 'resumes' ? 'resume' : 'entry'}`} description="Save updates as a draft. Local publishing updates this computer's preview only, not the live website." />
+      <Notice message={notice} />
       <Notice message={error} error />
-      <form className="grid gap-5 rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-5 shadow-sm sm:grid-cols-2 sm:p-7" onSubmit={(event) => { event.preventDefault(); save() }}>
+      <form className="grid gap-5 rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-5 shadow-sm sm:grid-cols-2 sm:p-7" onSubmit={(event) => { event.preventDefault(); void save() }}>
         {type === 'projects' && <>
           <Field label="Project title"><Input required value={content.title} onChange={(event) => { setContent((old) => ({ ...old, title: event.target.value, slug: old.slug || event.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') })) }} /></Field>
           <Field label="URL slug" hint="Lowercase words separated by hyphens; must be unique."><Input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={content.slug} onChange={(event) => set('slug', event.target.value.toLowerCase())} /></Field>
@@ -529,9 +551,18 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
           <Field label="Responsibilities (one per line)"><Textarea value={lineValue(content.responsibilities)} onChange={(event) => set('responsibilities', lines(event.target.value))} /></Field><Field label="Achievements (one per line)"><Textarea value={lineValue(content.achievements)} onChange={(event) => set('achievements', lines(event.target.value))} /></Field>
           <Field label="Technologies / skills"><Input value={csvValue(content.skills)} onChange={(event) => set('skills', csv(event.target.value))} /></Field><Field label="Display order"><Input type="number" min="0" value={content.order} onChange={(event) => set('order', Number(event.target.value))} /></Field><Field label="Organization logo (optional)"><MediaUpload onComplete={upload('logo')} />{content.logo?.url && <img src={content.logo.url} alt="Organization logo preview" className="mt-2 size-16 rounded-lg object-cover" />}</Field>
           <Field label="Experience image (optional)"><MediaUpload onComplete={upload('experienceImage')} />{content.image?.url && <img src={content.image.url} alt="Experience image preview" className="mt-2 h-32 max-w-full rounded-lg object-cover" />}</Field>
+          <Field className="sm:col-span-2" label="Cover Letter (PDF)" hint="PDF only · maximum 5 MB. The file remains private with this experience until you publish it.">
+            {content.coverLetter?.storagePath ? <div className="rounded-xl border border-forest/10 bg-[#f7faf7] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-[#557260]"><FileText size={19} aria-hidden="true" /></span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-forest">{content.coverLetter.fileName}</span><span className="mt-0.5 block text-xs font-normal text-forest/60">PDF · {Number(content.coverLetter.sizeKB || 0).toFixed(Number(content.coverLetter.sizeKB) < 10 ? 2 : 1)} KB</span></span></div>
+                <div className="flex flex-wrap items-center gap-2"><MediaUpload kind="cover-letter" buttonLabel="Replace PDF" onComplete={upload('coverLetter')} /><button type="button" onClick={() => { set('coverLetter', undefined); setNotice('Cover letter removed from this draft. Save or publish to apply the change.') }} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-xs font-semibold text-red-800 hover:bg-red-50"><Trash2 size={13} />Remove PDF</button></div>
+              </div>
+              {content.coverLetter.previewUrl && <iframe className="mt-4 h-[min(60vh,620px)] min-h-72 w-full rounded-lg border border-forest/10 bg-white" src={content.coverLetter.previewUrl} title={`Cover letter PDF preview: ${content.coverLetter.fileName}`} />}
+            </div> : <div className="rounded-xl border border-dashed border-forest/20 bg-[#f7faf7] p-4"><p className="mb-3 text-sm font-normal text-forest/65">Attach a PDF to this experience. The upload is saved with the experience record, not as a resume.</p><MediaUpload kind="cover-letter" onComplete={upload('coverLetter')} /></div>}
+          </Field>
         </>}
         {type === 'education' && <>
-          <Field label="Qualification / degree"><Input required value={content.degree} onChange={(event) => set('degree', event.target.value)} /></Field><Field label="Institution"><Input required value={content.institution} onChange={(event) => set('institution', event.target.value)} /></Field>
+          <Field label="Qualification / Degree"><select required className="min-h-11 w-full rounded-lg border border-forest/15 bg-white px-3 text-sm font-normal outline-none focus:border-forest/60 focus:ring-2 focus:ring-forest/10" value={content.degree || ''} onChange={(event) => set('degree', event.target.value)}><option value="" disabled>Select qualification</option>{legacyEducationQualification && <option value={legacyEducationQualification}>Previously saved: {legacyEducationQualification}</option>}{educationQualifications.map((qualification) => <option key={qualification} value={qualification}>{qualification}</option>)}</select></Field><Field label="Institution"><Input required value={content.institution} onChange={(event) => set('institution', event.target.value)} /></Field>
           <Field label="Field of study"><Input value={content.fieldOfStudy || ''} onChange={(event) => set('fieldOfStudy', event.target.value)} /></Field>
           <Field label="Education image (optional)"><MediaUpload onComplete={upload('educationImage')} />{content.image?.url && <img src={content.image.url} alt="Education image preview" className="mt-2 h-32 max-w-full rounded-lg object-cover" />}</Field>
           <Field label="Start year"><Input required type="number" min="1900" max="2200" value={content.startYear} onChange={(event) => set('startYear', Number(event.target.value))} /></Field><Field label="End year (blank if ongoing)"><Input type="number" min="1900" max="2200" value={content.endYear ?? ''} onChange={(event) => set('endYear', event.target.value ? Number(event.target.value) : null)} /></Field>
@@ -544,10 +575,10 @@ function EditDialog({ type, record, onClose, onSaved, notify, initialPreview = f
           <Field label="Optional description"><Textarea value={content.description} onChange={(event) => set('description', event.target.value)} /></Field><Field label="Download file name"><Input value={content.fileName} onChange={(event) => set('fileName', event.target.value)} /></Field>
           <label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(content.isActive)} onChange={(event) => set('isActive', event.target.checked)} />Make this the active public resume when published</label>
         </>}
-        <div className="sm:col-span-2 flex flex-wrap justify-between gap-3 border-t border-forest/10 pt-5"><Button onClick={() => setPreview(true)}><Eye size={15} />Preview</Button><div className="flex flex-wrap gap-2"><Button disabled={saving || (type === 'resumes' && !content.storagePath)} type="submit"><Save size={15} />{saving ? 'Saving…' : 'Save Draft'}</Button><Button kind="publish" disabled={saving || (type === 'resumes' && !content.storagePath)} onClick={publish}><Check size={15} />{saving ? 'Publishing…' : 'Publish'}</Button></div></div>
+        <div className="sm:col-span-2 flex flex-wrap justify-between gap-3 border-t border-forest/10 pt-5"><Button type="button" onClick={() => setPreview(true)}><Eye size={15} />Preview</Button><div className="flex flex-wrap gap-2"><Button disabled={saving || (type === 'resumes' && !content.storagePath)} type="submit"><Save size={15} />{saving ? 'Saving…' : 'Save Draft'}</Button><Button type="button" kind="publish" disabled={saving || (type === 'resumes' && !content.storagePath)} onClick={publish}><Check size={15} />{saving ? 'Publishing…' : 'Publish'}</Button></div></div>
       </form>
     </div>
-    {preview && <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#f3f2eb]" role="dialog" aria-modal="true" aria-label="Content preview"><div className="sticky top-0 z-10 flex min-h-14 items-center justify-between bg-[#fbfaf5]/95 px-4"><span className="font-semibold">Preview · {title}</span><Button onClick={() => setPreview(false)}><X size={16} />Close preview</Button></div>{type === 'projects' ? <PortfolioProfileProvider value={profile}><ProjectDetailsPage project={projectView} /></PortfolioProfileProvider> : type === 'resumes' ? <div className="mx-auto max-w-4xl p-5"><h2 className="mb-3 font-display text-2xl">{content.title || content.fileName}</h2>{content.previewUrl ? <iframe className="h-[80vh] w-full rounded-xl border bg-white" src={content.previewUrl} title="Resume preview" /> : <p>Upload a PDF to preview it.</p>}</div> : <section className="mx-auto my-12 max-w-4xl rounded-2xl bg-soft-green p-8 sm:p-12"><p className="mb-8 text-xs font-bold uppercase tracking-widest">{type === 'education' ? 'Education' : 'Experience'}</p><BackgroundTimeline items={[backgroundView]} /></section>}</div>}
+    {preview && <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#f3f2eb]" role="dialog" aria-modal="true" aria-label="Content preview"><div className="sticky top-0 z-10 flex min-h-14 items-center justify-between bg-[#fbfaf5]/95 px-4"><span className="font-semibold">Preview · {title}</span><Button onClick={() => setPreview(false)}><X size={16} />Close preview</Button></div>{type === 'projects' ? <PortfolioProfileProvider value={profile}><ProjectDetailsPage project={projectView} /></PortfolioProfileProvider> : type === 'resumes' ? <div className="mx-auto max-w-4xl p-5"><h2 className="mb-3 font-display text-2xl">{content.title || content.fileName}</h2>{content.previewUrl ? <iframe className="h-[80vh] w-full rounded-xl border bg-white" src={content.previewUrl} title="Resume preview" /> : <p>Upload a PDF to preview it.</p>}</div> : <section className="mx-auto my-12 max-w-4xl rounded-2xl bg-soft-green p-8 sm:p-12"><p className="mb-8 text-xs font-bold uppercase tracking-widest">{type === 'education' ? 'Education' : 'Experience'}</p><BackgroundTimeline items={[backgroundView]} />{type === 'experiences' && content.coverLetter?.previewUrl && <div className="mt-10 border-t border-forest/10 pt-6"><h2 className="mb-3 font-display text-lg font-semibold text-forest">Cover letter PDF preview</h2><iframe className="h-[min(65vh,720px)] min-h-80 w-full rounded-xl border border-forest/10 bg-white" src={content.coverLetter.previewUrl} title={`Cover letter PDF preview: ${content.coverLetter.fileName}`} /></div>}</section>}</div>}
   </div>
 }
 
@@ -568,7 +599,7 @@ function ResumeManager({ records = [], loading, error, onEdit, onCreate, onActio
       <div className="space-y-4">
         <section className="rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-4 shadow-[0_2px_8px_rgba(52,45,32,.04)]">
           <p className="text-[9px] font-bold tracking-[.1em] text-[#77715e]">ACTIVE PORTFOLIO FILE</p>
-          {active ? <><h2 className="mt-2 font-serif text-lg font-semibold text-[#1b3028]">{active.publishedData?.title || active.publishedData?.fileName}</h2><p className="mt-1 text-[10px] text-[#74776f]">{active.publishedData?.fileName} · Version {active.publishedData?.version || '1.0'}</p><a className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[#315746] px-3 text-[10px] font-semibold text-white hover:bg-[#244b3a]" href={`/api/public/resume?id=${encodeURIComponent(active.id)}`} target="_blank" rel="noreferrer">Open public resume <ArrowUpRight size={12} /></a></> : error ? <p className="py-5 text-center text-[10px] text-[#77796f]">Resume status is unavailable until portfolio data can be loaded.</p> : <div className="py-5 text-center"><FileText size={20} className="mx-auto text-[#839286]" /><h2 className="mt-2 font-serif text-lg font-semibold text-[#34473d]">No resume published</h2><p className="mt-1 text-[10px] text-[#77796f]">Upload a PDF and publish it to add a public download link.</p></div>}
+          {active ? <><h2 className="mt-2 font-serif text-lg font-semibold text-[#1b3028]">{active.publishedData?.title || active.publishedData?.fileName}</h2><p className="mt-1 text-[10px] text-[#74776f]">{active.publishedData?.fileName} · Version {active.publishedData?.version || '1.0'}</p><a className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md bg-[#315746] px-3 text-[10px] font-semibold text-white hover:bg-[#244b3a]" href={active.publishedData?.fileUrl} target="_blank" rel="noreferrer">Open local resume <ArrowUpRight size={12} /></a></> : error ? <p className="py-5 text-center text-[10px] text-[#77796f]">Resume status is unavailable until portfolio data can be loaded.</p> : <div className="py-5 text-center"><FileText size={20} className="mx-auto text-[#839286]" /><h2 className="mt-2 font-serif text-lg font-semibold text-[#34473d]">No resume published</h2><p className="mt-1 text-[10px] text-[#77796f]">Upload a PDF and publish it to add a local preview download link.</p></div>}
         </section>
 
         <section className="rounded-xl border border-[#e9e3d8] bg-[#fffefa] p-4 shadow-[0_2px_8px_rgba(52,45,32,.04)]">
@@ -606,20 +637,20 @@ function MediaLibrary({ data, loading, error, onCreateProject, onEdit }) {
   const assets = useMemo(() => collectMedia(data), [data])
   const shown = assets.filter((asset) => {
     const matchesSearch = `${asset.fileName} ${asset.title} ${asset.type}`.toLowerCase().includes(search.trim().toLowerCase())
-    return matchesSearch && (filter === 'All assets' || (filter === 'PDFs' && asset.isResumeFile) || (filter === 'Images' && !asset.isResumeFile))
+    return matchesSearch && (filter === 'All assets' || (filter === 'PDFs' && asset.isPdfFile) || (filter === 'Images' && !asset.isPdfFile))
   })
   return <>
     <PageTitle eyebrow="PORTFOLIO ASSETS" title="Media Library" description="Browse the images and documents attached to your portfolio records." action={<Button kind="primary" onClick={onCreateProject}><Plus size={14} />Add project images</Button>} />
     <p className="mb-4 rounded-lg border border-[#e9e3d8] bg-[#fffefa] px-4 py-3 text-[10px] leading-5 text-[#6d746b]">Assets are stored with the project, experience, or resume that uses them. Edit the source record to replace or remove an asset.</p>
-    <div className="mb-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="All Assets" value={error ? '—' : assets.length} detail={error ? 'Portfolio data unavailable' : 'Unique stored media'} icon={Image} /><SummaryCard label="Images" value={error ? '—' : assets.filter((asset) => !asset.isResumeFile).length} detail={error ? 'Portfolio data unavailable' : 'Project and experience images'} icon={FolderKanban} /><SummaryCard label="PDF Documents" value={error ? '—' : assets.filter((asset) => asset.isResumeFile).length} detail={error ? 'Portfolio data unavailable' : 'Resume files'} icon={FileText} /></div>
+    <div className="mb-4 grid gap-3 sm:grid-cols-3"><SummaryCard label="All Assets" value={error ? '—' : assets.length} detail={error ? 'Portfolio data unavailable' : 'Unique stored media'} icon={Image} /><SummaryCard label="Images" value={error ? '—' : assets.filter((asset) => !asset.isPdfFile).length} detail={error ? 'Portfolio data unavailable' : 'Project and experience images'} icon={FolderKanban} /><SummaryCard label="PDF Documents" value={error ? '—' : assets.filter((asset) => asset.isPdfFile).length} detail={error ? 'Portfolio data unavailable' : 'Resume and cover letter PDFs'} icon={FileText} /></div>
     <div className="overflow-hidden rounded-xl border border-[#e9e3d8] bg-[#fffefa] shadow-[0_2px_8px_rgba(52,45,32,.04)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eee9df] px-3 py-2.5">
         <div className="flex gap-1.5" role="tablist" aria-label="Filter media assets">{['All assets', 'Images', 'PDFs'].map((value) => <button key={value} role="tab" aria-selected={filter === value} onClick={() => setFilter(value)} className={`min-h-8 rounded-md px-3 text-[10px] font-semibold ${filter === value ? 'bg-[#e3edf3] text-[#365b70]' : 'text-[#626a62] hover:bg-[#f4f1e9]'}`}>{value}</button>)}</div>
         <label className="relative min-w-[190px] flex-1 sm:max-w-[300px]"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#898d83]" size={13} /><Input className="h-8 min-h-8 rounded-md border-[#e7e2d9] pl-8 text-[10px]" type="search" placeholder="Search files…" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search media files" /></label>
       </div>
       {error && <div className="px-4 pt-3"><Notice error message={error} /></div>}
-      {loading ? <p className="p-8 text-center text-[11px] text-[#74776f]" role="status">Loading media…</p> : error ? <p className="p-8 text-center text-[11px] text-[#74776f]" role="status">Media assets are unavailable until portfolio data can be loaded.</p> : shown.length === 0 ? <div className="p-10 text-center"><Image size={22} className="mx-auto text-[#819184]" /><h2 className="mt-3 font-serif text-xl font-semibold text-[#273b31]">{assets.length ? 'No matching files' : 'No media files yet'}</h2><p className="mt-1 text-[10px] text-[#77796f]">{assets.length ? 'Try a different search or file type.' : 'Upload an image while editing a project or experience, or add a resume PDF.'}</p>{assets.length === 0 && <Button className="mt-4" kind="primary" onClick={onCreateProject}><Plus size={14} />Create a project</Button>}</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{shown.map((asset) => <article key={asset.id} className="overflow-hidden rounded-lg border border-[#e9e3d8] bg-[#fffefa]">
-        <div className="relative aspect-[4/3] overflow-hidden bg-[#e6ebe6]">{asset.isResumeFile ? <div className="grid h-full place-items-center text-[#64766a]"><FileText size={32} /><span className="mt-2 text-[9px] font-semibold tracking-wide">PDF DOCUMENT</span></div> : <img src={asset.src} alt={asset.fileName} className="h-full w-full object-cover" />}
+       {loading ? <p className="p-8 text-center text-[11px] text-[#74776f]" role="status">Loading media…</p> : error ? <p className="p-8 text-center text-[11px] text-[#74776f]" role="status">Media assets are unavailable until portfolio data can be loaded.</p> : shown.length === 0 ? <div className="p-10 text-center"><Image size={22} className="mx-auto text-[#819184]" /><h2 className="mt-3 font-serif text-xl font-semibold text-[#273b31]">{assets.length ? 'No matching files' : 'No media files yet'}</h2><p className="mt-1 text-[10px] text-[#77796f]">{assets.length ? 'Try a different search or file type.' : 'Upload an image while editing a project or experience, or add a PDF.'}</p>{assets.length === 0 && <Button className="mt-4" kind="primary" onClick={onCreateProject}><Plus size={14} />Create a project</Button>}</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{shown.map((asset) => <article key={asset.id} className="overflow-hidden rounded-lg border border-[#e9e3d8] bg-[#fffefa]">
+         <div className="relative aspect-[4/3] overflow-hidden bg-[#e6ebe6]">{asset.isPdfFile ? <div className="grid h-full place-items-center text-[#64766a]"><FileText size={32} /><span className="mt-2 text-[9px] font-semibold tracking-wide">PDF DOCUMENT</span></div> : <img src={asset.src} alt={asset.fileName} className="h-full w-full object-cover" />}
           <span className={`absolute left-2 top-2 rounded-full px-2 py-1 text-[8px] font-bold ${asset.version === 'published' ? 'bg-[#e5efe5] text-[#45654d]' : 'bg-[#f1eadb] text-[#806748]'}`}>{asset.version === 'published' ? 'Published' : 'Private draft'}</span>
         </div>
         <div className="p-3"><p className="truncate text-[10px] font-semibold text-[#34473d]">{asset.fileName}</p><p className="mt-1 truncate text-[9px] text-[#81847b]">{asset.title} · {asset.type === 'projects' ? 'Project' : asset.type === 'experiences' ? 'Experience' : asset.type === 'education' ? 'Education' : 'Resume'} · {asset.format}</p><div className="mt-3 flex gap-1.5"><a href={asset.src} target="_blank" rel="noreferrer" className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#e9e3d8] px-2.5 text-[9px] font-semibold text-[#5e6a60] hover:bg-[#f4f1e9]"><ExternalLink size={11} />Preview</a><button onClick={() => onEdit(asset.type, asset.record)} className="inline-flex min-h-7 items-center gap-1 rounded-md bg-[#315746] px-2.5 text-[9px] font-semibold text-white hover:bg-[#244b3a]">Edit source</button></div></div>
@@ -645,10 +676,10 @@ function SettingsPage({ projects = [] }) {
     return () => { cancelled = true }
   }, [])
   const set = (key, value) => setSettings((old) => ({ ...old, [key]: value }))
-  const save = async () => { setBusy(true); setError(''); setNotice(''); try { const value = await adminApi.saveSettings(settings, record?.revision || 0); setRecord(value); setNotice('Portfolio settings saved as a draft.') } catch (cause) { setError(displayAdminError(cause, 'Could not save portfolio settings.')) } finally { setBusy(false) } }
-  const publish = async () => { setBusy(true); setError(''); setNotice(''); try { const saved = await adminApi.saveSettings(settings, record?.revision || 0); const value = await adminApi.publishSettings(saved.revision); setRecord(value); setNotice('Portfolio settings published.') } catch (cause) { setError(displayAdminError(cause, 'Could not publish portfolio settings.')) } finally { setBusy(false) } }
+  const save = async () => { setBusy(true); setError(''); setNotice(''); try { const value = await adminApi.saveSettings(settings, record?.revision || 0); setRecord(value); if (value?.draftData) setSettings(value.draftData); setNotice('Portfolio settings saved as a local draft.') } catch (cause) { console.error('[Portfolio Admin] Failed to save portfolio settings draft.', cause); setError(displayAdminError(cause, 'Could not save portfolio settings.')) } finally { setBusy(false) } }
+  const publish = async () => { setBusy(true); setError(''); setNotice(''); try { const saved = await adminApi.saveSettings(settings, record?.revision || 0); const value = await adminApi.publishSettings(saved.revision); setRecord(value); if (value?.draftData) setSettings(value.draftData); setNotice('Portfolio settings published to the local preview. The live website is unchanged.') } catch (cause) { console.error('[Portfolio Admin] Failed to publish portfolio settings.', cause); setError(displayAdminError(cause, 'Could not publish portfolio settings.')) } finally { setBusy(false) } }
   return <>
-    <PageTitle eyebrow="PORTFOLIO CONFIGURATION" title="Portfolio Settings" description="Manage the profile details, social links, featured work, and search metadata used by your public portfolio." />
+    <PageTitle eyebrow="PORTFOLIO CONFIGURATION" title="Portfolio Settings" description="Manage the profile details, social links, featured work, and search metadata used by your local portfolio preview." />
     <Notice message={notice} /><Notice message={error} error />
     {!settingsLoaded && <p className="mb-4 rounded-lg border border-[#e9e3d8] bg-[#fffefa] px-4 py-3 text-[11px] text-[#77796f]" role="status">Loading portfolio settings…</p>}
     {settingsLoadFailed && <p className="mb-4 rounded-lg border border-[#e9e3d8] bg-[#fffefa] px-4 py-3 text-[11px] text-[#77796f]" role="status">Settings are read-only until the current portfolio values can be loaded.</p>}
@@ -683,9 +714,15 @@ function SettingsPage({ projects = [] }) {
 }
 
 function displayAdminError(cause, fallback) {
-  if (cause?.status === 503) return 'Portfolio service setup is incomplete. Check the Cloudflare API origin and connected database and file storage configuration.'
-  if (cause?.status === 502) return cause.message || 'The portfolio API returned an unexpected response. Check its deployment and routing.'
-  if (!cause?.status || cause.status >= 500) return 'The portfolio service could not complete this request. Try again shortly.'
+  if (cause?.status === 503) return cause.message || 'Local portfolio storage is unavailable. Restart the Vite development server and try again.'
+  if (cause?.status === 502) return cause.message || 'The local portfolio API returned an unexpected response. Restart the Vite development server and try again.'
+  if (cause?.status >= 500) {
+    if (cause.message === 'The local CMS could not complete this request.') {
+      return 'The local portfolio server could not complete this request. Check the Vite terminal for the technical error, then retry.'
+    }
+    return cause.message || 'The local portfolio server could not complete this request. Check the Vite terminal for details and retry.'
+  }
+  if (!cause?.status && cause?.message) return cause.message
   return cause.message || fallback
 }
 
@@ -735,14 +772,17 @@ function Workspace({ onLogout }) {
   const editRecord = (type, record = null, initialPreview = false) => setEditor({ type, record, initialPreview })
   const action = async (name, record) => {
     const title = record.draftData?.title || record.draftData?.role || record.draftData?.degree || record.draftData?.fileName || 'this item'
-    if (name === 'delete' && !window.confirm(`Delete “${title}”? This removes it from the public portfolio immediately and cannot be undone.`)) return
-    if (name === 'unpublish' && !window.confirm('Unpublish this item? It will no longer appear on the public portfolio.')) return
+    if (name === 'delete' && !window.confirm(`Delete “${title}”? This removes it from the local portfolio preview immediately and cannot be undone.`)) return
+    if (name === 'unpublish' && !window.confirm('Unpublish this item? It will no longer appear in the local portfolio preview.')) return
     try {
-      if (name === 'publish') { await adminApi.publish(record.type, record.id, record.revision); notify('Content published to the public portfolio.') }
-      if (name === 'unpublish') { await adminApi.unpublish(record.type, record.id); notify('Content unpublished from the public portfolio.') }
+      if (name === 'publish') { await adminApi.publish(record.type, record.id, record.revision); notify('Content published to the local portfolio preview. This does not update the live website.') }
+      if (name === 'unpublish') { await adminApi.unpublish(record.type, record.id); notify('Content unpublished from the local portfolio preview.') }
       if (name === 'delete') { await adminApi.delete(record.type, record.id); notify('Content deleted.') }
       await refresh()
-    } catch (cause) { setError(displayAdminError(cause, 'This action could not be completed.')) }
+    } catch (cause) {
+      console.error(`[Portfolio Admin] Failed to ${name} ${record.type} record ${record.id}.`, cause)
+      setError(displayAdminError(cause, 'This action could not be completed.'))
+    }
   }
   const reorder = async (type, record, delta) => {
     const values = [...(data[type] || [])]
@@ -751,13 +791,16 @@ function Workspace({ onLogout }) {
     if (index < 0 || other < 0 || other >= values.length) return
     ;[values[index], values[other]] = [values[other], values[index]]
     try { await adminApi.reorder(type, values.map((item) => item.id)); await refresh(); notify('Display order updated.') }
-    catch (cause) { setError(displayAdminError(cause, 'Display order could not be updated.')) }
+    catch (cause) {
+      console.error(`[Portfolio Admin] Failed to reorder ${type}.`, cause)
+      setError(displayAdminError(cause, 'Display order could not be updated.'))
+    }
   }
 
   let content
   if (route === 'Dashboard') content = <DashboardPage data={data} loading={loading} error={error} status={status} onNavigate={navigate} onCreateProject={() => editRecord('projects')} onCreateExperience={() => editRecord('experiences')} onCreateEducation={() => editRecord('education')} onCreateResume={() => editRecord('resumes')} />
-  else if (route === 'Background & Credentials') content = <BackgroundManager data={data} loading={loading} error={error} onCreate={(type) => editRecord(type)} onEdit={(record, initialPreview = false) => editRecord(record.type, record, initialPreview)} onAction={action} onReorder={(record, delta) => reorder(record.type, record, delta)} />
-  else if (route === 'Projects') content = <ProjectManagement records={data.projects} loading={loading} error={error} onCreate={() => editRecord('projects')} onEdit={(record, initialPreview = false) => editRecord('projects', record, initialPreview)} onAction={action} onReorder={(record, delta) => reorder('projects', record, delta)} globalSearch={projectSearch} locationKey={locationKey} />
+  else if (route === 'Background Management') content = <BackgroundManager data={data} loading={loading} error={error} onCreate={(type) => editRecord(type)} onEdit={(record, initialPreview = false) => editRecord(record.type, record, initialPreview)} onAction={action} onReorder={(record, delta) => reorder(record.type, record, delta)} />
+  else if (route === 'Projects Management') content = <ProjectManagement records={data.projects} loading={loading} error={error} onCreate={() => editRecord('projects')} onEdit={(record, initialPreview = false) => editRecord('projects', record, initialPreview)} onAction={action} onReorder={(record, delta) => reorder('projects', record, delta)} globalSearch={projectSearch} locationKey={locationKey} />
   else if (route === 'Resume Management') content = <ResumeManager records={data.resumes} loading={loading} error={error} onCreate={() => editRecord('resumes')} onEdit={(record, initialPreview = false) => editRecord('resumes', record, initialPreview)} onAction={action} />
   else if (route === 'Media Library') content = <MediaLibrary data={data} loading={loading} error={error} onCreateProject={() => editRecord('projects')} onEdit={(type, record) => editRecord(type, record)} />
   else content = <SettingsPage projects={data.projects} />

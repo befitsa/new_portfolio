@@ -75,6 +75,10 @@ export function toPublicExperience(record) {
     achievements: Array.isArray(record.achievements) ? record.achievements : [],
     logo: record.logo?.url || '',
     image: record.image?.url || '',
+    coverLetter: record.coverLetter?.fileUrl ? {
+      fileName: record.coverLetter.fileName || 'Cover letter.pdf',
+      fileUrl: record.coverLetter.fileUrl,
+    } : null,
     skills: Array.isArray(record.skills) ? record.skills : [],
     order: record.order ?? 0,
   }
@@ -88,6 +92,9 @@ export function toPublicEducation(record) {
   return {
     id: record.id,
     title: record.degree,
+    institution: record.institution || '',
+    qualification: record.degree || '',
+    fieldOfStudy: record.fieldOfStudy || '',
     place: [record.institution, record.fieldOfStudy].filter(Boolean).join(' · '),
     date,
     description: record.notes || '',

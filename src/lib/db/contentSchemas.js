@@ -12,7 +12,15 @@ const optionalUrl = z.union([z.literal(''), httpUrlSchema])
 const storedFileUrl = z.union([
   httpUrlSchema,
   z.string().refine((value) => /^\/api\/media\?/.test(value) && !value.startsWith('//'), 'File path must be a safe same-site media URL.'),
+  z.string().refine((value) => /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value), 'File path must be a safe local upload URL.'),
 ])
+const coverLetterSchema = z.object({
+  fileName: z.string().trim().min(1).max(255).regex(/\.pdf$/i, 'Cover letter file name must end in .pdf.'),
+  fileUrl: storedFileUrl,
+  previewUrl: z.union([z.literal(''), storedFileUrl]).default(''),
+  storagePath: z.string().trim().min(1).max(1024),
+  sizeKB: z.number().positive().max(5120),
+})
 const optionalText = (max = 5000) => z.string().trim().max(max)
 const imageUrl = z.union([
   z.literal(''),
@@ -33,6 +41,15 @@ export function normalizeProjectCategory(value) {
   if (value === 'UI/UX') return 'UI/UX'
   return 'Web'
 }
+
+export const educationQualifications = Object.freeze([
+  'BSc Degree',
+  'MSc Degree',
+  'Doctorate / PhD',
+  'Professor',
+  'Diploma',
+  'Certificate',
+])
 
 const projectCategorySchema = z.union([
   z.enum(['Web', 'Mobile', 'UI/UX']),
@@ -95,6 +112,7 @@ export const experienceSchema = z.object({
   achievements: z.array(z.string().trim().min(1).max(1000)).max(30).default([]),
   logo: imageAssetSchema.default({}),
   image: imageAssetSchema.default({}),
+  coverLetter: coverLetterSchema.optional(),
   skills: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
@@ -183,3 +201,9 @@ export const contentSchemas = Object.freeze({
   education: educationSchema,
   resumes: resumeSchema,
 })
+
+export function parseContent(type, content) {
+  const schema = contentSchemas[type]
+  if (!schema) throw new Error(`Unsupported content collection: ${type}`)
+  return schema.parse(content)
+}

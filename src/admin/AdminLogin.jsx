@@ -32,7 +32,7 @@ export default function AdminLogin({ onSuccess }) {
     <section className="w-full max-w-[430px] rounded-2xl border border-forest/15 bg-paper p-7 shadow-[0_20px_55px_rgba(22,74,58,.09)] sm:p-10">
       <BrandLink className="mb-8" href="/" ariaLabel="Fitsum portfolio home" logoSize={42} />
       <p className="text-[10px] font-bold tracking-[.16em] text-gold">SECURE ADMINISTRATION</p>
-      <h1 id="admin-login-title" className="mt-2 font-display text-3xl font-semibold text-forest">Admin Login</h1>
+      <h1 id="admin-login-title" className="admin-page-title mt-2 text-forest">Admin Login</h1>
       <p className="mt-2 text-sm leading-6 text-forest/65">Sign in with the administrator account to manage portfolio content.</p>
       <form className="mt-6 grid gap-3" onSubmit={submit} noValidate>
         <label className="grid gap-1.5 text-sm font-semibold">Email<div className="relative"><UserRound className="absolute left-3 top-1/2 -translate-y-1/2 text-forest/50" size={17} /><input className={`${input} pl-10`} type="email" autoComplete="username" inputMode="email" placeholder="Administrator email" value={username} onChange={(event) => setUsername(event.target.value)} disabled={!configured || busy} required /></div></label>

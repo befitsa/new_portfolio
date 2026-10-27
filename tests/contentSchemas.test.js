@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   educationSchema,
+  educationQualifications,
   experienceSchema,
   projectSchema,
   resumeSchema,
@@ -71,6 +72,23 @@ test('experience schema validates dates and current role rules', () => {
   assert.equal(toPublicExperience(experience).image, 'https://res.cloudinary.com/demo/image/upload/experience.webp')
 })
 
+test('experience cover letter metadata is optional for legacy records and validates attached PDFs', () => {
+  const legacy = experienceSchema.parse({ role: 'Engineer', company: 'Example', startDate: '2023-01-01' })
+  assert.equal(Object.hasOwn(legacy, 'coverLetter'), false)
+
+  const coverLetter = {
+    fileName: 'cover-letter.pdf',
+    fileUrl: '/__local-cms/uploads/123e4567-e89b-12d3-a456-426614174000/cover-letter.pdf',
+    previewUrl: '/__local-cms/uploads/123e4567-e89b-12d3-a456-426614174000/cover-letter.pdf',
+    storagePath: 'uploads/123e4567-e89b-12d3-a456-426614174000/cover-letter.pdf',
+    sizeKB: 24.5,
+  }
+  const experience = experienceSchema.parse({ role: 'Engineer', company: 'Example', startDate: '2023-01-01', coverLetter })
+  assert.deepEqual(experience.coverLetter, coverLetter)
+  assert.equal(experienceSchema.safeParse({ role: 'Engineer', company: 'Example', startDate: '2023-01-01', coverLetter: { ...coverLetter, fileName: 'cover-letter.docx' } }).success, false)
+  assert.equal(experienceSchema.safeParse({ role: 'Engineer', company: 'Example', startDate: '2023-01-01', coverLetter: { ...coverLetter, sizeKB: 5121 } }).success, false)
+})
+
 test('education schema rejects an end year before the start year', () => {
   assert.equal(educationSchema.safeParse({
     degree: 'BSc',
@@ -98,6 +116,21 @@ test('education schema rejects an end year before the start year', () => {
   assert.equal(publicEducation.place, 'Example University · Computer Science')
   assert.equal(publicEducation.description, 'Graduated with honors.')
   assert.equal(publicEducation.image, 'https://res.cloudinary.com/demo/image/upload/education.webp')
+})
+
+test('education qualification choices accept the six dropdown values and preserve older saved values', () => {
+  assert.deepEqual(educationQualifications, [
+    'BSc Degree',
+    'MSc Degree',
+    'Doctorate / PhD',
+    'Professor',
+    'Diploma',
+    'Certificate',
+  ])
+  for (const degree of educationQualifications) {
+    assert.equal(educationSchema.safeParse({ degree, institution: 'Example University', startYear: 2020 }).success, true)
+  }
+  assert.equal(educationSchema.safeParse({ degree: 'BSc', institution: 'Legacy University', startYear: 2018 }).success, true)
 })
 
 test('resume and settings schemas reject invalid external data', () => {

@@ -4,17 +4,15 @@
   "description": "Fitsum Mesfin — 3D developer portfolio (React, Vite, Tailwind, React Three Fiber)",
   "scripts": {
     "dev": "vite",
-    "dev:netlify": "npm exec --yes --package=netlify-cli -- netlify dev",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/contentSchemas.test.js tests/pdfValidation.test.js tests/netlifyApi.test.js tests/cloudflarePagesApi.test.js",
-    "start": "npm run dev:netlify"
+    "test": "node --test tests/adminRoutes.test.js tests/contentSchemas.test.js tests/pdfValidation.test.js tests/presentation.test.js tests/localCmsServer.test.js",
+    "start": "npm run dev"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "firebase": "^13.1.0",
-    "firebase-admin": "^13.0.0",
     "gsap": "^3.15.0",
     "lenis": "^1.3.26",
     "lucide-react": "^1.55.0",
@@ -31,9 +29,6 @@
     "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.4"
-  },
-  "overrides": {
-    "@grpc/grpc-js": "^1.14.6"
   },
   "private": true,
   "type": "module",
