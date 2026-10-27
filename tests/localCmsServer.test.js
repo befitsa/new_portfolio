@@ -27,7 +27,7 @@ function validPdf() {
   return Buffer.from(text, 'latin1')
 }
 
-function signedAdminToken(uid, privateKey, kid) {
+function signedAdminToken(uid, privateKey, kid, authTime = Math.floor(Date.now() / 1000)) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
   const now = Math.floor(Date.now() / 1000)
   const header = encode({ alg: 'RS256', typ: 'JWT', kid })
@@ -38,7 +38,7 @@ function signedAdminToken(uid, privateKey, kid) {
     user_id: uid,
     iat: now,
     exp: now + 3600,
-    auth_time: now,
+    auth_time: authTime,
   })
   const signingInput = `${header}.${claims}`
   return `${signingInput}.${sign('RSA-SHA256', Buffer.from(signingInput), privateKey).toString('base64url')}`
@@ -339,6 +339,8 @@ test('Firebase ID tokens are signature-checked and restricted to the configured 
 
   assert.equal(await verifyAdminToken(token, [uid], fetchKeys), uid)
   await assert.rejects(verifyAdminToken(token, ['different-admin'], fetchKeys), /not authorized/)
+  const expiredToken = signedAdminToken(uid, privateKey, kid, now - 1800)
+  await assert.rejects(verifyAdminToken(expiredToken, [uid], fetchKeys), /expired after 30 minutes/)
   const [, claims] = token.split('.')
   const tampered = `${header}.${claims}.${Buffer.alloc(256).toString('base64url')}`
   await assert.rejects(verifyAdminToken(tampered, [uid], fetchKeys), /not authorized|invalid/)
@@ -377,6 +379,7 @@ test('local HTTP API protects edits and exposes published records to the local p
     assert.equal(unauthenticated.status, 401)
 
     const token = signedAdminToken(uid, privateKey, kid)
+    const expiredToken = signedAdminToken(uid, privateKey, kid, Math.floor(Date.now() / 1000) - 1800)
     const created = await callPlugin(middleware, {
       url: '/api/projects',
       method: 'POST',
@@ -386,6 +389,35 @@ test('local HTTP API protects edits and exposes published records to the local p
     assert.equal(created.status, 201)
     const record = created.body.data
     assert.equal(record.status, 'draft')
+
+    const expiredPublish = await callPlugin(middleware, {
+      url: `/api/projects/${record.id}/publish`,
+      method: 'POST',
+      body: JSON.stringify({ expectedRevision: record.revision }),
+      headers: { 'content-type': 'application/json', 'x-firebase-id-token': expiredToken },
+    })
+    assert.equal(expiredPublish.status, 401)
+    assert.match(expiredPublish.body.error, /expired after 30 minutes/)
+    const expiredEdit = await callPlugin(middleware, {
+      url: `/api/projects/${record.id}`,
+      method: 'PUT',
+      body: JSON.stringify({ content: project({ title: 'Expired edit' }), expectedRevision: record.revision }),
+      headers: { 'content-type': 'application/json', 'x-firebase-id-token': expiredToken },
+    })
+    assert.equal(expiredEdit.status, 401)
+    const expiredDelete = await callPlugin(middleware, {
+      url: `/api/projects/${record.id}`,
+      method: 'DELETE',
+      headers: { 'x-firebase-id-token': expiredToken },
+    })
+    assert.equal(expiredDelete.status, 401)
+    const expiredUpload = await callPlugin(middleware, {
+      url: '/api/media/upload',
+      method: 'POST',
+      body: multipart('expired-upload', { kind: 'image' }, { name: 'image.png', type: 'image/png', bytes: imageBytes }),
+      headers: { 'content-type': 'multipart/form-data; boundary=expired-upload', 'x-firebase-id-token': expiredToken },
+    })
+    assert.equal(expiredUpload.status, 401)
 
     const privateRead = await callPlugin(middleware, {
       url: `/api/projects/${record.id}?view=drafts`,

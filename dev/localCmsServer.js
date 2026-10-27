@@ -10,6 +10,7 @@ const MEDIA_COLLECTION = 'media'
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024
 const MAX_PDF_BYTES = 5 * 1024 * 1024
 const JSON_LIMIT = 2 * 1024 * 1024
+const MAX_ADMIN_SESSION_AGE_SECONDS = 30 * 60
 const FIREBASE_PROJECT_ID = 'user-auth-vp'
 const DEFAULT_ADMIN_UID = '0SYXtQtU61hMim2S9a2aktAeeSA2'
 const FIREBASE_KEYS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'
@@ -99,6 +100,9 @@ export async function verifyAdminToken(token, allowedUids, fetchImpl = fetch) {
   const admins = Array.isArray(allowedUids) ? allowedUids : String(allowedUids || '').split(',')
   if (!validClaims || !admins.map((value) => String(value).trim()).includes(uid)) {
     throw new CmsRequestError('This account is not authorized to access the portfolio admin.', 403)
+  }
+  if (now - claims.auth_time >= MAX_ADMIN_SESSION_AGE_SECONDS) {
+    throw new CmsRequestError('Your admin session expired after 30 minutes. Sign in again.', 401)
   }
   return uid
 }

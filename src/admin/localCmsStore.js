@@ -1,4 +1,5 @@
 import { auth } from '../lib/firebase.js'
+import { assertAdminSession } from '../lib/adminSession.js'
 
 const API_BASE = '/api'
 
@@ -11,8 +12,13 @@ function requestError(message, status = 0) {
 async function request(path, { method = 'GET', body } = {}) {
   let token = ''
   try {
-    if (auth?.currentUser) token = await auth.currentUser.getIdToken()
+    const user = auth?.currentUser
+    if (!user) throw requestError('Sign in with the administrator account to continue.', 401)
+    assertAdminSession(user.uid)
+    token = await user.getIdToken()
+    assertAdminSession(user.uid)
   } catch (error) {
+    if (Number.isInteger(error?.status)) throw error
     console.error('[Local CMS] Failed to refresh the administrator ID token.', error)
     throw requestError('Your administrator session could not be verified. Sign in again.', 401)
   }
@@ -51,6 +57,7 @@ function upload(file, { kind = 'image', alt = '', replaceMediaId = '', onProgres
       reject(new Error('Sign in with the administrator account to continue.'))
       return
     }
+    try { assertAdminSession(user.uid) } catch (error) { reject(error); return }
     const form = new FormData()
     form.set('kind', kind)
     form.set('alt', alt)
@@ -78,9 +85,10 @@ function upload(file, { kind = 'image', alt = '', replaceMediaId = '', onProgres
       resolve(payload.data)
     }
     user.getIdToken().then((token) => {
+      assertAdminSession(user.uid)
       if (token) xhr.setRequestHeader('X-Firebase-Id-Token', token)
       xhr.send(form)
-    }).catch(() => reject(new Error('Your administrator session could not be verified. Sign in again.')))
+    }).catch((error) => reject(Number.isInteger(error?.status) ? error : new Error('Your administrator session could not be verified. Sign in again.')))
   })
 }
 

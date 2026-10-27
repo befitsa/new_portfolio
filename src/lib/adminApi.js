@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { localCmsApi } from '../admin/localCmsStore.js'
 import { auth } from './firebase.js'
+import { assertAdminSession } from './adminSession.js'
 
 export class AdminApiError extends Error {
   constructor(message, status = 0) {
@@ -105,8 +106,11 @@ async function requireAdmin() {
   const user = auth?.currentUser
   if (!user) throw new AdminApiError('Sign in with the administrator account to continue.', 401)
   try {
+    assertAdminSession(user.uid)
     await user.getIdToken()
+    assertAdminSession(user.uid)
   } catch {
+    assertAdminSession(user.uid)
     throw new AdminApiError('Your administrator session could not be verified. Sign in again.', 401)
   }
 }
