@@ -2756,7 +2756,7 @@ button.cms-sync-pill:disabled {
   .cms-project-actions { gap: 8px; }
 }
 
-/* Firebase-authenticated CMS entry and session controls. */
+/* Supabase-authenticated CMS entry and session controls. */
 .cms-login-page {
   min-height: 100vh;
   display: grid;

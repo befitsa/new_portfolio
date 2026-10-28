@@ -34,7 +34,7 @@ export default function AdminLogin({ onSuccess }) {
     setFormError('')
     clearError()
     if (!localMode && (!username.trim() || !password)) {
-      setFormError('Enter both your username and password.')
+      setFormError('Enter both your administrator email and password.')
       return
     }
     setBusy(true)
@@ -54,11 +54,11 @@ export default function AdminLogin({ onSuccess }) {
         <BrandLink className="cms-brand cms-login-brand" href="/" ariaLabel="Fitsum portfolio home" logoSize={44} />
         <p className="cms-eyebrow">{localMode ? 'LOCAL DEVELOPMENT' : 'SECURE ADMINISTRATION'}</p>
         <h1 id="admin-login-title">Admin Login</h1>
-        <p className="cms-login-intro">{localMode ? 'Local development CMS. No Firebase account or cloud service is used.' : 'Sign in with the administrator account to manage the portfolio.'}</p>
+        <p className="cms-login-intro">{localMode ? 'Local development CMS. No cloud account or service is used.' : 'Sign in with the registered Supabase administrator account to manage the portfolio.'}</p>
 
         <form className="cms-login-form" onSubmit={submit} noValidate>
           {!localMode && <>
-            <label htmlFor="admin-username">Username</label>
+            <label htmlFor="admin-username">Email address</label>
             <div className="cms-login-input-wrap">
               <UserRound size={17} aria-hidden="true" />
               <input id="admin-username" type="email" autoComplete="username" inputMode="email" placeholder="Administrator email" value={username} onChange={(event) => setUsername(event.target.value)} disabled={!configured || busy} required />
@@ -77,7 +77,7 @@ export default function AdminLogin({ onSuccess }) {
             {busy ? (localMode ? 'Opening local CMS…' : 'Signing in…') : localMode ? 'Open local CMS' : 'Login'}
           </button>
         </form>
-        <p className="cms-login-footnote">{localMode ? 'Development-only access. The local CMS is not exposed as a production login.' : 'Use your administrator Firebase email as the username.'}</p>
+        <p className="cms-login-footnote">{localMode ? 'Development-only access. The local CMS is not exposed as a production login.' : 'Use the email address configured for your Supabase administrator account.'}</p>
       </section>
     </main>
   )

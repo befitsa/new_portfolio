@@ -1,29 +1,39 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth'
-import { auth, authConfigurationError, browserLocalPersistence } from './firebase.js'
+import { isSupabaseConfigured, supabase } from './supabase.js'
+import { SUPABASE_ADMIN_UID } from './supabaseCmsApi.js'
 import { isLocalFilesystemCms } from '../services/cmsProvider.js'
 
-export const ADMIN_UID = '0SYXtQtU61hMim2S9a2aktAeeSA2'
+export const ADMIN_UID = SUPABASE_ADMIN_UID
 
 const AdminAuthContext = createContext(null)
 
 function friendlyAuthError(error) {
-  if (['auth/operation-not-allowed'].includes(error?.code)) {
-    return 'Email/Password sign-in is disabled. Enable it in Firebase Console under Authentication → Sign-in method.'
+  const code = error?.code || ''
+  if (code === 'invalid_credentials' || code === 'invalid_grant' || code === 'user_not_found') {
+    return 'Email or password is incorrect.'
   }
-  if (['auth/unauthorized-domain', 'auth/app-not-authorized'].includes(error?.code)) {
-    return 'This admin site is not authorized for Firebase Authentication. Add its hostname under Firebase Authentication → Settings → Authorized domains.'
+  if (code === 'email_not_confirmed') {
+    return 'Confirm the administrator email address in Supabase before signing in.'
   }
-  if (['auth/api-key-not-valid', 'auth/invalid-api-key'].includes(error?.code)) {
-    return 'The Firebase API key is invalid. Copy the Web API key from the registered user-auth-vp app in Firebase Console.'
+  if (code === 'signup_disabled') {
+    return 'Administrator sign-in is unavailable. Public sign-up is disabled.'
   }
-  if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password', 'auth/invalid-email', 'auth/user-disabled'].includes(error?.code)) {
-    return 'Username or password is incorrect.'
+  if (error?.name === 'AuthRetryableFetchError' || /fetch|network|timeout/i.test(error?.message || '')) {
+    return 'Unable to reach Supabase Auth. Check your connection and try again.'
   }
-  if (['auth/network-request-failed', 'auth/timeout'].includes(error?.code)) {
-    return 'Unable to reach the authentication service. Check your connection and try again.'
+  return error?.message || 'Sign-in could not be completed. Check your connection and try again.'
+}
+
+async function assertRegisteredAdmin(user) {
+  if (user?.id !== ADMIN_UID) {
+    throw new Error('This Supabase account is not authorized to access the portfolio dashboard.')
   }
-  return 'Sign-in could not be completed. Check your connection and try again.'
+  const { data, error } = await supabase.rpc('cms_is_admin')
+  if (error) throw new Error(friendlyAuthError(error))
+  if (data !== true) {
+    throw new Error('This account is not registered as a portfolio administrator.')
+  }
+  return user
 }
 
 export function AdminAuthProvider({ children }) {
@@ -31,73 +41,97 @@ export function AdminAuthProvider({ children }) {
 
   useEffect(() => {
     if (isLocalFilesystemCms) {
-      setState({ loading: false, user: { uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
+      setState({ loading: false, user: { id: 'local-development-admin', uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
       return undefined
     }
-    if (!auth) {
-      setState({ loading: false, user: null, error: authConfigurationError })
+    if (!supabase || !isSupabaseConfigured) {
+      setState({ loading: false, user: null, error: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to enable Supabase Auth.' })
       return undefined
     }
 
     let active = true
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!active) return
-      if (user && user.uid !== ADMIN_UID) {
-        setState({ loading: false, user: null, error: 'This Firebase account is not authorized to access the admin dashboard.' })
-        try {
-          await signOut(auth)
-        } catch {
-          if (active) setState({ loading: false, user: null, error: 'This account is not authorized. Sign-out failed; close this tab and try again.' })
+    let requestId = 0
+    const resolveSession = async (user) => {
+      const currentRequest = ++requestId
+      if (!user) {
+        if (active && currentRequest === requestId) {
+          setState((current) => ({ ...current, loading: false, user: null }))
         }
         return
       }
-      setState((current) => ({ loading: false, user, error: current.error }))
-    }, () => {
-      if (active) setState({ loading: false, user: null, error: 'Could not verify your sign-in session. Please sign in again.' })
+      setState((current) => ({ ...current, loading: true, error: '' }))
+      try {
+        const admin = await assertRegisteredAdmin(user)
+        if (active && currentRequest === requestId) setState({ loading: false, user: admin, error: '' })
+      } catch (error) {
+        if (!active || currentRequest !== requestId) return
+        let message = error.message
+        setState({ loading: false, user: null, error: message })
+        try {
+          await supabase.auth.signOut()
+        } catch {
+          message = `${message} The session could not be cleared; sign out manually and try again.`
+        }
+        if (active && currentRequest === requestId) setState({ loading: false, user: null, error: message })
+      }
+    }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      queueMicrotask(() => { void resolveSession(session?.user || null) })
+    })
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) throw error
+      return resolveSession(data.session?.user || null)
+    }).catch((error) => {
+      if (active) setState({ loading: false, user: null, error: friendlyAuthError(error) })
     })
 
     return () => {
       active = false
-      unsubscribe()
+      requestId += 1
+      subscription.unsubscribe()
     }
   }, [])
 
   const value = useMemo(() => ({
     ...state,
-    configured: isLocalFilesystemCms || Boolean(auth),
+    configured: isLocalFilesystemCms || isSupabaseConfigured,
     clearError: () => setState((current) => ({ ...current, error: '' })),
-    login: async (username, password) => {
+    login: async (email, password) => {
       if (isLocalFilesystemCms) {
-        setState({ loading: false, user: { uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
+        setState({ loading: false, user: { id: 'local-development-admin', uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
         return true
       }
-      if (!auth) {
-        setState((current) => ({ ...current, error: authConfigurationError }))
-        throw new Error(authConfigurationError)
+      if (!supabase || !isSupabaseConfigured) {
+        const message = 'Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to enable Supabase Auth.'
+        setState((current) => ({ ...current, error: message }))
+        throw new Error(message)
       }
-      setState((current) => ({ ...current, error: '' }))
+      setState((current) => ({ ...current, loading: true, error: '' }))
       try {
-        await setPersistence(auth, browserLocalPersistence)
-        const credential = await signInWithEmailAndPassword(auth, username.trim(), password)
-        if (credential.user.uid !== ADMIN_UID) {
-          await signOut(auth)
-          const error = new Error('This Firebase account is not authorized to access the admin dashboard.')
-          error.code = 'admin/unauthorized'
-          throw error
-        }
+        const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+        if (error) throw error
+        const user = await assertRegisteredAdmin(data.user)
+        setState({ loading: false, user, error: '' })
         return true
       } catch (error) {
-        if (error?.code === 'admin/unauthorized') {
-          setState((current) => ({ ...current, error: error.message, user: null }))
-          throw error
+        let message = friendlyAuthError(error)
+        if (error?.message?.includes('not authorized') || error?.message?.includes('not registered')) {
+          try {
+            await supabase.auth.signOut()
+          } catch {
+            message = `${message} The session could not be cleared; sign out manually and try again.`
+          }
         }
-        const message = friendlyAuthError(error)
-        setState((current) => ({ ...current, error: message, user: null }))
+        setState({ loading: false, user: null, error: message })
         throw new Error(message)
       }
     },
     logout: async () => {
-      if (!isLocalFilesystemCms && auth) await signOut(auth)
+      if (!isLocalFilesystemCms && supabase) {
+        const { error } = await supabase.auth.signOut()
+        if (error) throw new Error(friendlyAuthError(error))
+      }
       setState({ loading: false, user: null, error: '' })
     },
   }), [state])

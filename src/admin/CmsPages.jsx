@@ -197,8 +197,8 @@ export function CmsDashboardPage() {
       <StatCard icon={FileText} label="DOCUMENT HUB" value={currentResume?.version ? `v${currentResume.version}` : 'No active PDF'} detail={currentResume?.fileName || 'Upload a PDF version to activate it'} badge={currentResume ? 'Published' : 'Needs setup'} tone={currentResume ? 'green' : 'amber'} />
       <StatCard icon={ImageIcon} label="MANAGED MEDIA" value={media.published.length} detail={localMode ? 'Images saved on this machine' : 'Images stored in managed object storage'} badge={ready ? 'Library' : 'Not connected'} tone={ready ? 'green' : 'neutral'} />
     </section>
-    <div className="cms-dashboard-columns"><section className="cms-dashboard-panel"><div className="cms-panel-heading"><div><h2>Recent content activity</h2><p>{localMode ? 'Latest changes saved in local JSON files.' : 'Latest saved records from the protected CMS API.'}</p></div><a href={cmsHref('/projects')} className="cms-quiet-link">View projects <ArrowRight size={14} /></a></div>{latest.length ? <div className="cms-record-list">{latest.map((record) => <a key={`${record._type}-${record.id}`} className="cms-record-row" href={cmsHref(record._type === 'projects' ? `/projects/${record.id}` : '/background')}><span className="cms-snapshot-icon"><FileText size={16} /></span><span><strong>{record.title || record.role || record.degree || record.company || 'Portfolio record'}</strong><small>{record.company || record.institution || record.category || record._type} · {datePretty(record.updatedAt?.seconds || record.updatedAt?._seconds ? new Date((record.updatedAt.seconds ?? record.updatedAt._seconds) * 1000).toISOString().slice(0, 10) : '')}</small></span><StatusBadge status={record.status} /></a>)}</div> : <EmptyState title={ready ? 'No recent records' : 'Connect the CMS API'} text={ready ? 'Create a project or background entry to see activity here.' : 'Dashboard metrics update from the backend when Access and Firebase are configured.'} />}</section>
-      <div className="cms-dashboard-side"><section className="cms-dashboard-panel cms-preview-panel"><div className="cms-panel-heading"><div><h2>Website preview</h2><p>{localMode ? 'Public page on this development server.' : 'Current public portfolio.'}</p></div><span className="cms-badge cms-badge-green">{localMode ? 'Local preview' : 'Live site'}</span></div><div className="cms-site-preview"><div className="cms-preview-browserbar"><span /><span /><span /><small>Fitsum Mesfin</small></div><div className="cms-preview-content"><span className="cms-preview-avatar">FM</span><h3>{profile.name}</h3><p>{profile.title} · {profile.roles.slice(0, 2).join(' · ')}</p><div className="cms-preview-projects">{publishedProjects.slice(0, 2).map((item) => <span key={item.id}>{item.title}</span>)}</div></div></div>{publicUrl ? <Button className="cms-preview-link" variant="primary" href={publicUrl} target="_blank" rel="noreferrer">{localMode ? 'Open local portfolio preview' : 'Open live portfolio'} <ArrowRight size={14} /></Button> : <p className="cms-inline-hint">Set VITE_PUBLIC_PORTFOLIO_URL to open the public portfolio.</p>}</section><section className="cms-integration-card"><div className="cms-integration-title"><ShieldCheck size={18} /><h2>{localMode ? 'Development storage' : 'Production CMS provider'}</h2></div><div className="cms-integration-row"><span>Admin interface</span><strong className="is-ready">{localMode ? 'Local only' : 'Firebase sign-in'}</strong></div><div className="cms-integration-row"><span>{localMode ? 'Text records' : 'Content API'}</span><strong>{localMode ? 'Local JSON files' : ready ? 'Configured' : 'Not configured'}</strong></div><div className="cms-integration-row"><span>{localMode ? 'Uploaded files' : 'Persistent storage'}</span><strong>{localMode ? 'Local disk' : ready ? 'Connected' : 'Not configured'}</strong></div><p className="cms-integration-note">{localMode ? 'Development changes are saved under .local-cms on this machine and never sent to the live website.' : 'Firebase authentication is preserved, but there is no persistent CMS API/storage provider connected to this deployment.'}</p></section></div>
+    <div className="cms-dashboard-columns"><section className="cms-dashboard-panel"><div className="cms-panel-heading"><div><h2>Recent content activity</h2><p>{localMode ? 'Latest changes saved in local JSON files.' : 'Latest saved records from Supabase.'}</p></div><a href={cmsHref('/projects')} className="cms-quiet-link">View projects <ArrowRight size={14} /></a></div>{latest.length ? <div className="cms-record-list">{latest.map((record) => <a key={`${record._type}-${record.id}`} className="cms-record-row" href={cmsHref(record._type === 'projects' ? `/projects/${record.id}` : '/background')}><span className="cms-snapshot-icon"><FileText size={16} /></span><span><strong>{record.title || record.role || record.degree || record.company || 'Portfolio record'}</strong><small>{record.company || record.institution || record.category || record._type} · {datePretty(record.updatedAt?.seconds || record.updatedAt?._seconds ? new Date((record.updatedAt.seconds ?? record.updatedAt._seconds) * 1000).toISOString().slice(0, 10) : '')}</small></span><StatusBadge status={record.status} /></a>)}</div> : <EmptyState title={ready ? 'No recent records' : 'Connect Supabase'} text={ready ? 'Create a project or background entry to see activity here.' : 'Dashboard metrics update after the Supabase connection is configured.'} />}</section>
+      <div className="cms-dashboard-side"><section className="cms-dashboard-panel cms-preview-panel"><div className="cms-panel-heading"><div><h2>Website preview</h2><p>{localMode ? 'Public page on this development server.' : 'Current public portfolio.'}</p></div><span className="cms-badge cms-badge-green">{localMode ? 'Local preview' : 'Live site'}</span></div><div className="cms-site-preview"><div className="cms-preview-browserbar"><span /><span /><span /><small>Fitsum Mesfin</small></div><div className="cms-preview-content"><span className="cms-preview-avatar">FM</span><h3>{profile.name}</h3><p>{profile.title} · {profile.roles.slice(0, 2).join(' · ')}</p><div className="cms-preview-projects">{publishedProjects.slice(0, 2).map((item) => <span key={item.id}>{item.title}</span>)}</div></div></div>{publicUrl ? <Button className="cms-preview-link" variant="primary" href={publicUrl} target="_blank" rel="noreferrer">{localMode ? 'Open local portfolio preview' : 'Open live portfolio'} <ArrowRight size={14} /></Button> : <p className="cms-inline-hint">Set VITE_PUBLIC_PORTFOLIO_URL to open the public portfolio.</p>}</section><section className="cms-integration-card"><div className="cms-integration-title"><ShieldCheck size={18} /><h2>{localMode ? 'Development storage' : 'Production CMS provider'}</h2></div><div className="cms-integration-row"><span>Admin interface</span><strong className="is-ready">{localMode ? 'Local only' : 'Supabase Auth'}</strong></div><div className="cms-integration-row"><span>{localMode ? 'Text records' : 'Content API'}</span><strong>{localMode ? 'Local JSON files' : ready ? 'Connected' : 'Not configured'}</strong></div><div className="cms-integration-row"><span>{localMode ? 'Uploaded files' : 'Persistent storage'}</span><strong>{localMode ? 'Local disk' : ready ? 'Connected' : 'Not configured'}</strong></div><p className="cms-integration-note">{localMode ? 'Development changes are saved under .local-cms on this machine and never sent to the live website.' : 'Supabase Auth, Postgres, and Storage are used for production CMS data and assets.'}</p></section></div>
     </div>
   </>
 }
@@ -344,7 +344,7 @@ export function CmsProjectEditorPage({ id }) {
   const uploadHero = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -372,7 +372,7 @@ export function CmsProjectEditorPage({ id }) {
   const importHero = async () => {
     if (!imageUrl.trim()) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
       return
     }
     const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim(), '', { private: !localMode }), localMode ? 'Image URL added to the local media library.' : 'Image copied to private draft storage.')
@@ -556,7 +556,7 @@ export function CmsResumePage() {
   const upload = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
       return
     }
     if (file.size <= 0 || file.size > 5 * 1024 * 1024) { mutation.run(() => { throw new Error('Choose a PDF larger than 0 bytes and no larger than 5 MB.') }); return }
@@ -603,7 +603,7 @@ export function CmsMediaPage() {
   const upload = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -618,7 +618,7 @@ export function CmsMediaPage() {
   const replace = async (current, file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -633,7 +633,7 @@ export function CmsMediaPage() {
   const importUrl = async (event) => {
     event.preventDefault()
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Cloud Storage is unavailable. Verify the content bucket and Function permissions.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
       return
     }
     const item = await mutation.run(() => adminApi.importImage(sourceUrl.trim(), alt), localMode ? 'Image URL added to the local media library.' : 'Image imported into managed storage.')
