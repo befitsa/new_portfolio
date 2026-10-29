@@ -83,51 +83,107 @@ grant execute on function public.is_portfolio_admin() to authenticated;
 create table public.projects (
   id text primary key,
   status text,
-  revision integer,
-  draft_payload jsonb,
-  published_payload jsonb
+  published boolean,
+  title text not null,
+  slug text not null,
+  description text,
+  category text,
+  cover_image text,
+  images jsonb,
+  technologies jsonb,
+  visibility boolean,
+  featured boolean,
+  "order" integer
 );
 create table public.experiences (
   id text primary key,
   status text,
-  revision integer,
-  draft_payload jsonb,
-  published_payload jsonb
+  role text not null,
+  company text not null,
+  logoInitials text,
+  startDate text,
+  endDate text,
+  isCurrent boolean,
+  location text,
+  employmentType text,
+  description text,
+  skills jsonb,
+  visibility boolean,
+  "order" integer
 );
 create table public.education (
   id text primary key,
   status text,
-  revision integer,
-  draft_payload jsonb,
-  published_payload jsonb
+  degree text not null,
+  institution text not null,
+  startYear integer,
+  endYear integer,
+  notes text,
+  credentialUrl text,
+  visibility boolean,
+  "order" integer
 );
 create table public.site_settings (
   id text primary key,
   status text,
-  revision integer,
-  draft_payload jsonb,
-  published_payload jsonb
+  name text,
+  title text,
+  bio text,
+  about text,
+  location text,
+  socialLinks jsonb,
+  featuredProjectIds jsonb,
+  seo jsonb,
+  visibility boolean
 );
 
-insert into public.projects (id, status, revision, draft_payload, published_payload) values
-  ('validation-legacy-draft', 'draft', 2,
-   '{"title":"Disposable draft","slug":"validation-legacy-draft","visibility":false}'::jsonb,
-   null),
-  ('validation-legacy-published', 'published', 3,
-   '{"title":"Disposable published project","slug":"validation-legacy-published","visibility":true,"techStack":"React, PostgreSQL, Vite"}'::jsonb,
-   '{"title":"Disposable published project","slug":"validation-legacy-published","visibility":true,"techStack":"React, PostgreSQL, Vite"}'::jsonb),
-  ('validation-legacy-ambiguous', null, 4,
-   '{"title":"Ambiguous legacy project","slug":"validation-legacy-ambiguous","visibility":true}'::jsonb,
-   '{"title":"Do not publish without an explicit status","slug":"validation-legacy-ambiguous","visibility":true}'::jsonb);
-insert into public.experiences (id, status, revision, draft_payload, published_payload)
-values ('validation-experience', 'draft', 1,
-  '{"role":"Disposable role","visibility":false}'::jsonb, null);
-insert into public.education (id, status, revision, draft_payload, published_payload)
-values ('validation-education', 'draft', 1,
-  '{"degree":"Disposable credential","visibility":false}'::jsonb, null);
-insert into public.site_settings (id, status, revision, draft_payload, published_payload)
-values ('main', 'draft', 1,
-  '{"visibility":false,"siteName":"Disposable test"}'::jsonb, null);
+insert into public.projects (
+  id, status, published, title, slug, description, category, cover_image,
+  images, technologies, visibility, featured, "order"
+) values
+  ('validation-legacy-draft', 'draft', false, 'Disposable draft',
+   'validation-legacy-draft', 'Draft description', 'Web',
+   'portfolio_media/projects/draft-cover.png',
+   '["portfolio_media/projects/draft-gallery.png"]'::jsonb,
+   '["DraftTech","SharedTech"]'::jsonb, false, false, 1),
+  ('validation-legacy-published', 'published', true, 'Disposable published project',
+   'validation-legacy-published', 'Published description', 'Web',
+   'https://assets.example.test/published-cover.png',
+   '["https://assets.example.test/published-1.png","https://assets.example.test/published-2.png"]'::jsonb,
+   '["React","PostgreSQL","Vite"]'::jsonb, true, true, 2),
+  ('validation-legacy-comma-tech', 'published', true, 'Comma technology fixture',
+   'validation-legacy-comma-tech', 'Comma technology description', 'Mobile App',
+   'https://assets.example.test/comma-cover.png',
+   '[]'::jsonb, '"React, Vite"'::jsonb, true, false, 3),
+  ('validation-legacy-ambiguous', null, null, 'Ambiguous legacy project',
+   'validation-legacy-ambiguous', 'Must remain private', 'Web',
+   'https://assets.example.test/ambiguous-cover.png',
+   '[]'::jsonb, '["ShouldNotPublish"]'::jsonb, true, false, 4);
+insert into public.experiences (
+  id, status, role, company, logoInitials, startDate, endDate, isCurrent,
+  location, employmentType, description, skills, visibility, "order"
+) values (
+  'validation-experience', 'published', 'Disposable role', 'Example Co',
+  'EC', '2020-01-01', '', true, 'Remote', 'Full-time',
+  'Experience fixture', '["SQL","React"]'::jsonb, true, 1
+);
+insert into public.education (
+  id, status, degree, institution, startYear, endYear, notes,
+  credentialUrl, visibility, "order"
+) values (
+  'validation-education', 'draft', 'Disposable credential', 'Example University',
+  2020, null, 'Education fixture', 'https://example.test/credential',
+  false, 1
+);
+insert into public.site_settings (
+  id, status, name, title, bio, about, location,
+  socialLinks, featuredProjectIds, seo, visibility
+) values (
+  'main', 'published', 'Disposable Test Admin', 'Developer', 'Test bio',
+  'Test about', 'Test location', '{"github":"https://github.com/example"}'::jsonb,
+  '["validation-legacy-published"]'::jsonb,
+  '{"metaTitle":"Disposable"}'::jsonb, true
+);
 
 -- Only create buckets unique to this fresh disposable project.
 -- These are test fixtures; the migration must preserve their visibility.

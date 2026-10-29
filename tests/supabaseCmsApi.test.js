@@ -569,6 +569,10 @@ test('migration is conservative for ambiguous legacy records and preserves proje
   assert.match(migration, /v_draft_payload := v_draft_payload \|\| '\{"visibility":false\}'::jsonb/)
   assert.match(migration, /jsonb_typeof\(v_draft_payload -> 'techStack'\) = 'string'/)
   assert.match(migration, /string_to_array\(v_draft_payload ->> 'techStack', ','\)/)
+  assert.match(migration, /v_draft_payload -> 'technologies'[\s\S]{0,100}jsonb_set\(v_draft_payload, '\{techStack\}', v_draft_payload -> 'technologies'/)
+  assert.match(migration, /v_draft_payload -> 'description'[\s\S]{0,120}jsonb_set\(v_draft_payload, '\{synopsis\}'/)
+  assert.match(migration, /v_draft_payload -> 'cover_image'/)
+  assert.match(migration, /v_draft_payload -> 'images'/)
   assert.match(projectionBootstrap, /on conflict \(content_type, record_id\) do nothing;/)
   assert.match(projectionBootstrap, /on conflict \(id\) do nothing;/)
   assert.doesNotMatch(projectionBootstrap, /do update|delete from public\.portfolio_cms_public_/i)
@@ -607,7 +611,7 @@ test('migration distinguishes every legacy bucket and checks the exact dotted bu
   assert.match(publicationReadiness, /portfolio-published bucket must be explicitly configured as public/)
   assert.match(publicationReadiness, /visibility_verified_at/)
   assert.match(publicationReadiness, /audited_at/)
-  assert.match(publicationReadiness, /projections_audited_at/)
+  assert.doesNotMatch(publicationReadiness, /projections_audited_at/)
   assert.doesNotMatch(migration, /values \('portfolio-media\.?'/)
   assert.match(migration, /bucket_id not in \('portfolio_media', 'portfolio-media', 'portfolio-media\.'\)/)
   const healthFunction = migration.slice(
@@ -616,6 +620,8 @@ test('migration distinguishes every legacy bucket and checks the exact dotted bu
   )
   assert.match(healthFunction, /v_message := public\.cms_publication_block_reason\(\)/)
   assert.match(healthFunction, /'ready', v_media_public[\s\S]*?v_message = ''/)
+  assert.match(healthFunction, /'publicStorageContentAuditRecorded', v_media_audited/)
+  assert.match(healthFunction, /'publicProjectionEligible', public\.cms_public_content_audited\(\)/)
 })
 
 test('database publish RPCs enforce admin, storage readiness, asset eligibility, and public projection gates', async () => {
@@ -653,6 +659,14 @@ test('database publish RPCs enforce admin, storage readiness, asset eligibility,
   }
   assert.match(projectionRead, /published_payload ->> 'visibility' = 'true' and public\.cms_public_content_audited\(\)/)
   assert.match(settingsProjectionRead, /published_payload ->> 'visibility' = 'true' and public\.cms_public_content_audited\(\)/)
+  const projectionEligibility = migration.slice(
+    migration.indexOf('create or replace function public.cms_public_content_audited'),
+    migration.indexOf('create index if not exists portfolio_cms_records_public_type_idx'),
+  )
+  assert.match(projectionEligibility, /projection\.published_payload is distinct from source\.published_payload/)
+  assert.match(projectionEligibility, /cms_jsonb_has_unknown_storage_bucket/)
+  assert.match(projectionEligibility, /cms_jsonb_uses_storage_bucket\(source\.published_payload, 'portfolio-private'\)/)
+  assert.doesNotMatch(projectionEligibility, /audited_at|visibility_verified_at|projections_audited_at/)
   assert.match(migration, /create policy portfolio_cms_admin_records_read[\s\S]*?using \(public\.is_portfolio_admin\(\)\)/)
   assert.match(migration, /create policy portfolio_private_anon_block[\s\S]*?using \(bucket_id <> 'portfolio-private'\)/)
   assert.match(migration, /create policy portfolio_private_authenticated_guard[\s\S]*?public\.cms_is_admin\(\)/)
@@ -668,4 +682,49 @@ test('database publish RPCs enforce admin, storage readiness, asset eligibility,
   assert.match(migration, /public\.is_portfolio_admin\(\)/)
   assert.match(migration, /revoke all on function public\.cms_publication_block_reason\(\) from public, anon, authenticated/)
   assert.match(migration, /revoke all on function public\.cms_legacy_bucket_safe\(text, boolean\) from public, anon, authenticated/)
+})
+
+test('public lifecycle validation covers publish, unpublish, delete, stale parity, and audit invalidation', async () => {
+  const sql = await readFile(
+    new URL('../supabase/validation/06_public_lifecycle.sql', import.meta.url),
+    'utf8',
+  )
+  assert.match(sql, /ifakxmugmdcjyhytzpwx/)
+  assert.match(sql, /cms_publish_record/)
+  assert.match(sql, /cms_unpublish_record/)
+  assert.match(sql, /cms_delete_record/)
+  assert.match(sql, /anonymous_after_publish/)
+  assert.match(sql, /anonymous_after_unpublish/)
+  assert.match(sql, /anonymous_after_delete/)
+  assert.match(sql, /anonymous_stale_projection/)
+  assert.match(sql, /anonymous_after_audit_invalidation/)
+  assert.match(sql, /audit_invalidated_publish_gate/)
+  assert.match(sql, /cms_publication_block_reason/)
+  assert.match(sql, /rerun_sentinel_preflight/)
+  assert.match(sql, /delete from public\.portfolio_cms_public_records[\s\S]*validation-rerun-sentinel/)
+  assert.match(sql, /portfolio-legacy-published|validation-legacy-published/)
+  assert.match(sql.trim(), /rollback;$/i)
+})
+
+test('Storage changes invalidate publication attestations without coupling them to public reads', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/20261028130000_portfolio_cms.sql', import.meta.url),
+    'utf8',
+  )
+  const auditInvalidation = migration.slice(
+    migration.indexOf('create or replace function public.cms_invalidate_storage_audit'),
+    migration.indexOf('create trigger portfolio_cms_storage_bucket_audit_invalidation'),
+  )
+  assert.match(auditInvalidation, /set audited_at = null/)
+  assert.match(auditInvalidation, /set visibility_verified_at = null, audited_at = null/)
+  assert.match(migration, /after insert or update or delete on storage\.objects/)
+  assert.match(migration, /after insert or update or delete on storage\.buckets/)
+  assert.match(migration, /create or replace function public\.cms_public_content_audited/)
+  assert.doesNotMatch(
+    migration.slice(
+      migration.indexOf('create or replace function public.cms_public_content_audited'),
+      migration.indexOf('create index if not exists portfolio_cms_records_public_type_idx'),
+    ),
+    /audited_at|visibility_verified_at|projections_audited_at/,
+  )
 })

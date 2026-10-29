@@ -56,6 +56,25 @@ from storage.buckets b
 where b.id in ('portfolio-private', 'portfolio-published')
 on conflict (bucket_id) do nothing;
 
+create table if not exists public.cms_validation_legacy_baseline (
+  content_type text not null,
+  record_id text not null,
+  status text not null,
+  draft_payload jsonb not null,
+  published_payload jsonb not null,
+  primary key (content_type, record_id)
+);
+insert into public.cms_validation_legacy_baseline (
+  content_type, record_id, status, draft_payload, published_payload
+)
+select content_type, record_id, status, draft_payload, published_payload
+from public.portfolio_cms_records
+where content_type = 'projects'
+  and record_id = 'validation-legacy-published'
+  and status = 'published'
+  and published_payload is not null
+on conflict (content_type, record_id) do nothing;
+
 do $empty_destinations$
 begin
   if (select count(*) from public.cms_validation_destination_baseline) <> 2
@@ -71,6 +90,9 @@ begin
       and was_public
   ) then
     raise exception 'STOP: both CMS destination buckets must already be private for this rerun test; do not change their visibility here.';
+  end if;
+  if (select count(*) from public.cms_validation_legacy_baseline) <> 1 then
+    raise exception 'STOP: expected exactly one migrated published legacy fixture before saving the rerun baseline.';
   end if;
 end;
 $empty_destinations$;

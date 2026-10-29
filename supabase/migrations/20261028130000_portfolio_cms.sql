@@ -80,7 +80,7 @@ create table if not exists public.portfolio_cms_storage_audit (
 );
 
 comment on table public.portfolio_cms_storage_audit is
-  'Trusted-operator attestations only: record visibility_verified_at and audited_at after checking portfolio-published in Supabase Storage, then record projections_audited_at after reviewing CMS public projections. Storage changes invalidate the related attestation; projection changes and every migration rerun invalidate the projection attestation. Ordinary authenticated users have no write access.';
+  'Trusted-operator attestations only: record visibility_verified_at and audited_at after checking portfolio-published in Supabase Storage, then record projections_audited_at as an advisory review timestamp. Storage changes invalidate the related attestation; projection changes and every migration rerun invalidate the projection timestamp, which does not gate database reads. Ordinary authenticated users have no write access.';
 
 alter table public.portfolio_cms_storage_audit
   add column if not exists visibility_verified_at timestamptz;
@@ -90,7 +90,7 @@ comment on column public.portfolio_cms_storage_audit.visibility_verified_at is
 comment on column public.portfolio_cms_storage_audit.audited_at is
   'Set only by a trusted operator after reviewing portfolio-published Storage objects; ordinary CMS users have no write access.';
 comment on column public.portfolio_cms_storage_audit.projections_audited_at is
-  'Set only by a trusted operator after reviewing CMS public projections; migration runs clear this attestation.';
+  'Advisory only: set by a trusted operator after reviewing CMS public projections; migration runs and projection changes clear it, but current RLS reads validate projection parity dynamically.';
 
 insert into public.portfolio_cms_storage_audit (bucket_id)
 values ('portfolio-published')
@@ -111,7 +111,11 @@ begin
         where bucket_id = 'portfolio-published';
       end if;
     elsif tg_op = 'UPDATE' then
-      if old.id = 'portfolio-published' or new.id = 'portfolio-published' then
+      if (old.id = 'portfolio-published' or new.id = 'portfolio-published')
+        and (old.id, old.name, old.public, old.file_size_limit, old.allowed_mime_types)
+          is distinct from
+            (new.id, new.name, new.public, new.file_size_limit, new.allowed_mime_types)
+      then
         update public.portfolio_cms_storage_audit
         set visibility_verified_at = null, audited_at = null
         where bucket_id = 'portfolio-published';
@@ -157,19 +161,14 @@ create trigger portfolio_cms_storage_object_audit_invalidation
 
 create or replace function public.cms_public_content_audited()
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $function$
+begin
+  return (
   select exists (
-    select 1 from public.portfolio_cms_storage_audit
-    where bucket_id = 'portfolio-published'
-      and audited_at is not null
-      and visibility_verified_at is not null
-      and projections_audited_at is not null
-  )
-  and exists (
     select 1 from storage.buckets
     where id = 'portfolio-published' and public
   )
@@ -185,7 +184,14 @@ as $function$
       and projection.record_id = source.record_id
     where source.published_payload is not null
       and source.published_payload ->> 'visibility' = 'true'
-      and projection.published_payload is distinct from source.published_payload
+      and (
+        projection.published_payload is distinct from source.published_payload
+        or public.cms_jsonb_has_unknown_storage_bucket(source.published_payload)
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio-private')
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio_media')
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio-media')
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio-media.')
+      )
   )
   and not exists (
     select 1
@@ -197,6 +203,11 @@ as $function$
       or source.published_payload is null
       or source.published_payload ->> 'visibility' is distinct from 'true'
       or source.published_payload is distinct from projection.published_payload
+      or public.cms_jsonb_has_unknown_storage_bucket(projection.published_payload)
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio-private')
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio_media')
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio-media')
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio-media.')
   )
   and not exists (
     select 1
@@ -204,7 +215,14 @@ as $function$
     left join public.portfolio_cms_public_settings projection on projection.id = source.id
     where source.published_payload is not null
       and source.published_payload ->> 'visibility' = 'true'
-      and projection.published_payload is distinct from source.published_payload
+      and (
+        projection.published_payload is distinct from source.published_payload
+        or public.cms_jsonb_has_unknown_storage_bucket(source.published_payload)
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio-private')
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio_media')
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio-media')
+        or public.cms_jsonb_uses_storage_bucket(source.published_payload, 'portfolio-media.')
+      )
   )
   and not exists (
     select 1
@@ -214,7 +232,13 @@ as $function$
       or source.published_payload is null
       or source.published_payload ->> 'visibility' is distinct from 'true'
       or source.published_payload is distinct from projection.published_payload
-  )
+      or public.cms_jsonb_has_unknown_storage_bucket(projection.published_payload)
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio-private')
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio_media')
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio-media')
+      or public.cms_jsonb_uses_storage_bucket(projection.published_payload, 'portfolio-media.')
+  ));
+end;
 $function$;
 
 create index if not exists portfolio_cms_records_public_type_idx
@@ -549,7 +573,6 @@ declare
   v_public_bucket boolean;
   v_visibility_verified boolean;
   v_content_audited boolean;
-  v_projections_audited boolean;
 begin
   perform public.cms_require_portfolio_admin();
 
@@ -573,9 +596,8 @@ begin
     into v_public_bucket
     from storage.buckets b where b.id = 'portfolio-published';
   select coalesce(bool_or(a.visibility_verified_at is not null), false),
-         coalesce(bool_or(a.audited_at is not null), false),
-         coalesce(bool_or(a.projections_audited_at is not null), false)
-    into v_visibility_verified, v_content_audited, v_projections_audited
+         coalesce(bool_or(a.audited_at is not null), false)
+    into v_visibility_verified, v_content_audited
     from public.portfolio_cms_storage_audit a where a.bucket_id = 'portfolio-published';
 
   if not v_public_bucket then
@@ -587,11 +609,8 @@ begin
   if not v_content_audited then
     return 'A trusted operator must review the portfolio-published bucket contents and record the audit before publishing.';
   end if;
-  if not v_projections_audited then
-    return 'A trusted operator must review existing CMS public projections and record the audit before publishing.';
-  end if;
   if not public.cms_public_content_audited() then
-    return 'The public content audit is stale or the CMS public projections do not match published content; review and reconcile them before publishing.';
+    return 'The public CMS projection does not match safe published content or storage configuration; reconcile it before publishing.';
   end if;
   return '';
 end;
@@ -638,13 +657,16 @@ begin
     'ok', true,
     'database', jsonb_build_object('ready', true),
     'storage', jsonb_build_object(
-      'ready', v_media_public and v_media_audited and v_projections_audited and v_private_ready
+      'ready', v_media_public and v_media_audited and v_private_ready
         and v_visibility_verified and v_message = '',
       'publicBucketReady', v_media_public,
       'privateBucketReady', v_private_ready,
       'publicBucketVisibilityVerified', v_visibility_verified,
       'publicBucketAudited', v_media_audited,
-      'publicContentAudited', v_projections_audited,
+      'publicContentAudited', v_media_audited,
+      'publicStorageContentAuditRecorded', v_media_audited,
+      'publicProjectionEligible', public.cms_public_content_audited(),
+      'publicProjectionAuditRecorded', v_projections_audited,
       'message', v_message
     ),
     'admin', true
@@ -1227,6 +1249,82 @@ begin
         v_row
       );
       if jsonb_typeof(v_draft_payload) is distinct from 'object' then continue; end if;
+      if v_type = 'projects' then
+        if not (v_draft_payload ? 'synopsis')
+          and jsonb_typeof(v_draft_payload -> 'description') = 'string'
+        then
+          v_draft_payload := jsonb_set(v_draft_payload, '{synopsis}', v_draft_payload -> 'description', true);
+        end if;
+        if not (v_draft_payload ? 'techStack') then
+          if jsonb_typeof(v_draft_payload -> 'technologies') = 'array' then
+            v_draft_payload := jsonb_set(v_draft_payload, '{techStack}', v_draft_payload -> 'technologies', true);
+          elsif jsonb_typeof(v_draft_payload -> 'technologies') = 'string' then
+            v_draft_payload := jsonb_set(
+              v_draft_payload,
+              '{techStack}',
+              coalesce((
+                select jsonb_agg(btrim(item.value) order by item.ordinality)
+                from unnest(string_to_array(v_draft_payload ->> 'technologies', ',')) with ordinality item(value, ordinality)
+                where btrim(item.value) <> ''
+              ), '[]'::jsonb),
+              true
+            );
+          end if;
+        end if;
+        if not (v_draft_payload ? 'heroImage')
+          and jsonb_typeof(v_draft_payload -> 'cover_image') = 'string'
+        then
+          v_draft_payload := jsonb_set(
+            v_draft_payload,
+            '{heroImage}',
+            jsonb_build_object(
+              'url', case
+                when v_draft_payload ->> 'cover_image' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                  then ''
+                else v_draft_payload ->> 'cover_image'
+              end,
+              'storagePath', case
+                when v_draft_payload ->> 'cover_image' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                  then v_draft_payload ->> 'cover_image'
+                else ''
+              end,
+              'caption', '',
+              'order', 0
+            ),
+            true
+          );
+        end if;
+        if not (v_draft_payload ? 'gallery') and jsonb_typeof(v_draft_payload -> 'images') = 'array' then
+          v_draft_payload := jsonb_set(
+            v_draft_payload,
+            '{gallery}',
+            coalesce((
+              select jsonb_agg(
+                case
+                  when jsonb_typeof(image.value) = 'string' then jsonb_build_object(
+                    'url', case
+                      when image.value #>> '{}' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                        then ''
+                      else image.value #>> '{}'
+                    end,
+                    'storagePath', case
+                      when image.value #>> '{}' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                        then image.value #>> '{}'
+                      else ''
+                    end,
+                    'caption', '',
+                    'order', image.ordinality - 1
+                  )
+                  else image.value
+                end
+                order by image.ordinality
+              )
+              from jsonb_array_elements(v_draft_payload -> 'images') with ordinality image(value, ordinality)
+            ), '[]'::jsonb),
+            true
+          );
+        end if;
+      end if;
       v_state := lower(nullif(btrim(coalesce(v_row ->> 'status', v_draft_payload ->> 'status')), ''));
       if v_state is null then
         v_state := case
@@ -1271,7 +1369,9 @@ begin
         'published_by', 'updatedBy', 'updated_by', 'deletedAt', 'deleted_at',
         'draft', 'draft_payload', 'published', 'published_payload'
       ];
-      if v_type = 'projects' and jsonb_typeof(v_draft_payload -> 'techStack') = 'string' then
+      if v_type = 'projects'
+        and jsonb_typeof(v_draft_payload -> 'techStack') = 'string'
+      then
         v_draft_payload := jsonb_set(
           v_draft_payload,
           '{techStack}',
@@ -1289,6 +1389,82 @@ begin
         v_draft_payload := v_draft_payload || '{"visibility":false}'::jsonb;
       end if;
       if v_published_payload is not null then
+        if v_type = 'projects' then
+          if not (v_published_payload ? 'synopsis')
+            and jsonb_typeof(v_published_payload -> 'description') = 'string'
+          then
+            v_published_payload := jsonb_set(v_published_payload, '{synopsis}', v_published_payload -> 'description', true);
+          end if;
+          if not (v_published_payload ? 'techStack') then
+            if jsonb_typeof(v_published_payload -> 'technologies') = 'array' then
+              v_published_payload := jsonb_set(v_published_payload, '{techStack}', v_published_payload -> 'technologies', true);
+            elsif jsonb_typeof(v_published_payload -> 'technologies') = 'string' then
+              v_published_payload := jsonb_set(
+                v_published_payload,
+                '{techStack}',
+                coalesce((
+                  select jsonb_agg(btrim(item.value) order by item.ordinality)
+                  from unnest(string_to_array(v_published_payload ->> 'technologies', ',')) with ordinality item(value, ordinality)
+                  where btrim(item.value) <> ''
+                ), '[]'::jsonb),
+                true
+              );
+            end if;
+          end if;
+          if not (v_published_payload ? 'heroImage')
+            and jsonb_typeof(v_published_payload -> 'cover_image') = 'string'
+          then
+            v_published_payload := jsonb_set(
+              v_published_payload,
+              '{heroImage}',
+              jsonb_build_object(
+                'url', case
+                  when v_published_payload ->> 'cover_image' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                    then ''
+                  else v_published_payload ->> 'cover_image'
+                end,
+                'storagePath', case
+                  when v_published_payload ->> 'cover_image' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                    then v_published_payload ->> 'cover_image'
+                  else ''
+                end,
+                'caption', '',
+                'order', 0
+              ),
+              true
+            );
+          end if;
+          if not (v_published_payload ? 'gallery') and jsonb_typeof(v_published_payload -> 'images') = 'array' then
+            v_published_payload := jsonb_set(
+              v_published_payload,
+              '{gallery}',
+              coalesce((
+                select jsonb_agg(
+                  case
+                    when jsonb_typeof(image.value) = 'string' then jsonb_build_object(
+                      'url', case
+                        when image.value #>> '{}' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                          then ''
+                        else image.value #>> '{}'
+                      end,
+                      'storagePath', case
+                        when image.value #>> '{}' ~ '^(portfolio-private|portfolio-published|portfolio_media|portfolio-media[.]?)/'
+                          then image.value #>> '{}'
+                        else ''
+                      end,
+                      'caption', '',
+                      'order', image.ordinality - 1
+                    )
+                    else image.value
+                  end
+                  order by image.ordinality
+                )
+                from jsonb_array_elements(v_published_payload -> 'images') with ordinality image(value, ordinality)
+              ), '[]'::jsonb),
+              true
+            );
+          end if;
+        end if;
         v_published_payload := v_published_payload - array[
           'id', 'status', 'revision', 'publishedRevision', 'published_revision',
           'basePublishedRevision', 'base_published_revision', 'createdAt', 'created_at',
@@ -1296,7 +1472,10 @@ begin
           'published_by', 'updatedBy', 'updated_by', 'deletedAt', 'deleted_at',
           'draft', 'draft_payload', 'published', 'published_payload'
         ];
-        if v_type = 'projects' and jsonb_typeof(v_published_payload -> 'techStack') = 'string' then
+        if v_type = 'projects'
+          and not (v_published_payload ? 'technologies')
+          and jsonb_typeof(v_published_payload -> 'techStack') = 'string'
+        then
           v_published_payload := jsonb_set(
             v_published_payload,
             '{techStack}',

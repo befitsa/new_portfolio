@@ -62,16 +62,33 @@ the test project does not need the production administrator UID.
   **not** protect public Storage objects or direct object URLs. A public
   `portfolio-published` object is accessible outside database projection
   rules, so its contents require a separate Storage audit.
-- `cms_public_content_audited()` checks the timestamps, current destination
-  bucket configuration, and exact parity between published CMS payloads and
-  public projections. Changes to destination bucket configuration invalidate
-  visibility/content attestations; changes to its objects invalidate the
-  content attestation; any public projection change (including a normal
-  publish, unpublish, or delete) invalidates its projection attestation.
-  Public projection reads and subsequent publication therefore remain blocked
-  until the trusted operator reviews and records the applicable audits. Draft
-  edits keep the prior published payload live, but never project the draft
-  payload itself.
+- `cms_public_content_audited()` is a dynamic eligibility check, not an audit
+  marker check. For every public database read it verifies current source /
+  projection parity, public/private destination bucket flags, and the absence
+  of private, unknown, or unsafe legacy asset paths. A stale or unsafe
+  projection fails closed. It does not make direct public Storage URLs private.
+- Trusted-operator visibility and Storage-content attestations remain
+  publication-readiness requirements. Destination bucket configuration
+  changes invalidate both; object changes invalidate the content review.
+  Public projection reads do not depend on these timestamps. The separate
+  `projections_audited_at` field is advisory: projection changes and every
+  migration rerun clear it, but a normal publish, unpublish, delete, or rerun
+  does not hide otherwise-safe public database content or require a new
+  projection review before reads. Re-audit Storage contents before publishing
+  again after Storage changes. The health RPC exposes the dynamic check as
+  `publicProjectionEligible` and the operator attestation separately as
+  `publicStorageContentAuditRecorded`.
+- The legacy project fixture models the known source columns (`technologies`
+  JSONB, `title`, `slug`, `description`, `category`, `cover_image`, `images`,
+  status/visibility, and ordering metadata). Structured technologies and
+  original media fields are preserved. A structured `technologies` array is
+  mapped to frontend `techStack` only when `techStack` is absent; a JSONB
+  comma-separated technology string is split only in that fallback case.
+  Existing `techStack` strings are normalized independently into the array
+  form required by the frontend.
+  Experience, education, and site-settings fixtures cover the frontend fields
+  mapped by this migration, but their exact hosted legacy DDL/data have not
+  been independently verified.
 
 ## Frontend Storage lifecycle
 
@@ -123,11 +140,13 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
 6. Verify the Dashboard project again, run the same repository migration a
    second time, then verify the project and run
    [03_rerun_assertions.sql](./03_rerun_assertions.sql). This checks that the
-   sentinels, bucket configuration, and object counts were preserved. A
-   migration rerun always invalidates the projection audit, so projections
-   must be reviewed again before any future publication. Changes to
-   `portfolio-published` bucket configuration invalidate both its visibility
-   and content attestations; object changes invalidate the content attestation.
+   sentinels, migrated records, bucket configuration, and object counts were
+   preserved. A migration rerun clears the advisory projection-review
+   timestamp, but not database read eligibility; no new projection review is
+   needed merely to keep reads available. Changes to `portfolio-published`
+   bucket configuration invalidate both visibility and content attestations;
+   object changes invalidate the content attestation and require an operator
+   review before the next publication.
 7. Verify the Dashboard project again and run
    [04_security_and_bucket_scenarios.sql](./04_security_and_bucket_scenarios.sql).
    It tests authorized test-admin recognition, direct-RPC readiness enforcement,
@@ -138,7 +157,42 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    and ends with `ROLLBACK`.
    Anonymous queries are attempted only if the role has table-level `SELECT`;
    absence of that grant is itself a valid deny and does not make the test fail.
-8. The dotted-object check is optional and is the only step that creates an
+8. If the disposable project's operator has explicitly configured
+   `portfolio-published` as public, performed the Storage review, and recorded
+   the required attestations, verify the Dashboard project again and run
+   [06_public_lifecycle.sql](./06_public_lifecycle.sql). It tests ordinary
+   publish / anonymous read, continued availability of unrelated published
+   content after unpublish and delete, draft privacy, stale-projection
+   fail-closed reads, and read availability after audit timestamps are
+   invalidated. All CMS modifications occur inside a transaction ending in
+   `ROLLBACK`. It temporarily removes only the exact rerun sentinel rows inside
+   that transaction so the deliberate stale-projection fixture does not block
+   unrelated lifecycle tests; rollback restores those sentinels. Storage
+   upload/copy/cleanup effects are simulated here by invalidating audit
+   timestamps; this SQL script does not invoke the Storage API or claim to test
+   actual object-copy behavior.
+
+   Do not change bucket visibility just to run this test. If
+   `portfolio-published` is private, skip this scenario and report it as not
+   run. Only if the bucket is already public under an independently approved
+   test-project configuration, verify the Dashboard project and review its
+   contents and configuration. Then, and only then, use the privileged SQL
+   Editor to record the attestation:
+
+   ```sql
+   update public.portfolio_cms_storage_audit
+   set visibility_verified_at = now(),
+       audited_at = now(),
+       audited_by = auth.uid()
+   where bucket_id = 'portfolio-published';
+   ```
+
+   This statement records, but does not perform, the operator review. Do not
+   run it without inspecting the actual bucket and contents first. It does not
+   set `projections_audited_at`, which is advisory and not required for reads.
+   If the SQL Editor cannot run with a privileged role, stop; do not broaden
+   table grants or add a public audit RPC.
+9. The dotted-object check is optional and is the only step that creates an
    actual Storage object. If needed, verify the Dashboard project again and
    upload exactly one harmless, non-sensitive text file to bucket ID
    `portfolio-media.` (including the trailing period). This fixture bucket is
@@ -154,9 +208,12 @@ If SQL Editor does not permit role/claim simulation, report those scenarios as
 not run. Do not weaken policies to make a test pass. If a transaction fails,
 roll it back before retrying. If setup has already committed, do not rerun
 setup; inspect and continue from the failed step or use a new disposable
-project. Rerunning the migration is safe for its own CMS objects and preserves
-existing CMS/projection conflicts, but it does not refresh old rows and it
-requires a fresh projection audit every time.
+project. Rerunning the migration is idempotent for its own objects, does not overwrite
+existing CMS/projection conflicts or refresh already migrated records, and
+clears the advisory projection-review timestamp. It does not require a new
+projection review for public database reads. Review the migration's changes
+and re-run the assertions after each rerun; verify current Storage attestations
+before a subsequent publish if Storage changed.
 
 ## What these checks do not prove
 
@@ -164,8 +221,8 @@ requires a fresh projection audit every time.
 - The SQL Editor role/claim simulation is not a signed Auth JWT or a complete
   PostgREST integration test.
 - These scripts do not verify HTTP access to direct public Storage URLs, signed
-  URL behavior, Storage copy/delete failure handling, browser uploads,
-  Realtime delivery, or hosted Auth sign-in.
+  URL behavior, actual Storage upload/copy/delete behavior or failure
+  handling, browser uploads, Realtime delivery, or hosted Auth sign-in.
 - Projection RLS controls database rows only. It cannot revoke a public
   Storage object's direct URL access.
 - The hosted project's PostgreSQL version, grants, Storage implementation,

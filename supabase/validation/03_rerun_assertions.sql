@@ -25,6 +25,18 @@ begin
   ) then
     raise exception 'FAIL: migration rerun changed or deleted the CMS sentinel.';
   end if;
+  if exists (
+    select 1 from public.cms_validation_legacy_baseline baseline
+    left join public.portfolio_cms_records current_record
+      on current_record.content_type = baseline.content_type
+      and current_record.record_id = baseline.record_id
+    where current_record.record_id is null
+       or current_record.status is distinct from baseline.status
+       or current_record.draft_payload is distinct from baseline.draft_payload
+       or current_record.published_payload is distinct from baseline.published_payload
+  ) then
+    raise exception 'FAIL: migration rerun overwrote or removed valid migrated legacy content.';
+  end if;
   if not exists (
     select 1 from public.portfolio_cms_public_records
     where content_type = 'projects'
