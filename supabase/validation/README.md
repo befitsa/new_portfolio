@@ -215,32 +215,58 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    and ends with `ROLLBACK`.
    Anonymous queries are attempted only if the role has table-level `SELECT`;
    absence of that grant is itself a valid deny and does not make the test fail.
-9. Run [07_storage_audit_workflow.sql](./07_storage_audit_workflow.sql) only
-   after `portfolio-published` is already public under an independently
-   approved test-project configuration. It checks server-side admin and
-   unauthenticated authorization, stale-snapshot rejection, and server-derived
-   `audited_by`; it ends with `ROLLBACK`, so it does not persist its audit.
-   Never make the bucket public just to run this test.
-10. If the disposable project's operator has explicitly configured
-   `portfolio-published` as public, performed the Storage review, and recorded
-   the required attestations using the CMS **Storage review** page, verify the
-   Dashboard project again and run
-   [06_public_lifecycle.sql](./06_public_lifecycle.sql). It tests ordinary
-   publish / anonymous read, continued availability of unrelated published
-   content after unpublish and delete, draft privacy, stale-projection
-   fail-closed reads, and read availability after audit timestamps are
-   invalidated. All CMS modifications occur inside a transaction ending in
-   `ROLLBACK`. It temporarily removes only the exact rerun sentinel rows inside
-   that transaction so the deliberate stale-projection fixture does not block
-   unrelated lifecycle tests; rollback restores those sentinels. Storage
-   upload/copy/cleanup effects are simulated here by invalidating audit
-   timestamps; this SQL script does not invoke the Storage API or claim to test
-   actual object-copy behavior.
+9. Run [07_storage_audit_workflow.sql](./07_storage_audit_workflow.sql) in the
+   verified test project's SQL Editor. It uses `SET LOCAL ROLE anon` and
+   `SET LOCAL ROLE authenticated` to test actual SQL EXECUTE and table grants,
+   tests that the original shared JSON helper ignores plain strings but finds
+   nested `storagePath` properties, and ends with `ROLLBACK`. Its non-admin JWT
+   claim is a negative authorization simulation; it does not create or simulate
+   a successful administrator identity. SQL Editor role/claim tests do not
+   prove signed PostgREST authentication.
+10. For signed Auth/PostgREST verification, create or use one real test Auth
+    account already authorized by the project's existing
+    `public.is_portfolio_admin()` registry and a separate real Auth account
+    that is not an administrator. Do not insert a fabricated UID or enable
+    public sign-up for this test. Create/invite the test users through the
+    project's existing Auth setup. If this fresh validation setup uses the
+    fixture `public.portfolio_admins` registry, register only the UID of the
+    confirmed, email-verified test Auth user (look it up from `auth.users` or
+    the Dashboard; never invent one). For another registry, use its existing
+    approved provisioning procedure without changing the admin-check
+    function. Manually inspect the complete public test bucket inventory
+    first, then set the integration environment variables listed below and run
+    `node --test supabase/tests/07_storage_audit_workflow.integration.mjs`.
+    The script refuses any URL except the test ref, verifies anonymous and
+    signed-in non-admin denials (including table reads/writes), performs the
+    snapshot/audit workflow as the signed-in admin, checks that the server
+    records that user's actual Auth UID, and rejects a stale snapshot.
+    It then uploads one uniquely named, harmless PNG to the already-public
+    test bucket, verifies that the trigger invalidates the audit, deletes that
+    exact object in a `finally` cleanup, and confirms cleanup does not restore
+    the audit. The test object is publicly accessible until removed. Verify
+    its deletion in the Dashboard even when the script fails. This integration
+    test creates a fresh audit only after the operator has explicitly marked
+    the public inventory as manually reviewed.
+11. If the disposable project's operator has explicitly configured
+    `portfolio-published` as public, performed the Storage review, and recorded
+    the required attestations using the CMS **Storage review** page, verify
+    the Dashboard project again and run
+    [06_public_lifecycle.sql](./06_public_lifecycle.sql). It tests ordinary
+    publish / anonymous read, continued availability of unrelated published
+    content after unpublish and delete, draft privacy, stale-projection
+    fail-closed reads, and read availability after audit timestamps are
+    invalidated. All CMS modifications occur inside a transaction ending in
+    `ROLLBACK`. It temporarily removes only the exact rerun sentinel rows inside
+    that transaction so the deliberate stale-projection fixture does not block
+    unrelated lifecycle tests; rollback restores those sentinels. Storage
+    upload/copy/cleanup effects are simulated here by invalidating audit
+    timestamps; actual public object mutation is exercised by the PostgREST
+    integration test above.
 
    Do not change bucket visibility just to run this test. If the required
    configuration is not already in place, skip this scenario and report it as
    not run. The lifecycle script rolls its CMS changes back.
-11. The dotted-object check is optional and is the only step that creates an
+12. The dotted-object check is optional and is the only step that creates an
    actual Storage object. If needed, verify the Dashboard project again and
    upload exactly one harmless, non-sensitive text file to bucket ID
    `portfolio-media.` (including the trailing period). This fixture bucket is
@@ -251,6 +277,17 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    `portfolio-media.` contains zero objects before ending the test. If the
    assertion fails, perform this cleanup anyway. Never write directly to
    `storage.objects`.
+
+The PostgREST integration test requires these environment variables, set only
+in the test shell or a secret manager and never committed or printed:
+`RUN_SUPABASE_TEST_INTEGRATION=true`, `SUPABASE_TEST_URL`,
+`SUPABASE_TEST_PUBLISHABLE_KEY`, `SUPABASE_TEST_ADMIN_EMAIL`,
+`SUPABASE_TEST_ADMIN_PASSWORD`, `SUPABASE_TEST_NON_ADMIN_EMAIL`,
+`SUPABASE_TEST_NON_ADMIN_PASSWORD`, and
+`SUPABASE_TEST_PUBLIC_ASSETS_REVIEWED=true`. The last value is an explicit
+operator acknowledgement that every current public object was inspected.
+Use real accounts from the test project's existing Auth configuration and
+administrator registry.
 
 If SQL Editor does not permit role/claim simulation, report those scenarios as
 not run. Do not weaken policies to make a test pass. If a transaction fails,
@@ -279,3 +316,69 @@ before a subsequent publish if Storage changed.
 - This workflow does not establish that production has the same schema,
   administrator registry, content, or bucket states. Production must not be
   used for these tests.
+
+## Test-project rollback
+
+The fixed additive migration no longer replaces the shared
+`cms_jsonb_uses_storage_path(jsonb,text)` helper. If the earlier implementation
+that did replace it was already applied to the disposable project, first
+restore the helper from the base migration, then remove only the three new
+workflow functions. Recheck the Dashboard project name/ref before running this
+rollback. Do not drop the shared helper, audit table, triggers, buckets, CMS
+tables, or project data.
+
+```sql
+begin;
+
+create or replace function public.cms_jsonb_uses_storage_path(
+  p_value jsonb,
+  p_path text
+)
+returns boolean
+language plpgsql
+immutable
+set search_path = ''
+as $function$
+declare
+  v_child jsonb;
+begin
+  if jsonb_typeof(p_value) = 'object' then
+    if p_value ->> 'storagePath' = p_path then
+      return true;
+    end if;
+    for v_child in select value from jsonb_each(p_value)
+    loop
+      if public.cms_jsonb_uses_storage_path(v_child, p_path) then
+        return true;
+      end if;
+    end loop;
+  elsif jsonb_typeof(p_value) = 'array' then
+    for v_child in select value from jsonb_array_elements(p_value)
+    loop
+      if public.cms_jsonb_uses_storage_path(v_child, p_path) then
+        return true;
+      end if;
+    end loop;
+  end if;
+  return false;
+end;
+$function$;
+
+revoke all on function public.cms_jsonb_uses_storage_path(jsonb, text)
+  from public, anon, authenticated;
+
+drop function if exists public.cms_record_public_storage_audit(jsonb);
+drop function if exists public.cms_get_public_storage_audit_snapshot();
+drop function if exists public.cms_public_storage_audit_snapshot();
+
+commit;
+```
+
+The rollback is only for the additive workflow functions/helper regression.
+It intentionally leaves audit rows and all base migration behavior intact.
+If any `DROP FUNCTION` reports a dependency, stop and roll back rather than
+adding `CASCADE`. Revert the frontend separately to its prior test build.
+Remove only the uniquely named integration-test object if automatic cleanup
+failed, then verify its absence. Do not reset audit timestamps manually;
+review the current bucket contents through the trusted CMS UI after rollback
+before allowing another publication.

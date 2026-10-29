@@ -1,6 +1,5 @@
--- REVIEW ONLY: run only after applying both portfolio CMS migrations in the
--- verified disposable project. This script records an audit only in a
--- transaction that ends with ROLLBACK.
+-- REVIEW ONLY: run after both portfolio CMS migrations in the verified
+-- disposable project. All test writes are rolled back.
 -- WARNING: SQL cannot independently prove the active Dashboard project.
 -- Verify Dashboard URL and Project Settings > General show ifakxmugmdcjyhytzpwx.
 begin;
@@ -20,120 +19,187 @@ begin
 end;
 $scope$;
 
-select set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+do $shared_helper_contract$
+declare
+  v_path constant text := 'portfolio-published/published/test/logo.png';
+begin
+  if public.cms_jsonb_uses_storage_path(to_jsonb(v_path), v_path) then
+    raise exception 'FAIL: a plain JSON string was misidentified as a storagePath reference.';
+  end if;
+  if public.cms_jsonb_uses_storage_path(
+    jsonb_build_object('url', v_path),
+    v_path
+  ) then
+    raise exception 'FAIL: an ordinary URL property was misidentified as a storagePath reference.';
+  end if;
+  if not public.cms_jsonb_uses_storage_path(
+    jsonb_build_object('storagePath', v_path),
+    v_path
+  ) then
+    raise exception 'FAIL: the shared helper did not recognize an actual storagePath property.';
+  end if;
+  if not public.cms_jsonb_uses_storage_path(
+    jsonb_build_object('gallery', jsonb_build_array(jsonb_build_object('storagePath', v_path))),
+    v_path
+  ) then
+    raise exception 'FAIL: the shared helper did not recurse to a nested storagePath property.';
+  end if;
+end;
+$shared_helper_contract$;
+
+-- These tests exercise database EXECUTE grants under the real SQL roles.
+-- The non-admin claim is only a negative authorization simulation; a genuine
+-- admin sign-in and successful workflow are covered by the PostgREST test.
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claims', '{"role":"anon"}', true);
+set local role anon;
+do $anonymous_denied$
+declare
+  v_denied boolean;
+begin
+  if has_function_privilege(
+    'anon',
+    'public.cms_get_public_storage_audit_snapshot()',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'anon',
+    'public.cms_record_public_storage_audit(jsonb)',
+    'EXECUTE'
+  ) then
+    raise exception 'FAIL: anon has EXECUTE privilege on a trusted Storage audit RPC.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.cms_get_public_storage_audit_snapshot();
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: anon executed the Storage inventory RPC.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.cms_record_public_storage_audit('{}'::jsonb);
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: anon executed the Storage audit RPC.';
+  end if;
+
+  if has_table_privilege('anon', 'public.portfolio_cms_storage_audit', 'SELECT')
+     or has_table_privilege('anon', 'public.portfolio_cms_storage_audit', 'INSERT')
+     or has_table_privilege('anon', 'public.portfolio_cms_storage_audit', 'UPDATE')
+     or has_table_privilege('anon', 'public.portfolio_cms_storage_audit', 'DELETE') then
+    raise exception 'FAIL: anon has table-level read or write privileges on audit state.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform 1 from public.portfolio_cms_storage_audit limit 1;
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: anon read the audit table.';
+  end if;
+
+  v_denied := false;
+  begin
+    update public.portfolio_cms_storage_audit
+    set audited_at = null where bucket_id = 'portfolio-published';
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: anon wrote to the audit table.';
+  end if;
+end;
+$anonymous_denied$;
+reset role;
+
+select set_config(
+  'request.jwt.claim.sub',
+  '22222222-2222-4222-8222-222222222222',
+  true
+);
 select set_config(
   'request.jwt.claims',
   '{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}',
   true
 );
-do $non_admin_denied$
+set local role authenticated;
+do $authenticated_non_admin_denied$
 declare
-  v_denied boolean := false;
+  v_denied boolean;
 begin
-  begin
-    perform public.cms_get_public_storage_audit_snapshot();
-  exception when sqlstate '42501' then
-    v_denied := true;
-  end;
-  if not v_denied then
-    raise exception 'FAIL: a non-admin authenticated user could inspect public Storage inventory.';
-  end if;
-  v_denied := false;
-  begin
-    perform public.cms_record_public_storage_audit('{}'::jsonb);
-  exception when sqlstate '42501' then
-    v_denied := true;
-  end;
-  if not v_denied then
-    raise exception 'FAIL: a non-admin authenticated user could record a Storage audit.';
-  end if;
-end;
-$non_admin_denied$;
-
-select set_config('request.jwt.claim.sub', '', true);
-select set_config('request.jwt.claims', '{"role":"anon"}', true);
-do $anonymous_denied$
-declare
-  v_denied boolean := false;
-begin
-  begin
-    perform public.cms_get_public_storage_audit_snapshot();
-  exception when sqlstate '42501' then
-    v_denied := true;
-  end;
-  if not v_denied then
-    raise exception 'FAIL: an unauthenticated caller could inspect public Storage inventory.';
-  end if;
-  v_denied := false;
-  begin
-    perform public.cms_record_public_storage_audit('{}'::jsonb);
-  exception when sqlstate '42501' then
-    v_denied := true;
-  end;
-  if not v_denied then
-    raise exception 'FAIL: an unauthenticated caller could record a Storage audit.';
-  end if;
-end;
-$anonymous_denied$;
-
-select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
-select set_config(
-  'request.jwt.claims',
-  '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}',
-  true
-);
-
-do $trusted_admin_workflow$
-declare
-  v_snapshot jsonb;
-  v_stale_snapshot jsonb;
-  v_before_audited_at timestamptz;
-  v_rejected boolean := false;
-begin
-  if not public.cms_is_admin() then
-    raise exception 'FAIL: registered disposable test administrator was not recognized.';
-  end if;
-
-  select audited_at into v_before_audited_at
-  from public.portfolio_cms_storage_audit
-  where bucket_id = 'portfolio-published';
-
-  v_snapshot := public.cms_get_public_storage_audit_snapshot();
-  if v_snapshot -> 'bucket' ->> 'id' <> 'portfolio-published'
-     or jsonb_typeof(v_snapshot -> 'objects') <> 'array' then
-    raise exception 'FAIL: trusted administrator received an invalid public Storage inventory.';
-  end if;
-
-  v_stale_snapshot := jsonb_set(
-    v_snapshot,
-    '{bucket,name}',
-    '"stale-name"'::jsonb
-  );
-  begin
-    perform public.cms_record_public_storage_audit(v_stale_snapshot);
-  exception when sqlstate '40001' then
-    v_rejected := position('Storage changed after review' in sqlerrm) > 0;
-  end;
-  if not v_rejected then
-    raise exception 'FAIL: audit RPC accepted a snapshot that does not match the live bucket configuration.';
-  end if;
-  if (select audited_at from public.portfolio_cms_storage_audit
-      where bucket_id = 'portfolio-published') is distinct from v_before_audited_at then
-    raise exception 'FAIL: rejected stale snapshot changed the existing audit state.';
-  end if;
-
-  perform public.cms_record_public_storage_audit(v_snapshot);
-  if not exists (
-    select 1
-    from public.portfolio_cms_storage_audit
-    where bucket_id = 'portfolio-published'
-      and audited_at is not null
-      and visibility_verified_at is not null
-      and audited_by = auth.uid()
+  if not has_function_privilege(
+    'authenticated',
+    'public.cms_get_public_storage_audit_snapshot()',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'authenticated',
+    'public.cms_record_public_storage_audit(jsonb)',
+    'EXECUTE'
   ) then
-    raise exception 'FAIL: successful review did not record the authenticated admin identity server-side.';
+    raise exception 'FAIL: authenticated role is missing the intended RPC EXECUTE grants.';
+  end if;
+
+  if public.cms_is_admin() then
+    raise exception 'FAIL: non-admin validation subject is registered as an administrator.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.cms_get_public_storage_audit_snapshot();
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: authenticated non-admin obtained the Storage inventory.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.cms_record_public_storage_audit('{}'::jsonb);
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: authenticated non-admin recorded a Storage audit.';
+  end if;
+
+  if has_table_privilege('authenticated', 'public.portfolio_cms_storage_audit', 'SELECT')
+     or has_table_privilege('authenticated', 'public.portfolio_cms_storage_audit', 'INSERT')
+     or has_table_privilege('authenticated', 'public.portfolio_cms_storage_audit', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.portfolio_cms_storage_audit', 'DELETE') then
+    raise exception 'FAIL: authenticated role has table-level read or write privileges on audit state.';
+  end if;
+
+  v_denied := false;
+  begin
+    perform 1 from public.portfolio_cms_storage_audit limit 1;
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: authenticated non-admin read the audit table.';
+  end if;
+
+  v_denied := false;
+  begin
+    update public.portfolio_cms_storage_audit
+    set audited_at = null where bucket_id = 'portfolio-published';
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: authenticated non-admin wrote to the audit table.';
   end if;
 end;
-$trusted_admin_workflow$;
+$authenticated_non_admin_denied$;
+reset role;
 
 rollback;

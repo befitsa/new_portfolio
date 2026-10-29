@@ -826,6 +826,10 @@ test('Storage changes invalidate publication attestations without coupling them 
 })
 
 test('Storage review workflow is admin-gated, identity-derived, and snapshot-bound', async () => {
+  const baseMigration = await readFile(
+    new URL('../supabase/migrations/20261028130000_portfolio_cms.sql', import.meta.url),
+    'utf8',
+  )
   const migration = await readFile(
     new URL('../supabase/migrations/20261029120000_portfolio_storage_audit_workflow.sql', import.meta.url),
     'utf8',
@@ -836,7 +840,7 @@ test('Storage review workflow is admin-gated, identity-derived, and snapshot-bou
   )
   const recordAudit = migration.slice(
     migration.indexOf('create or replace function public.cms_record_public_storage_audit'),
-    migration.indexOf('revoke all on function public.cms_jsonb_uses_storage_path'),
+    migration.indexOf('revoke all on function public.cms_public_storage_audit_snapshot()'),
   )
 
   assert.match(snapshot, /portfolio-published/)
@@ -845,6 +849,9 @@ test('Storage review workflow is admin-gated, identity-derived, and snapshot-bou
   assert.match(snapshot, /cms_public_content_audited/)
   assert.match(snapshot, /'referencedBy'/)
   assert.match(snapshot, /'metadata'/)
+  assert.match(snapshot, /cms_jsonb_uses_storage_path\(/)
+  assert.match(baseMigration, /p_value ->> 'storagePath' = p_path/)
+  assert.doesNotMatch(migration, /create or replace function public\.cms_jsonb_uses_storage_path/)
   assert.match(recordAudit, /cms_require_portfolio_admin\(\)/)
   assert.match(recordAudit, /p_reviewed_snapshot is distinct from v_current_snapshot/)
   assert.match(recordAudit, /audited_by = v_uid/)
@@ -856,18 +863,41 @@ test('Storage review workflow is admin-gated, identity-derived, and snapshot-bou
   assert.doesNotMatch(migration, /drop trigger|alter table storage\.objects|update storage\.buckets/i)
 })
 
-test('Storage audit hosted scenarios cover operator identity, stale snapshots, and authorization', async () => {
-  const sql = await readFile(
+test('Storage audit SQL validation preserves the shared helper contract and tests real roles', async () => {
+  const validation = await readFile(
     new URL('../supabase/validation/07_storage_audit_workflow.sql', import.meta.url),
     'utf8',
   )
-  assert.match(sql, /ifakxmugmdcjyhytzpwx/)
-  assert.match(sql, /non_admin_denied/)
-  assert.match(sql, /anonymous_denied/)
+  const requestedPath = await readFile(
+    new URL('../supabase/tests/07_storage_audit_workflow.sql', import.meta.url),
+    'utf8',
+  )
+  assert.equal(requestedPath, validation)
+  assert.match(validation, /shared_helper_contract/)
+  assert.match(validation, /plain JSON string was misidentified/)
+  assert.match(validation, /actual storagePath property/)
+  assert.match(validation, /set local role anon/)
+  assert.match(validation, /set local role authenticated/)
+  assert.match(validation, /has_function_privilege/)
+  assert.match(validation, /has_table_privilege/)
+  assert.match(validation, /authenticated_non_admin_denied/)
+  assert.match(validation.trim(), /rollback;$/i)
+})
+
+test('Storage audit hosted scenarios cover operator identity, stale snapshots, and authorization', async () => {
+  const sql = await readFile(
+    new URL('../supabase/tests/07_storage_audit_workflow.integration.mjs', import.meta.url),
+    'utf8',
+  )
+  assert.match(sql, /ifakxmugmdcjyhytzpwx\.supabase\.co/)
+  assert.match(sql, /SUPABASE_TEST_ADMIN_EMAIL/)
+  assert.match(sql, /SUPABASE_TEST_NON_ADMIN_EMAIL/)
+  assert.match(sql, /signInWithPassword/)
+  assert.match(sql, /auth\.getUser/)
+  assert.match(sql, /error\.code, '42501'/)
+  assert.match(sql, /publicStorageContentAuditRecorded/)
+  assert.match(sql, /finally/)
   assert.match(sql, /cms_get_public_storage_audit_snapshot/)
   assert.match(sql, /cms_record_public_storage_audit/)
-  assert.match(sql, /\{bucket,name\}/)
-  assert.match(sql, /audited_by = auth\.uid\(\)/)
-  assert.match(sql, /Storage changed after review/)
-  assert.match(sql.trim(), /rollback;$/i)
+  assert.match(sql, /auditedBy, userData\.user\.id/)
 })

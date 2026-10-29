@@ -1,41 +1,5 @@
 begin;
 
-create or replace function public.cms_jsonb_uses_storage_path(
-  p_value jsonb,
-  p_storage_path text
-)
-returns boolean
-language plpgsql
-immutable
-set search_path = ''
-as $function$
-declare
-  v_child jsonb;
-begin
-  case jsonb_typeof(p_value)
-    when 'string' then
-      return p_value #>> '{}' = p_storage_path;
-    when 'array' then
-      for v_child in select value from jsonb_array_elements(p_value)
-      loop
-        if public.cms_jsonb_uses_storage_path(v_child, p_storage_path) then
-          return true;
-        end if;
-      end loop;
-    when 'object' then
-      for v_child in select value from jsonb_each(p_value)
-      loop
-        if public.cms_jsonb_uses_storage_path(v_child, p_storage_path) then
-          return true;
-        end if;
-      end loop;
-    else
-      return false;
-  end case;
-  return false;
-end;
-$function$;
-
 create or replace function public.cms_public_storage_audit_snapshot()
 returns jsonb
 language plpgsql
@@ -201,8 +165,6 @@ begin
 end;
 $function$;
 
-revoke all on function public.cms_jsonb_uses_storage_path(jsonb, text)
-  from public, anon, authenticated;
 revoke all on function public.cms_public_storage_audit_snapshot()
   from public, anon, authenticated;
 revoke all on function public.cms_get_public_storage_audit_snapshot()
