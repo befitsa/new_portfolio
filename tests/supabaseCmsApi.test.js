@@ -35,6 +35,10 @@ function mockClient(rpc, { isAdmin = true, userId = '11111111-1111-4111-8111-111
           storageCalls.push(['upload', bucket, path])
           return { error: null }
         },
+        async download(path) {
+          storageCalls.push(['download', bucket, path])
+          return { data: { type: 'image/png' }, error: null }
+        },
         async list(path, options) {
           storageCalls.push(['list', bucket, path, options])
           return { data: [], error: null }
@@ -248,52 +252,128 @@ test('publishing a private draft promotes assets and passes the current revision
   assert.equal(publishArgs.p_payload.heroImage.storagePath, 'portfolio-published/published/drafts/admin/project-1/hero.png')
   assert.equal(publishArgs.p_payload.heroImage.url, 'https://public.example/published/drafts/admin/project-1/hero.png')
   assert.equal(result.status, 'published')
-  assert.ok(client.storageCalls.some(([operation]) => operation === 'copy'))
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === PRIVATE_BUCKET))
 })
 
-test('new media uploads stay private until the publish RPC succeeds', async () => {
+test('a completed asset promotion invalidates the next publish until Storage is reviewed again', async () => {
+  let auditValid = true
+  let publishCount = 0
+  const client = mockClient(async (name, args) => {
+    if (name === 'cms_health') {
+      return { data: { storage: { ready: auditValid } }, error: null }
+    }
+    if (name === 'cms_get_record') {
+      return {
+        data: {
+          id: 'media-repeat',
+          ...imageMedia({
+            storagePath: `${PRIVATE_BUCKET}/drafts/admin/media-repeat/image.png`,
+            url: 'https://signed.example/draft-image',
+          }),
+          status: 'draft',
+          revision: 1,
+          publishedRevision: 0,
+          basePublishedRevision: 0,
+        },
+        error: null,
+      }
+    }
+    if (name === 'cms_publish_record') {
+      publishCount += 1
+      return {
+        data: {
+          id: args.p_id,
+          ...args.p_payload,
+          status: 'published',
+          revision: 1,
+          publishedRevision: 1,
+        },
+        error: null,
+      }
+    }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const originalFrom = client.storage.from
+  client.storage.from = (bucket) => {
+    const storage = originalFrom(bucket)
+    if (bucket === PUBLIC_BUCKET) {
+      const upload = storage.upload
+      storage.upload = async (...args) => {
+        const result = await upload(...args)
+        auditValid = false
+        return result
+      }
+    }
+    return storage
+  }
+  const api = createSupabaseCmsApi(client)
+
+  const published = await api.publish('media', 'media-repeat', 1)
+  assert.equal(published.status, 'published')
+  assert.equal(auditValid, false)
+  await assert.rejects(api.publish('media', 'media-repeat', 1), /Public bucket audit is required|storage has not been verified/i)
+  assert.equal(publishCount, 1)
+})
+
+test('trusted Storage audit RPC sends the reviewed inventory but never a client user ID', async () => {
+  const calls = []
+  const snapshot = {
+    bucket: { id: PUBLIC_BUCKET, name: PUBLIC_BUCKET, public: true },
+    objects: [{ id: 'object-1', name: 'published/logo.png', referencedBy: [] }],
+  }
+  const client = mockClient(async (name, args) => {
+    calls.push([name, args])
+    if (name === 'cms_get_public_storage_audit_snapshot') {
+      return { data: snapshot, error: null }
+    }
+    if (name === 'cms_record_public_storage_audit') {
+      return { data: { bucketId: PUBLIC_BUCKET, auditedBy: 'server-user' }, error: null }
+    }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const api = createSupabaseCmsApi(client)
+  const inventory = await api.getPublicStorageAuditSnapshot()
+  assert.equal(inventory.snapshot, snapshot)
+  assert.equal(inventory.objects[0].publicUrl, 'https://public.example/published/logo.png')
+
+  await api.recordPublicStorageAudit(inventory.snapshot)
+  assert.deepEqual(calls, [
+    ['cms_get_public_storage_audit_snapshot', {}],
+    ['cms_record_public_storage_audit', { p_reviewed_snapshot: snapshot }],
+  ])
+  assert.equal(Object.keys(calls[1][1]).includes('p_user_id'), false)
+})
+
+test('Storage audit RPC authorization failures are surfaced from the server', async () => {
+  const client = mockClient(async () => ({
+    data: null,
+    error: { code: '42501', message: 'not an authorized portfolio administrator' },
+  }))
+  const api = createSupabaseCmsApi(client)
+
+  await assert.rejects(
+    api.getPublicStorageAuditSnapshot(),
+    (error) => error instanceof SupabaseCmsError && error.state === 'auth',
+  )
+})
+
+test('new media uploads remain private drafts until explicit publication', async () => {
   const events = []
   const client = mockClient(async (name, args) => {
     events.push(['rpc', name])
     if (name === 'cms_save_record') {
       return { data: { id: args.p_id, ...args.p_payload, status: 'draft', revision: 1 }, error: null }
     }
-    if (name === 'cms_get_record') {
-      return {
-        data: { id: 'media-new', ...imageMedia({
-          storagePath: `${PRIVATE_BUCKET}/drafts/admin/media-new/image.png`,
-          url: 'https://signed.example/draft-image',
-        }), status: 'draft', revision: 1, publishedRevision: 0, basePublishedRevision: 0 },
-        error: null,
-      }
-    }
-    if (name === 'cms_health') return { data: { storage: { ready: true } }, error: null }
-    if (name === 'cms_publish_record') {
-      return { data: { id: args.p_id, ...args.p_payload, status: 'published', revision: 1 }, error: null }
-    }
     throw new Error(`Unexpected RPC: ${name}`)
   })
-  const originalUpload = client.storage.from
-  client.storage.from = (bucket) => {
-    const storage = originalUpload(bucket)
-    const originalUploadMethod = storage.upload
-    storage.upload = async (...args) => {
-      events.push(['upload', bucket])
-      return originalUploadMethod(...args)
-    }
-    const originalCopy = storage.copy
-    storage.copy = async (...args) => {
-      events.push(['copy', bucket])
-      return originalCopy(...args)
-    }
-    return storage
-  }
   const api = createSupabaseCmsApi(client)
-  await api.upload(imageFile(), { private: false })
+  const result = await api.upload(imageFile())
 
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PRIVATE_BUCKET))
-  assert.ok(events.findIndex(([operation, name]) => operation === 'rpc' && name === 'cms_publish_record')
-    < events.findIndex(([operation]) => operation === 'copy'))
+  assert.equal(result.status, 'draft')
+  assert.equal(events.some(([, name]) => name === 'cms_publish_record'), false)
+  assert.equal(client.storageCalls.some(([operation]) => operation === 'copy'), false)
 })
 
 test('resume files remain private drafts and are not auto-published on upload', async () => {
@@ -367,7 +447,7 @@ test('a failed asset copy withdraws publication and retains the private source',
   client.storage.from = (bucket) => {
     const storage = originalFrom(bucket)
     if (bucket === 'portfolio-private') {
-      storage.copy = async () => ({ error: { message: 'copy unavailable' } })
+      storage.download = async () => ({ data: null, error: { message: 'download unavailable' } })
     }
     return storage
   }
@@ -379,7 +459,7 @@ test('a failed asset copy withdraws publication and retains the private source',
 })
 
 test('a failed rollback after asset-copy failure reports the possibly published record and retains private source', async () => {
-  let copyCount = 0
+  let downloadCount = 0
   const client = mockClient(async (name, args) => {
     if (name === 'cms_health') return { data: { storage: { ready: true } }, error: null }
     if (name === 'cms_get_record') {
@@ -410,10 +490,12 @@ test('a failed rollback after asset-copy failure reports the possibly published 
   client.storage.from = (bucket) => {
     const storage = originalFrom(bucket)
     if (bucket === PRIVATE_BUCKET) {
-      storage.copy = async (...args) => {
-        client.storageCalls.push(['copy', bucket, ...args])
-        copyCount += 1
-        return copyCount === 1 ? { error: null } : { error: { message: 'copy unavailable' } }
+      storage.download = async (path) => {
+        client.storageCalls.push(['download', bucket, path])
+        downloadCount += 1
+        return downloadCount === 1
+          ? { data: { type: 'image/png' }, error: null }
+          : { data: null, error: { message: 'download unavailable' } }
       }
     }
     return storage
@@ -487,7 +569,7 @@ test('private legacy portfolio_media paths are only promoted during explicit pub
   const result = await api.publish('projects', 'project-legacy', 2)
 
   assert.equal(result.heroImage.storagePath, `${PUBLIC_BUCKET}/published/projects/hero.png`)
-  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'copy' && bucket === 'portfolio_media'))
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === 'portfolio_media'))
   assert.equal(client.storageCalls.some(([operation, bucket]) => operation === 'remove' && bucket === 'portfolio_media'), false)
 })
 
@@ -497,7 +579,20 @@ test('a failed media publish keeps the saved draft and uploaded file intact', as
       return { data: { id: 'media-1', ...args.p_payload, status: 'draft', revision: 1 }, error: null }
     }
     if (name === 'cms_get_record') {
-      return { data: { id: 'media-1', ...imageMedia(), status: 'draft', revision: 1 }, error: null }
+      return {
+        data: {
+          id: 'media-1',
+          ...imageMedia({
+            storagePath: `${PRIVATE_BUCKET}/drafts/admin/media-1/image.png`,
+            url: 'https://signed.example/draft-image',
+          }),
+          status: 'draft',
+          revision: 1,
+          publishedRevision: 0,
+          basePublishedRevision: 0,
+        },
+        error: null,
+      }
     }
     if (name === 'cms_health') return { data: { storage: { ready: true } }, error: null }
     if (name === 'cms_publish_record') {
@@ -506,9 +601,10 @@ test('a failed media publish keeps the saved draft and uploaded file intact', as
     throw new Error(`Unexpected RPC: ${name}`)
   })
   const api = createSupabaseCmsApi(client)
+  await api.upload(imageFile())
 
   await assert.rejects(
-    api.upload(imageFile(), { private: false }),
+    api.publish('media', 'media-1', 1),
     (error) => error instanceof SupabaseCmsError && error.state === 'conflict',
   )
   assert.ok(client.storageCalls.some(([operation]) => operation === 'upload'))
@@ -727,4 +823,51 @@ test('Storage changes invalidate publication attestations without coupling them 
     ),
     /audited_at|visibility_verified_at|projections_audited_at/,
   )
+})
+
+test('Storage review workflow is admin-gated, identity-derived, and snapshot-bound', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/20261029120000_portfolio_storage_audit_workflow.sql', import.meta.url),
+    'utf8',
+  )
+  const snapshot = migration.slice(
+    migration.indexOf('create or replace function public.cms_public_storage_audit_snapshot'),
+    migration.indexOf('create or replace function public.cms_get_public_storage_audit_snapshot'),
+  )
+  const recordAudit = migration.slice(
+    migration.indexOf('create or replace function public.cms_record_public_storage_audit'),
+    migration.indexOf('revoke all on function public.cms_jsonb_uses_storage_path'),
+  )
+
+  assert.match(snapshot, /portfolio-published/)
+  assert.match(snapshot, /portfolio-private/)
+  assert.match(snapshot, /cms_legacy_bucket_safe/)
+  assert.match(snapshot, /cms_public_content_audited/)
+  assert.match(snapshot, /'referencedBy'/)
+  assert.match(snapshot, /'metadata'/)
+  assert.match(recordAudit, /cms_require_portfolio_admin\(\)/)
+  assert.match(recordAudit, /p_reviewed_snapshot is distinct from v_current_snapshot/)
+  assert.match(recordAudit, /audited_by = v_uid/)
+  assert.match(recordAudit, /v_uid uuid := public\.cms_require_portfolio_admin\(\)/)
+  assert.doesNotMatch(recordAudit, /p_user_id|p_audited_by/)
+  assert.match(migration, /revoke all on function public\.cms_get_public_storage_audit_snapshot\(\)[\s\S]*from public, anon, authenticated/)
+  assert.match(migration, /grant execute on function public\.cms_get_public_storage_audit_snapshot\(\)\s+to authenticated/)
+  assert.match(migration, /grant execute on function public\.cms_record_public_storage_audit\(jsonb\)\s+to authenticated/)
+  assert.doesNotMatch(migration, /drop trigger|alter table storage\.objects|update storage\.buckets/i)
+})
+
+test('Storage audit hosted scenarios cover operator identity, stale snapshots, and authorization', async () => {
+  const sql = await readFile(
+    new URL('../supabase/validation/07_storage_audit_workflow.sql', import.meta.url),
+    'utf8',
+  )
+  assert.match(sql, /ifakxmugmdcjyhytzpwx/)
+  assert.match(sql, /non_admin_denied/)
+  assert.match(sql, /anonymous_denied/)
+  assert.match(sql, /cms_get_public_storage_audit_snapshot/)
+  assert.match(sql, /cms_record_public_storage_audit/)
+  assert.match(sql, /\{bucket,name\}/)
+  assert.match(sql, /audited_by = auth\.uid\(\)/)
+  assert.match(sql, /Storage changed after review/)
+  assert.match(sql.trim(), /rollback;$/i)
 })

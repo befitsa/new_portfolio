@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   ArrowUpRight, Bell, BriefcaseBusiness, FileText, FolderKanban,
-  LayoutDashboard, Library, Menu, Search, Settings, UserRound,
+  LayoutDashboard, Library, Menu, Search, Settings, ShieldCheck, UserRound,
 } from 'lucide-react'
 import { profile } from '../data/profile.js'
 import { getPublicSiteUrl } from '../lib/siteUrls.js'
@@ -12,7 +12,7 @@ import AdminLogin, { adminHomePath, adminLoginPath, safeAdminReturnPath } from '
 import BrandLink from '../components/common/BrandLink.jsx'
 import {
   CmsBackgroundPage, CmsDashboardPage, CmsMediaPage, CmsProjectEditorPage,
-  CmsProjectsPage, CmsResumePage, CmsSettingsPage,
+  CmsProjectsPage, CmsResumePage, CmsSettingsPage, CmsStorageAuditPage,
 } from './CmsPages.jsx'
 
 const navigation = [
@@ -21,6 +21,7 @@ const navigation = [
   { label: 'Projects', href: '/projects', icon: FolderKanban },
   { label: 'Resume', href: '/resume', icon: FileText },
   { label: 'Media Library', href: '/media', icon: Library },
+  { label: 'Storage review', href: '/storage-review', icon: ShieldCheck },
   { label: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -77,6 +78,7 @@ function resolvePage(path) {
   if (projectMatch) return <CmsProjectEditorPage id={decodeURIComponent(projectMatch[1])} />
   if (path === '/resume') return <CmsResumePage />
   if (path === '/media') return <CmsMediaPage />
+  if (path === '/storage-review') return <CmsStorageAuditPage />
   if (path === '/settings') return <CmsSettingsPage />
   return <section className="cms-page-card"><p className="cms-eyebrow">PORTFOLIO CMS</p><h1>Page not found</h1><p className="cms-muted">That CMS page is not available.</p><a href={cmsHref('/')} className="cms-button cms-button-primary">Return to dashboard</a></section>
 }

@@ -144,7 +144,7 @@ function CmsConnectionNotice({ status }) {
 
 function CmsStorageNotice({ status }) {
   if (!status || status.storageReady !== false) return null
-  return <Notice kind="warning">{status.storageMessage || status.message}</Notice>
+  return <Notice kind="warning" action={<Button href="/storage-review">Review public Storage</Button>}>{status.storageMessage || status.message}</Notice>
 }
 
 function ContentError({ error, retry }) {
@@ -358,7 +358,7 @@ export function CmsProjectEditorPage({ id }) {
       return
     }
     setProgress(1)
-    const uploaded = await mutation.run(() => adminApi.upload(file, { kind: 'image', private: !localMode, onProgress: setProgress }), localMode ? 'Hero image saved to local disk.' : 'Hero image uploaded to private draft storage.')
+    const uploaded = await mutation.run(() => adminApi.upload(file, { kind: 'image', onProgress: setProgress }), localMode ? 'Hero image saved to local disk.' : 'Hero image uploaded to private draft storage.')
     setProgress(0)
     setHeroPreviewUrl('')
     if (uploaded) setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: uploaded.url, storagePath: uploaded.storagePath } }))
@@ -375,7 +375,7 @@ export function CmsProjectEditorPage({ id }) {
       await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
-    const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim(), '', { private: !localMode }), localMode ? 'Image URL added to the local media library.' : 'Image copied to private draft storage.')
+    const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim()), localMode ? 'Image URL added to the local media library.' : 'Image copied to private draft storage.')
     if (imported) { setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: imported.url, storagePath: imported.storagePath } })); setImageUrl('') }
   }
   const slugConflict = form.slug && published.some((item) => item.slug === form.slug && item.id !== id)
@@ -599,7 +599,7 @@ export function CmsMediaPage() {
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
   const localMode = apiStatus.state === 'local'
-  const items = useMemo(() => [...new Map([...published, ...drafts].map((item) => [item.id, item])).values()].filter((item) => item.status === 'published').filter((item) => `${item.fileName} ${item.alt} ${item.sourceUrl}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => Number(b.order || 0) - Number(a.order || 0)), [drafts, published, query])
+  const items = useMemo(() => [...new Map([...published, ...drafts].map((item) => [item.id, item])).values()].filter((item) => ['draft', 'published'].includes(item.status)).filter((item) => `${item.fileName} ${item.alt} ${item.sourceUrl}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => Number(b.order || 0) - Number(a.order || 0)), [drafts, published, query])
   const upload = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
@@ -611,7 +611,7 @@ export function CmsMediaPage() {
       return
     }
     setProgress(1)
-    const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt, onProgress: setProgress }), localMode ? 'Image saved to local disk.' : 'Image copied into managed storage.')
+    const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt, onProgress: setProgress }), localMode ? 'Image saved to local disk.' : 'Image saved as a private draft. Publish it explicitly after reviewing.')
     setProgress(0)
     if (item) { setAlt(''); refresh() }
   }
@@ -626,7 +626,7 @@ export function CmsMediaPage() {
       return
     }
     setProgress(1)
-    const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt: current.alt, replaceMediaId: current.id, onProgress: setProgress }), localMode ? 'Image replaced on local disk.' : 'Managed image replaced. Existing project references still use the same URL.')
+    const item = await mutation.run(() => adminApi.upload(file, { kind: 'image', alt: current.alt, replaceMediaId: current.id, onProgress: setProgress }), localMode ? 'Image replaced on local disk.' : 'Replacement saved as a private draft. Publish it explicitly after reviewing.')
     setProgress(0)
     if (item) refresh()
   }
@@ -636,16 +636,36 @@ export function CmsMediaPage() {
       await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
-    const item = await mutation.run(() => adminApi.importImage(sourceUrl.trim(), alt), localMode ? 'Image URL added to the local media library.' : 'Image imported into managed storage.')
+    const item = await mutation.run(() => adminApi.importImage(sourceUrl.trim(), alt), localMode ? 'Image URL added to the local media library.' : 'Image imported as a private draft. Publish it explicitly after reviewing.')
     if (item) { setSourceUrl(''); setAlt(''); refresh() }
   }
   const remove = async (item) => { if (!window.confirm(`Delete ${item.fileName || 'this image'} from ${localMode ? 'this machine' : 'managed storage'}?`)) return; const result = await mutation.run(() => adminApi.removeMedia(item.id), 'Unused media asset deleted.'); if (result) refresh() }
+  const publish = async (item) => {
+    const result = await mutation.run(
+      () => adminApi.publish('media', item.id, item.revision),
+      'Media published. Review public Storage again if this copied or changed an object.',
+    )
+    if (result) {
+      refresh()
+      if (!localMode) await checkCmsApiHealth()
+    }
+  }
+  const unpublish = async (item) => {
+    const result = await mutation.run(
+      () => adminApi.unpublish('media', item.id),
+      'Media unpublished.',
+    )
+    if (result) {
+      refresh()
+      if (!localMode) await checkCmsApiHealth()
+    }
+  }
   const copy = async (value) => { try { await navigator.clipboard.writeText(value); mutation.run(async () => true, 'Managed URL copied.') } catch { mutation.run(() => { throw new Error('Clipboard access is not available in this browser.') }) } }
-  return <><PageHeader eyebrow={localMode ? 'LOCAL DISK ASSETS' : 'PORTFOLIO ASSETS · MANAGED STORAGE'} title="Media Library" description={localMode ? 'Upload image files to local disk or add a reference to an existing public image URL.' : 'Upload local images or copy permitted public images into the portfolio storage bucket.'} actions={<label className="cms-button cms-button-brown cms-file-button"><Upload size={15} /> Upload image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => upload(event.target.files?.[0])} /></label>} />
+  return <><PageHeader eyebrow={localMode ? 'LOCAL DISK ASSETS' : 'PORTFOLIO ASSETS · MANAGED STORAGE'} title="Media Library" description={localMode ? 'Upload image files to local disk or add a reference to an existing public image URL.' : 'New images are private drafts. Publish assets explicitly after review; changes to public Storage require a new trusted-operator review.'} actions={<label className="cms-button cms-button-brown cms-file-button"><Upload size={15} /> Upload image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => upload(event.target.files?.[0])} /></label>} />
     {!ready && <CmsConnectionNotice status={apiStatus} />}{error && <ContentError error={error} retry={refresh} />}{mutation.error && <Notice kind="error">{mutation.error}</Notice>}{mutation.success && <Notice kind="success">{mutation.success}</Notice>}<progress className="cms-upload-progress" max="100" value={progress} hidden={!progress} />
     <section className="cms-editor-card cms-import-card"><div><h2>{localMode ? 'Reference a public image URL' : 'Import from a permitted image URL'}</h2><p>{localMode ? 'This saves the image URL in the local library. Upload a file to keep its image bytes on local disk.' : 'The trusted backend validates each redirect and rejects private network destinations before it copies the bytes.'}</p></div><form onSubmit={importUrl} className="cms-inline-import"><TextInput label="Image URL" type="url" value={sourceUrl} onChange={setSourceUrl} placeholder="https://example.com/image.webp" required /><TextInput label="Alt text" value={alt} onChange={setAlt} maxLength={300} placeholder="Describe the image" /><Button type="submit" variant="primary" disabled={!ready || mutation.busy}><CloudUpload size={14} /> {localMode ? 'Save URL' : 'Import image'}</Button></form><small>Import only images you have permission to use. JPEG, PNG, WebP · max 12 MB.</small></section>
     <div className="cms-toolbar"><span className="cms-quiet-label">{items.length} managed assets</span><label className="cms-search cms-toolbar-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search filename, alt text…" aria-label="Search media" /></label></div>
-    {loading ? <LoadingPanel /> : items.length ? <div className="cms-media-grid">{items.map((item) => <article key={item.id} className="cms-media-card"><div className="cms-media-image">{item.type === 'image' ? <img src={item.url} alt={item.alt || item.fileName || ''} loading="lazy" /> : <FileText size={32} />}</div><div className="cms-media-details"><strong title={item.fileName}>{item.fileName || 'Managed image'}</strong><small>{item.width && item.height ? `${item.width} × ${item.height} · ` : ''}{(item.sizeBytes / 1024).toFixed(0)} KB</small><div className="cms-tag-list"><span>{item.mimeType || item.type}</span><span>Managed</span></div>{item.sourceUrl && <small className="cms-media-source">Source: <a href={item.sourceUrl} target="_blank" rel="noreferrer">{new URL(item.sourceUrl).hostname}</a></small>}<small className="cms-media-usage">{item.usedIn?.length ? `Used in ${item.usedIn.length}: ${item.usedIn.slice(0, 2).join(', ')}${item.usedIn.length > 2 ? '…' : ''}` : 'Not referenced by saved content'}</small><div className="cms-media-actions"><Button onClick={() => copy(item.url)}>Copy URL</Button><label className="cms-button cms-file-button" title="Replace this image while keeping its managed URL">Replace<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => replace(item, event.target.files?.[0])} /></label><Button disabled={!ready || mutation.busy || Boolean(item.usedIn?.length)} title={item.usedIn?.length ? 'Remove references before deleting this file' : 'Delete unused file'} onClick={() => remove(item)}><Trash2 size={14} /></Button></div></div></article>)}</div> : <EmptyState title="No managed assets found" text="Upload an image or import a permitted image URL. Its original URL is retained for reference." action={<label className="cms-button cms-button-primary cms-file-button"><Upload size={14} /> Choose image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => upload(event.target.files?.[0])} /></label>} />}
+    {loading ? <LoadingPanel /> : items.length ? <div className="cms-media-grid">{items.map((item) => <article key={item.id} className="cms-media-card"><div className="cms-media-image">{item.type === 'image' ? <img src={item.url} alt={item.alt || item.fileName || ''} loading="lazy" /> : <FileText size={32} />}</div><div className="cms-media-details"><strong title={item.fileName}>{item.fileName || 'Managed image'}</strong><StatusBadge status={item.status} /><small>{item.width && item.height ? `${item.width} × ${item.height} · ` : ''}{(item.sizeBytes / 1024).toFixed(0)} KB</small><div className="cms-tag-list"><span>{item.mimeType || item.type}</span><span>{item.status === 'published' ? 'Public' : 'Private draft'}</span></div>{item.sourceUrl && <small className="cms-media-source">Source: <a href={item.sourceUrl} target="_blank" rel="noreferrer">{new URL(item.sourceUrl).hostname}</a></small>}<small className="cms-media-usage">{item.usedIn?.length ? `Used in ${item.usedIn.length}: ${item.usedIn.slice(0, 2).join(', ')}${item.usedIn.length > 2 ? '…' : ''}` : 'Not referenced by saved content'}</small><div className="cms-media-actions"><Button onClick={() => copy(item.url)}>Copy URL</Button><label className="cms-button cms-file-button" title="Save a private replacement draft">Replace<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => replace(item, event.target.files?.[0])} /></label>{item.status === 'published' ? <Button disabled={!ready || mutation.busy} onClick={() => unpublish(item)}>Unpublish</Button> : <Button variant="brown" disabled={!ready || mutation.busy} onClick={() => publish(item)}>Publish</Button>}<Button disabled={!ready || mutation.busy || Boolean(item.usedIn?.length)} title={item.usedIn?.length ? 'Remove references before deleting this file' : 'Delete unused file'} onClick={() => remove(item)}><Trash2 size={14} /></Button></div></div></article>)}</div> : <EmptyState title="No managed assets found" text="Upload an image or import a permitted image URL. New uploads remain private drafts until explicitly published." action={<label className="cms-button cms-button-primary cms-file-button"><Upload size={14} /> Choose image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => upload(event.target.files?.[0])} /></label>} />}
   </>
 }
 
@@ -688,6 +708,99 @@ export function CmsSettingsPage() {
   }
   return <><PageHeader eyebrow="PORTFOLIO CONFIGURATION" title="Settings" description="Manage profile details, About copy, and SEO settings used by the public portfolio." actions={<Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={15} /> Publish settings</Button>} />
     {!ready && <CmsConnectionNotice status={apiStatus} />}{error && <ContentError error={error} retry={load} />}{mutation.error && <Notice kind="error">{mutation.error}</Notice>}{mutation.success && <Notice kind="success">{mutation.success}</Notice>}{loading ? <LoadingPanel /> : <form className="cms-settings-grid" onSubmit={(event) => { event.preventDefault(); save(false) }}><section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">01</span><div><h2>Public profile</h2><p>Profile details used in the existing portfolio components.</p></div></div><TextInput label="Portfolio name" value={form.name} onChange={(value) => field('name', value)} maxLength={120} required /><TextInput label="Professional title" value={form.title} onChange={(value) => field('title', value)} maxLength={160} /><TextArea label="Biography" value={form.bio} onChange={(value) => field('bio', value)} rows={4} maxLength={6000} /><TextArea label="About section" value={form.about} onChange={(value) => field('about', value)} rows={6} maxLength={3000} /><TextInput label="Location" value={form.location} onChange={(value) => field('location', value)} maxLength={120} /></section><section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">02</span><div><h2>Social links & SEO</h2><p>Only public profile metadata belongs here.</p></div></div><TextInput label="GitHub URL" type="url" value={form.socialLinks.github} onChange={(value) => setForm((current) => ({ ...current, socialLinks: { ...current.socialLinks, github: value } }))} /><TextInput label="LinkedIn URL" type="url" value={form.socialLinks.linkedin} onChange={(value) => setForm((current) => ({ ...current, socialLinks: { ...current.socialLinks, linkedin: value } }))} /><TextInput label="Email address or mailto link" value={form.socialLinks.email?.replace(/^mailto:/, '')} onChange={(value) => setForm((current) => ({ ...current, socialLinks: { ...current.socialLinks, email: value ? `mailto:${value.replace(/^mailto:/, '')}` : '' } }))} /><div className="cms-featured-picker"><strong>Featured projects</strong><p>Selected projects appear first in the public showcase.</p>{projectOptions.length ? projectOptions.map((item) => <label key={item.id}><input type="checkbox" checked={form.featuredProjectIds.includes(item.id)} onChange={(event) => setForm((current) => ({ ...current, featuredProjectIds: event.target.checked ? [...new Set([...current.featuredProjectIds, item.id])] : current.featuredProjectIds.filter((id) => id !== item.id) }))} /><span>{item.title}</span></label>) : <small>Publish at least one project to choose featured work.</small>}</div><TextInput label="SEO page title" value={form.seo.metaTitle} onChange={(value) => setForm((current) => ({ ...current, seo: { ...current.seo, metaTitle: value } }))} maxLength={70} /><TextArea label="SEO description" value={form.seo.metaDescription} onChange={(value) => setForm((current) => ({ ...current, seo: { ...current.seo, metaDescription: value } }))} rows={4} maxLength={180} /><div className="cms-editor-actions"><span>{record ? `Draft revision v${record.revision}` : 'No saved settings'}</span><Button type="submit" disabled={!ready || mutation.busy}><Save size={14} /> Save draft</Button><Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={14} /> Save & publish</Button></div></section></form>}
+  </>
+}
+
+export function CmsStorageAuditPage() {
+  const apiStatus = useCmsApiStatus()
+  const localMode = apiStatus.state === 'local'
+  const [inventory, setInventory] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [reviewed, setReviewed] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const loadInventory = useCallback(async () => {
+    if (localMode) {
+      setInventory(null)
+      setError('Public Storage review is available only in the authenticated Supabase CMS.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setSuccess('')
+    setReviewed(false)
+    try {
+      setInventory(await adminApi.getPublicStorageAuditSnapshot())
+    } catch (cause) {
+      setInventory(null)
+      setError(cause.message || 'Could not load the public Storage inventory.')
+    } finally {
+      setLoading(false)
+    }
+  }, [localMode])
+
+  useEffect(() => {
+    loadInventory()
+  }, [loadInventory])
+
+  const recordAudit = async () => {
+    if (!inventory || !reviewed || busy) return
+    setBusy(true)
+    setError('')
+    setSuccess('')
+    try {
+      await adminApi.recordPublicStorageAudit(inventory.snapshot)
+      setReviewed(false)
+      await checkCmsApiHealth()
+      await loadInventory()
+      setSuccess('Storage review recorded for the current inventory. Any later public-bucket change will require another review.')
+    } catch (cause) {
+      setError(cause.message || 'Could not record the public Storage review.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <><PageHeader eyebrow="TRUSTED OPERATOR WORKFLOW" title="Public Storage review" description="Review the public bucket configuration and every object before attesting to its current contents. The server verifies your registered administrator identity and rejects a stale inventory." />
+    {apiStatus.storageReady === false && <CmsStorageNotice status={apiStatus} />}
+    {error && <Notice kind="error">{error}</Notice>}
+    {success && <Notice kind="success">{success}</Notice>}
+    {localMode ? <section className="cms-editor-card"><p>This workflow is not available in local filesystem mode.</p></section> : <>
+      <section className="cms-editor-card">
+        <div className="cms-panel-heading"><div><h2>Bucket configuration</h2><p>Confirm this is the intended public asset bucket and inspect all configuration values.</p></div><ShieldCheck size={18} /></div>
+        {loading ? <LoadingPanel /> : inventory ? <div className="cms-resume-facts">
+          <span><small>Bucket ID</small><strong>{inventory.bucket.id}</strong></span>
+          <span><small>Name</small><strong>{inventory.bucket.name}</strong></span>
+          <span><small>Visibility</small><strong>{inventory.bucket.public ? 'Public' : 'Not public'}</strong></span>
+          <span><small>File size limit</small><strong>{inventory.bucket.fileSizeLimit ?? 'No configured limit'}</strong></span>
+          <span><small>Allowed MIME types</small><strong>{inventory.bucket.allowedMimeTypes?.join(', ') || 'Unrestricted by bucket MIME list'}</strong></span>
+        </div> : <p className="cms-muted">No reviewable inventory is loaded.</p>}
+      </section>
+      <section className="cms-editor-card">
+        <div className="cms-panel-heading"><div><h2>Public object inventory</h2><p>{inventory ? `${inventory.objects.length} object${inventory.objects.length === 1 ? '' : 's'} currently in portfolio-published` : 'Reload the inventory to begin a review.'}</p></div><Button onClick={loadInventory} disabled={loading || busy}><RefreshCw size={14} /> Reload inventory</Button></div>
+        {loading ? <LoadingPanel /> : inventory?.objects.length ? <ol className="cms-version-list">{inventory.objects.map((object) => {
+          const metadata = object.metadata || {}
+          const references = object.referencedBy || []
+          return <li className="cms-version-row" key={object.id}>
+            <div className="cms-version-marker"><FileText size={15} /></div>
+            <div>
+              <strong>{object.name}</strong>
+              <small>{metadata.mimetype || metadata.contentType || 'Unknown content type'} · {metadata.size ? `${metadata.size} bytes` : 'Size unavailable'} · updated {object.updatedAt || 'unknown'}</small>
+              <small>{references.length ? `Referenced by ${references.map((reference) => `${reference.contentType}:${reference.recordId}`).join(', ')}` : 'Not referenced by currently published CMS content — verify whether this public object should remain.'}</small>
+              <a href={object.publicUrl} target="_blank" rel="noreferrer">Open public object for inspection</a>
+            </div>
+          </li>
+        })}</ol> : inventory ? <p className="cms-muted">The bucket currently has no objects.</p> : null}
+      </section>
+      {inventory && !loading && <section className="cms-editor-card">
+        <div className="cms-inline-toggles"><label><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /> I verified the bucket configuration and inspected every listed object, including unreferenced objects.</label></div>
+        <p className="cms-muted">Recording this review stores the authenticated operator identity server-side. If the bucket or any object changes before recording, the server rejects this snapshot and asks you to reload and review again.</p>
+        <Button variant="brown" disabled={!reviewed || busy} onClick={recordAudit}><ShieldCheck size={14} /> {busy ? 'Recording review…' : 'Record trusted-operator review'}</Button>
+      </section>}
+    </>}
   </>
 }
 

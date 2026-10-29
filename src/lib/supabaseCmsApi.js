@@ -598,6 +598,52 @@ function createCmsApi(client) {
       }
     },
 
+    async getPublicStorageAuditSnapshot() {
+      const snapshot = await assertRpc(
+        client,
+        'cms_get_public_storage_audit_snapshot',
+        {},
+      )
+
+      if (
+        !snapshot
+        || !snapshot.bucket
+        || !Array.isArray(snapshot.objects)
+      ) {
+        throw new SupabaseCmsError(
+          'serverError',
+          'Supabase returned an invalid public Storage audit inventory.',
+        )
+      }
+
+      return {
+        snapshot,
+        bucket: snapshot.bucket,
+        objects: snapshot.objects.map((object) => ({
+          ...object,
+          publicUrl: client.storage
+            .from(PUBLIC_BUCKET)
+            .getPublicUrl(object.name)
+            .data.publicUrl,
+        })),
+      }
+    },
+
+    async recordPublicStorageAudit(snapshot) {
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+        throw new SupabaseCmsError(
+          'validation',
+          'Reload and review the public Storage inventory before recording its audit.',
+        )
+      }
+
+      return assertRpc(
+        client,
+        'cms_record_public_storage_audit',
+        { p_reviewed_snapshot: snapshot },
+      )
+    },
+
     list,
 
     async get(type, id, view = 'drafts') {
@@ -898,11 +944,7 @@ function createCmsApi(client) {
       return assertRpc(client, 'cms_unpublish_settings', {})
     },
 
-    async importImage(
-      sourceUrl,
-      alt = '',
-      { private: privateUpload = false } = {},
-    ) {
+    async importImage(sourceUrl, alt = '') {
       let url
 
       try {
@@ -960,7 +1002,6 @@ function createCmsApi(client) {
       return api.upload(file, {
         kind: 'image',
         alt,
-        private: privateUpload,
         sourceUrl: url.href,
       })
     },
@@ -969,14 +1010,10 @@ function createCmsApi(client) {
       kind = 'image',
       alt = '',
       replaceMediaId = '',
-      private: privateUpload = false,
       sourceUrl = '',
       onProgress = () => {},
     } = {}) {
       const checked = await validateSupabaseUpload(file, kind)
-
-      const privateAsset = privateUpload || kind === 'resume'
-      const publishImmediately = !privateAsset && kind === 'image'
 
       const existing = replaceMediaId
         ? await api.get('media', replaceMediaId, 'drafts')
@@ -1094,7 +1131,7 @@ function createCmsApi(client) {
           order: existing?.order ?? Date.now(),
         }
 
-        let saved = await uploadRecord(
+        const saved = await uploadRecord(
           'media',
           existing?.id || id,
           parseContent('media', content),
@@ -1102,14 +1139,6 @@ function createCmsApi(client) {
         )
 
         recordSaved = true
-
-        if (publishImmediately) {
-          saved = await api.publish(
-            'media',
-            saved.id,
-            saved.revision,
-          )
-        }
 
         if (existingPath?.bucket === PUBLIC_BUCKET) {
           await removeUnreferencedPublicAssets([

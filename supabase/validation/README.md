@@ -78,6 +78,25 @@ the test project does not need the production administrator UID.
   again after Storage changes. The health RPC exposes the dynamic check as
   `publicProjectionEligible` and the operator attestation separately as
   `publicStorageContentAuditRecorded`.
+- The CMS provides a **Storage review** page for authenticated portfolio
+  administrators. The server-side snapshot includes exact bucket
+  configuration, every object and its metadata, and the published CMS records
+  that reference each object. The operator must inspect every object (including
+  unreferenced items), open assets as needed, and confirm the review in the UI.
+  The audit RPC independently checks `public.is_portfolio_admin()`, compares
+  the reviewed snapshot against current Storage state, and records
+  `audited_by = auth.uid()` on the server. It accepts no caller-supplied user
+  ID. A changed or stale inventory is rejected and must be reloaded and
+  reviewed again.
+- Every public-bucket object mutation still clears `audited_at`; bucket
+  configuration changes still clear the visibility and content attestations.
+  A successful publish may copy files after the publish RPC, so a publish that
+  changes Storage can succeed and immediately require a new review before the
+  next publish. New media-library uploads now remain private drafts; publish
+  them explicitly from the library so publication follows the same gate.
+  Project images and resumes likewise upload to private draft storage. Public
+  objects are directly accessible as soon as copied to the public bucket;
+  database RLS cannot protect their direct URLs while an operator is reviewing.
 - The legacy project fixture models the known source columns (`technologies`
   JSONB, `title`, `slug`, `description`, `category`, `cover_image`, `images`,
   status/visibility, and ordering metadata). Structured technologies and
@@ -102,12 +121,47 @@ surfaces that failure. This is a multi-step client workflow, not a single
 Storage/Postgres transaction. Existing public object URLs remain independently
 fetchable while their objects exist, even if a database projection is hidden.
 
+The Media Library and Resume pages upload new files as private drafts. Media
+records are no longer auto-published on upload. An operator explicitly
+publishes a media record after reviewing it; asset promotion still passes the
+database publication gate and invalidates the Storage-content audit whenever
+the public bucket changes.
+
 Unpublish and delete first update the CMS row (delete is a soft-delete), which
 removes its public projection, then the client removes only unreferenced
 `portfolio-published`/`portfolio-private` objects. Cleanup failure can leave an
 orphaned object and is surfaced to the caller. Legacy-bucket source objects are
 not silently rewritten or removed; publishing copies their referenced assets
 only when explicitly requested.
+
+## Recording a trusted-operator review
+
+After applying the additive workflow migration and deploying the matching CMS
+frontend to the **disposable test project**:
+
+1. Sign in with an account already registered by `public.is_portfolio_admin()`.
+   Do not add a new public policy, expose the audit table, or pass an operator
+   UID from the browser.
+2. Open **Storage review** from the admin navigation. The server returns the
+   `portfolio-published` configuration and full object inventory; the page
+   shows each object, metadata, its published CMS references, and a direct
+   link for inspection. Review unreferenced items too.
+3. If any object or configuration is unexpected, stop and investigate it.
+   The page does not delete assets or change bucket visibility. Direct object
+   URLs remain accessible while the public bucket is public.
+4. Confirm the review in the page. The RPC re-reads configuration and
+   inventory, rejects a stale snapshot, derives the actor from `auth.uid()`,
+   and records the audit timestamps and `audited_by` together.
+5. If Storage changes at any point after confirmation, the existing trigger
+   invalidates the audit. Reload, inspect the new full inventory, and confirm
+   a new review before another publication.
+
+No separate auditor table, client secret, or service-role key is introduced.
+The existing portfolio-admin registry is the trusted-operator allowlist;
+register only accounts trusted to inspect and attest to all public assets.
+The additive migration itself makes no Dashboard setting changes. If
+`portfolio-published` is not already public under an independently approved
+test configuration, do not change it merely to make validation pass.
 
 ## Safe execution sequence
 
@@ -127,18 +181,22 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    [20261028130000_portfolio_cms.sql](../migrations/20261028130000_portfolio_cms.sql)
    unchanged in the SQL Editor. It is transaction-wrapped. Do not substitute
    the production UID or create a separate migration copy.
-4. Verify the Dashboard project again and run
+4. Verify the Dashboard project again and apply
+   [20261029120000_portfolio_storage_audit_workflow.sql](../migrations/20261029120000_portfolio_storage_audit_workflow.sql).
+   This additive transaction installs admin-only inventory/review RPCs; it
+   does not change bucket visibility, Storage policies, or audit triggers.
+5. Verify the Dashboard project again and run
    [01_post_migration_assertions.sql](./01_post_migration_assertions.sql). It
    checks function signatures, trusted-admin behavior, conservative backfill,
    bucket distinctions, projection contents, and blocked initial publishing.
-5. Verify the Dashboard project again and run
+6. Verify the Dashboard project again and run
    [02_rerun_seed.sql](./02_rerun_seed.sql). It records bucket metadata and
    object-count baselines and creates only clearly named test sentinels. It
    does not change bucket visibility. Both destination buckets must be private
    and empty. The transaction makes a failed seed retryable; it also accepts
    only already-existing sentinels that exactly match its expected values.
-6. Verify the Dashboard project again, run the same repository migration a
-   second time, then verify the project and run
+7. Verify the Dashboard project again, rerun both repository migrations in
+   order, then verify the project and run
    [03_rerun_assertions.sql](./03_rerun_assertions.sql). This checks that the
    sentinels, migrated records, bucket configuration, and object counts were
    preserved. A migration rerun clears the advisory projection-review
@@ -147,7 +205,7 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    bucket configuration invalidate both visibility and content attestations;
    object changes invalidate the content attestation and require an operator
    review before the next publication.
-7. Verify the Dashboard project again and run
+8. Verify the Dashboard project again and run
    [04_security_and_bucket_scenarios.sql](./04_security_and_bucket_scenarios.sql).
    It tests authorized test-admin recognition, direct-RPC readiness enforcement,
    failed-publication rollback, projection synchronization on publish,
@@ -157,9 +215,16 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    and ends with `ROLLBACK`.
    Anonymous queries are attempted only if the role has table-level `SELECT`;
    absence of that grant is itself a valid deny and does not make the test fail.
-8. If the disposable project's operator has explicitly configured
+9. Run [07_storage_audit_workflow.sql](./07_storage_audit_workflow.sql) only
+   after `portfolio-published` is already public under an independently
+   approved test-project configuration. It checks server-side admin and
+   unauthenticated authorization, stale-snapshot rejection, and server-derived
+   `audited_by`; it ends with `ROLLBACK`, so it does not persist its audit.
+   Never make the bucket public just to run this test.
+10. If the disposable project's operator has explicitly configured
    `portfolio-published` as public, performed the Storage review, and recorded
-   the required attestations, verify the Dashboard project again and run
+   the required attestations using the CMS **Storage review** page, verify the
+   Dashboard project again and run
    [06_public_lifecycle.sql](./06_public_lifecycle.sql). It tests ordinary
    publish / anonymous read, continued availability of unrelated published
    content after unpublish and delete, draft privacy, stale-projection
@@ -172,27 +237,10 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    timestamps; this SQL script does not invoke the Storage API or claim to test
    actual object-copy behavior.
 
-   Do not change bucket visibility just to run this test. If
-   `portfolio-published` is private, skip this scenario and report it as not
-   run. Only if the bucket is already public under an independently approved
-   test-project configuration, verify the Dashboard project and review its
-   contents and configuration. Then, and only then, use the privileged SQL
-   Editor to record the attestation:
-
-   ```sql
-   update public.portfolio_cms_storage_audit
-   set visibility_verified_at = now(),
-       audited_at = now(),
-       audited_by = auth.uid()
-   where bucket_id = 'portfolio-published';
-   ```
-
-   This statement records, but does not perform, the operator review. Do not
-   run it without inspecting the actual bucket and contents first. It does not
-   set `projections_audited_at`, which is advisory and not required for reads.
-   If the SQL Editor cannot run with a privileged role, stop; do not broaden
-   table grants or add a public audit RPC.
-9. The dotted-object check is optional and is the only step that creates an
+   Do not change bucket visibility just to run this test. If the required
+   configuration is not already in place, skip this scenario and report it as
+   not run. The lifecycle script rolls its CMS changes back.
+11. The dotted-object check is optional and is the only step that creates an
    actual Storage object. If needed, verify the Dashboard project again and
    upload exactly one harmless, non-sensitive text file to bucket ID
    `portfolio-media.` (including the trailing period). This fixture bucket is
