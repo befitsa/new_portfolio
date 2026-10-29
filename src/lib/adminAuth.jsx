@@ -1,9 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { isSupabaseConfigured, supabase } from './supabase.js'
-import { SUPABASE_ADMIN_UID } from './supabaseCmsApi.js'
 import { isLocalFilesystemCms } from '../services/cmsProvider.js'
-
-export const ADMIN_UID = SUPABASE_ADMIN_UID
 
 const AdminAuthContext = createContext(null)
 
@@ -25,7 +22,7 @@ function friendlyAuthError(error) {
 }
 
 async function assertRegisteredAdmin(user) {
-  if (user?.id !== ADMIN_UID) {
+  if (!user?.id) {
     throw new Error('This Supabase account is not authorized to access the portfolio dashboard.')
   }
   const { data, error } = await supabase.rpc('cms_is_admin')

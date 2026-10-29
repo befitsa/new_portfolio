@@ -1,11 +1,12 @@
 import { contentSchemas, parseContent, siteSettingsSchema } from './db/contentSchemas.js'
 import { isValidPdfDocument } from './db/pdfValidation.js'
 
-export const SUPABASE_ADMIN_UID = '350db73c-d045-4b51-88bf-36ee9b2d07db'
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024
 export const MAX_RESUME_BYTES = 5 * 1024 * 1024
 export const PRIVATE_BUCKET = 'portfolio-private'
-export const PUBLIC_BUCKET = 'portfolio-media'
+export const PUBLIC_BUCKET = 'portfolio-published'
+export const LEGACY_STORAGE_BUCKETS = Object.freeze(['portfolio-media.', 'portfolio-media', 'portfolio_media'])
+const sourceBuckets = new Set([PRIVATE_BUCKET, ...LEGACY_STORAGE_BUCKETS])
 
 const MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const contentTypes = new Set([...Object.keys(contentSchemas)])
@@ -104,7 +105,7 @@ function storageBucketAndPath(storagePath) {
   const separator = storagePath.indexOf('/')
   if (separator <= 0) return null
   const bucket = storagePath.slice(0, separator)
-  if (bucket !== PRIVATE_BUCKET && bucket !== PUBLIC_BUCKET) return null
+  if (!sourceBuckets.has(bucket) && bucket !== PUBLIC_BUCKET) return null
   return { bucket, path: storagePath.slice(separator + 1) }
 }
 
@@ -173,7 +174,7 @@ function createCmsApi(client) {
   async function hydratePrivateAssets(value) {
     return walkAssets(value, async (asset) => {
       const parsed = storageBucketAndPath(asset.storagePath)
-      if (parsed?.bucket !== PRIVATE_BUCKET) return asset
+      if (!parsed || !sourceBuckets.has(parsed.bucket)) return asset
       const url = await signedUrl(asset.storagePath)
       const result = { ...asset }
       if ('url' in result) result.url = url
@@ -200,28 +201,15 @@ function createCmsApi(client) {
     return client.storage.from(PUBLIC_BUCKET).getPublicUrl(parsed.path).data.publicUrl
   }
 
-  async function promoteAssets(value) {
-    const promotedPaths = []
-    const promotedAssets = []
+  async function preparePublishedAssets(value) {
+    const sources = []
     const result = await walkAssets(value, async (asset) => {
       const source = storageBucketAndPath(asset.storagePath)
-      if (source?.bucket !== PRIVATE_BUCKET) return asset
+      if (!source || !sourceBuckets.has(source.bucket)) return asset
       const destinationPath = `published/${source.path}`
       const destinationStoragePath = `${PUBLIC_BUCKET}/${destinationPath}`
-      const publicBucket = client.storage.from(PUBLIC_BUCKET)
-      const { data: existing, error: existingError } = await publicBucket.list(
-        destinationPath.split('/').slice(0, -1).join('/'),
-        { search: destinationPath.split('/').at(-1), limit: 1 },
-      )
-      await throwStorageError(existingError, 'checking published assets')
-      if (!existing?.some((entry) => entry.name === destinationPath.split('/').at(-1))) {
-        const { error } = await client.storage.from(PRIVATE_BUCKET)
-          .copy(source.path, PUBLIC_BUCKET, destinationPath)
-        await throwStorageError(error, 'publishing an asset')
-        promotedPaths.push(destinationStoragePath)
-      }
+      sources.push({ sourceBucket: source.bucket, sourcePath: source.path, destinationPath })
       const url = await publicUrl(destinationStoragePath)
-      promotedAssets.push({ sourceStoragePath: asset.storagePath, destinationStoragePath })
       return {
         ...asset,
         storagePath: destinationStoragePath,
@@ -230,7 +218,33 @@ function createCmsApi(client) {
         ...(asset.previewUrl ? { previewUrl: url } : {}),
       }
     })
-    return { value: result, promotedPaths, promotedAssets }
+    return { value: result, sources }
+  }
+
+  async function copyPublishedAssets(sources) {
+    const copiedPaths = []
+    try {
+      for (const source of sources) {
+        const destination = client.storage.from(PUBLIC_BUCKET)
+        const fileName = source.destinationPath.split('/').at(-1)
+        const folder = source.destinationPath.split('/').slice(0, -1).join('/')
+        const { data: existing, error: listError } = await destination.list(folder, {
+          search: fileName,
+          limit: 1,
+        })
+        await throwStorageError(listError, 'checking published assets')
+        if (existing?.some((entry) => entry.name === fileName)) continue
+        const { error } = await client.storage.from(source.sourceBucket)
+          .copy(source.sourcePath, PUBLIC_BUCKET, source.destinationPath)
+        await throwStorageError(error, 'publishing an asset')
+        copiedPaths.push(`${PUBLIC_BUCKET}/${source.destinationPath}`)
+      }
+      return copiedPaths
+    } catch (error) {
+      const failure = new Error(error?.message || 'Supabase Storage could not publish an asset.', { cause: error })
+      failure.publishedAssetPaths = copiedPaths
+      throw failure
+    }
   }
 
   async function uploadRecord(type, id, payload, expectedRevision = 0) {
@@ -259,7 +273,7 @@ function createCmsApi(client) {
       ]
       for (const record of related) {
         const label = record.title || record.slug || record.fileName || record.role || record.degree || 'Portfolio content'
-        for (const bucketName of [PRIVATE_BUCKET, PUBLIC_BUCKET]) {
+        for (const bucketName of [PRIVATE_BUCKET, ...LEGACY_STORAGE_BUCKETS, PUBLIC_BUCKET]) {
           for (const path of collectStoragePaths(record, bucketName)) {
             if (usage.has(path) && !usage.get(path).includes(label)) usage.get(path).push(label)
           }
@@ -306,22 +320,91 @@ function createCmsApi(client) {
       if (!draft) throw new SupabaseCmsError('not_found', 'Draft was not found.')
       const previouslyPublished = type === 'resumes' ? await list('resumes', 'published') : []
       const revision = Number.isInteger(expectedRevision) ? expectedRevision : draft.revision
-      const promoted = await promoteAssets(withoutSystemFields(draft))
-      let recordPublished = false
+      const prepared = await preparePublishedAssets(withoutSystemFields(draft))
+      if (prepared.sources.length || collectStoragePaths(draft, PUBLIC_BUCKET).length) {
+        const health = await assertRpc(client, 'cms_health', {})
+        if (health?.storage?.ready !== true) {
+          throw new SupabaseCmsError(
+            'upload',
+            health?.storage?.message || 'Published asset storage has not been verified and enabled.',
+          )
+        }
+      }
+      const payload = parseContent(type, prepared.value)
+      const result = await assertRpc(client, 'cms_publish_record', {
+        p_type: type,
+        p_id: id,
+        p_expected_revision: revision,
+        p_payload: payload,
+      })
+      let copiedPaths = []
       try {
-        const payload = parseContent(type, promoted.value)
-        const result = await assertRpc(client, 'cms_publish_record', {
-          p_type: type,
-          p_id: id,
-          p_expected_revision: revision,
-          p_payload: payload,
-        })
-        recordPublished = true
+        copiedPaths = await copyPublishedAssets(prepared.sources)
+      } catch (error) {
+        copiedPaths = error.publishedAssetPaths || []
+        let rollbackError
+        try {
+          await assertRpc(client, 'cms_unpublish_record', { p_type: type, p_id: id })
+        } catch (caughtRollbackError) {
+          rollbackError = caughtRollbackError
+        }
+        let cleanupError
+        if (copiedPaths.length) {
+          try {
+            const cleanup = await client.storage.from(PUBLIC_BUCKET).remove(
+              copiedPaths.map((path) => path.slice(PUBLIC_BUCKET.length + 1)),
+            )
+            cleanupError = cleanup.error
+          } catch (caughtCleanupError) {
+            cleanupError = caughtCleanupError
+          }
+        }
+        if (rollbackError) {
+          throw new SupabaseCmsError(
+            'serverError',
+            `The record was published but its assets could not be copied, and the published record could not be withdrawn: ${rollbackError.message}.${cleanupError ? ` Staged public assets could not be removed: ${cleanupError.message || 'unknown error'}.` : ' Successfully copied staged assets were removed.'} The original uploads remain private.`,
+            rollbackError,
+          )
+        }
+        if (cleanupError) {
+          throw new SupabaseCmsError(
+            'upload',
+            `The record was withdrawn, but staged public assets could not be removed: ${cleanupError.message}. The original uploads remain private.`,
+            cleanupError,
+          )
+        }
+        if (type === 'resumes') {
+          try {
+            for (const previous of previouslyPublished) {
+              const current = await api.get('resumes', previous.id, 'drafts')
+              if (!current) continue
+              await assertRpc(client, 'cms_publish_record', {
+                p_type: 'resumes',
+                p_id: previous.id,
+                p_expected_revision: current.revision,
+                p_payload: parseContent('resumes', withoutSystemFields(previous)),
+              })
+            }
+          } catch (restoreError) {
+            throw new SupabaseCmsError(
+              'serverError',
+              `The new resume was withdrawn, but the previously published resume could not be restored: ${restoreError.message}`,
+              restoreError,
+            )
+          }
+        }
+        throw new SupabaseCmsError(
+          'upload',
+          `Publishing was rolled back because an asset could not be copied. The original upload remains private. ${error.message}`,
+          error,
+        )
+      }
+      try {
         if (type === 'projects') {
-          const paths = new Set(promoted.promotedAssets.map((asset) => asset.sourceStoragePath))
+          const paths = new Set(prepared.sources.map((source) => `${source.sourceBucket}/${source.sourcePath}`))
           const media = await list('media', 'drafts')
           for (const item of media) {
-            if (!collectStoragePaths(item, PRIVATE_BUCKET).some((path) => paths.has(path))) continue
+            if (![...sourceBuckets].some((bucket) => collectStoragePaths(item, bucket).some((path) => paths.has(path)))) continue
             await api.publish('media', item.id, item.revision)
           }
         } else if (type === 'resumes') {
@@ -332,17 +415,7 @@ function createCmsApi(client) {
         }
         return recordFromRpc(result, type, 'published')
       } catch (error) {
-        if (recordPublished) {
-          throw new SupabaseCmsError('serverError', `The ${type} content was published, but related asset cleanup or media updates failed: ${error.message}`, error)
-        }
-        if (promoted.promotedPaths.length) {
-          const { error: cleanupError } = await client.storage.from(PUBLIC_BUCKET)
-            .remove(promoted.promotedPaths.map((path) => path.slice(PUBLIC_BUCKET.length + 1)))
-          if (cleanupError) {
-            throw new SupabaseCmsError('upload', `${error.message} Also failed to clean up unpublished assets: ${cleanupError.message}`, cleanupError)
-          }
-        }
-        throw error
+        throw new SupabaseCmsError('serverError', `The ${type} content was published, but related asset cleanup or media updates failed: ${error.message}`, error)
       }
     },
     async unpublish(type, id) {
@@ -419,22 +492,18 @@ function createCmsApi(client) {
     } = {}) {
       const checked = await validateSupabaseUpload(file, kind)
       const privateAsset = privateUpload || kind === 'resume'
+      const publishImmediately = !privateAsset && kind === 'image'
       const existing = replaceMediaId ? await api.get('media', replaceMediaId, 'drafts') : null
       const existingPath = storageBucketAndPath(existing?.storagePath || '')
-      const bucket = existingPath?.bucket || (privateAsset ? PRIVATE_BUCKET : PUBLIC_BUCKET)
-      if (existingPath && privateAsset && existingPath.bucket === PUBLIC_BUCKET) {
-        throw new SupabaseCmsError('validation', 'A public image cannot be replaced with a private draft. Publish or replace it from the public media library.')
-      }
+      const bucket = PRIVATE_BUCKET
       const id = replaceMediaId || crypto.randomUUID()
-      const authResult = privateAsset && !existingPath
-        ? await client.auth.getUser()
-        : null
+      const authResult = await client.auth.getUser()
       if (authResult?.error) throw sanitizeSupabaseError(authResult.error)
       const userId = authResult?.data?.user?.id
-      if (privateAsset && !existingPath && userId !== SUPABASE_ADMIN_UID) {
+      if (!userId || await assertRpc(client, 'cms_is_admin', {}) !== true) {
         throw new SupabaseCmsError('auth', 'Sign in with the registered portfolio administrator account before uploading.')
       }
-      const path = `${bucket === PRIVATE_BUCKET ? `drafts/${userId || SUPABASE_ADMIN_UID}` : 'published'}/${id}/${crypto.randomUUID()}/${safeFileName(file.name)}`
+      const path = `drafts/${userId}/${id}/${crypto.randomUUID()}/${safeFileName(file.name)}`
       const storagePath = `${bucket}/${path}`
       const onProgressSafe = typeof onProgress === 'function' ? onProgress : () => {}
       let recordSaved = false
@@ -446,9 +515,7 @@ function createCmsApi(client) {
           dimensions = { width: image.width, height: image.height }
           image.close()
         }
-        const url = bucket === PUBLIC_BUCKET
-          ? await publicUrl(storagePath)
-          : await signedUrl(storagePath)
+        const url = await signedUrl(storagePath)
 
         if (kind === 'resume') {
           const resumes = await list('resumes', 'drafts')
@@ -488,12 +555,12 @@ function createCmsApi(client) {
         }
         let saved = await uploadRecord(
           'media',
-          existing?.id || (privateAsset ? id : null),
+          existing?.id || id,
           parseContent('media', content),
           existing?.revision || 0,
         )
         recordSaved = true
-        if (!privateAsset) saved = await api.publish('media', saved.id, saved.revision)
+        if (publishImmediately) saved = await api.publish('media', saved.id, saved.revision)
         if (existingPath?.bucket === PUBLIC_BUCKET) {
           await removeUnreferencedPublicAssets([existing.storagePath])
         } else if (existingPath?.bucket === PRIVATE_BUCKET) {

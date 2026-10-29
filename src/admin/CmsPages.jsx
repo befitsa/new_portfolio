@@ -344,7 +344,7 @@ export function CmsProjectEditorPage({ id }) {
   const uploadHero = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -372,7 +372,7 @@ export function CmsProjectEditorPage({ id }) {
   const importHero = async () => {
     if (!imageUrl.trim()) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
     const imported = await mutation.run(() => adminApi.importImage(imageUrl.trim(), '', { private: !localMode }), localMode ? 'Image URL added to the local media library.' : 'Image copied to private draft storage.')
@@ -556,7 +556,7 @@ export function CmsResumePage() {
   const upload = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
     if (file.size <= 0 || file.size > 5 * 1024 * 1024) { mutation.run(() => { throw new Error('Choose a PDF larger than 0 bytes and no larger than 5 MB.') }); return }
@@ -603,7 +603,7 @@ export function CmsMediaPage() {
   const upload = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -618,7 +618,7 @@ export function CmsMediaPage() {
   const replace = async (current, file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -633,7 +633,7 @@ export function CmsMediaPage() {
   const importUrl = async (event) => {
     event.preventDefault()
     if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check the portfolio-media and portfolio-private buckets and admin policies.') })
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
       return
     }
     const item = await mutation.run(() => adminApi.importImage(sourceUrl.trim(), alt), localMode ? 'Image URL added to the local media library.' : 'Image imported into managed storage.')

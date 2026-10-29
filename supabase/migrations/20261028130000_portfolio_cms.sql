@@ -1,5 +1,31 @@
 begin;
 
+do $authorization_preflight$
+declare
+  v_admin_function oid := to_regprocedure('public.is_portfolio_admin()');
+begin
+  if v_admin_function is null then
+    raise exception 'Migration requires public.is_portfolio_admin() to be installed before the portfolio CMS.';
+  end if;
+  if not exists (
+    select 1
+    from pg_proc p
+    where p.oid = v_admin_function
+      and p.prorettype = 'boolean'::regtype
+      and p.prosecdef
+      and coalesce(p.prosrc, '') ~* 'auth[.]uid[[:space:]]*[(]'
+      and coalesce(p.prosrc, '') !~* 'cms_[[:alnum:]_]*[[:space:]]*[(]'
+      and exists (
+        select 1
+        from unnest(coalesce(p.proconfig, '{}'::text[])) as config(setting)
+        where config.setting ~ '^search_path=""?$'
+      )
+  ) then
+    raise exception 'public.is_portfolio_admin() must be a SECURITY DEFINER boolean check of auth.uid(), use an empty search_path, and not call CMS functions.';
+  end if;
+end;
+$authorization_preflight$;
+
 create table if not exists public.portfolio_cms_records (
   content_type text not null check (content_type in ('projects', 'experiences', 'education', 'resumes', 'media')),
   record_id text not null,
@@ -45,6 +71,152 @@ create table if not exists public.portfolio_cms_public_settings (
   published_payload jsonb not null
 );
 
+create table if not exists public.portfolio_cms_storage_audit (
+  bucket_id text primary key check (bucket_id = 'portfolio-published'),
+  visibility_verified_at timestamptz,
+  audited_at timestamptz,
+  projections_audited_at timestamptz,
+  audited_by uuid
+);
+
+comment on table public.portfolio_cms_storage_audit is
+  'Trusted-operator attestations only: record visibility_verified_at and audited_at after checking portfolio-published in Supabase Storage, then record projections_audited_at after reviewing CMS public projections. Storage changes invalidate the related attestation; projection changes and every migration rerun invalidate the projection attestation. Ordinary authenticated users have no write access.';
+
+alter table public.portfolio_cms_storage_audit
+  add column if not exists visibility_verified_at timestamptz;
+
+comment on column public.portfolio_cms_storage_audit.visibility_verified_at is
+  'Set only by a trusted operator after manually verifying portfolio-published is public and its contents are safe; ordinary CMS users have no write access.';
+comment on column public.portfolio_cms_storage_audit.audited_at is
+  'Set only by a trusted operator after reviewing portfolio-published Storage objects; ordinary CMS users have no write access.';
+comment on column public.portfolio_cms_storage_audit.projections_audited_at is
+  'Set only by a trusted operator after reviewing CMS public projections; migration runs clear this attestation.';
+
+insert into public.portfolio_cms_storage_audit (bucket_id)
+values ('portfolio-published')
+on conflict (bucket_id) do nothing;
+
+create or replace function public.cms_invalidate_storage_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  if tg_table_name = 'buckets' then
+    if tg_op = 'DELETE' then
+      if old.id = 'portfolio-published' then
+        update public.portfolio_cms_storage_audit
+        set visibility_verified_at = null, audited_at = null
+        where bucket_id = 'portfolio-published';
+      end if;
+    elsif tg_op = 'UPDATE' then
+      if old.id = 'portfolio-published' or new.id = 'portfolio-published' then
+        update public.portfolio_cms_storage_audit
+        set visibility_verified_at = null, audited_at = null
+        where bucket_id = 'portfolio-published';
+      end if;
+    elsif new.id = 'portfolio-published' then
+      update public.portfolio_cms_storage_audit
+      set visibility_verified_at = null, audited_at = null
+      where bucket_id = 'portfolio-published';
+    end if;
+  else
+    if tg_op = 'DELETE' then
+      if old.bucket_id = 'portfolio-published' then
+        update public.portfolio_cms_storage_audit
+        set audited_at = null
+        where bucket_id = 'portfolio-published';
+      end if;
+    elsif tg_op = 'UPDATE' then
+      if old.bucket_id = 'portfolio-published' or new.bucket_id = 'portfolio-published' then
+        update public.portfolio_cms_storage_audit
+        set audited_at = null
+        where bucket_id = 'portfolio-published';
+      end if;
+    elsif new.bucket_id = 'portfolio-published' then
+      update public.portfolio_cms_storage_audit
+      set audited_at = null
+      where bucket_id = 'portfolio-published';
+    end if;
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$function$;
+
+drop trigger if exists portfolio_cms_storage_bucket_audit_invalidation on storage.buckets;
+create trigger portfolio_cms_storage_bucket_audit_invalidation
+  after insert or update or delete on storage.buckets
+  for each row execute function public.cms_invalidate_storage_audit();
+
+drop trigger if exists portfolio_cms_storage_object_audit_invalidation on storage.objects;
+create trigger portfolio_cms_storage_object_audit_invalidation
+  after insert or update or delete on storage.objects
+  for each row execute function public.cms_invalidate_storage_audit();
+
+create or replace function public.cms_public_content_audited()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  select exists (
+    select 1 from public.portfolio_cms_storage_audit
+    where bucket_id = 'portfolio-published'
+      and audited_at is not null
+      and visibility_verified_at is not null
+      and projections_audited_at is not null
+  )
+  and exists (
+    select 1 from storage.buckets
+    where id = 'portfolio-published' and public
+  )
+  and exists (
+    select 1 from storage.buckets
+    where id = 'portfolio-private' and not public
+  )
+  and not exists (
+    select 1
+    from public.portfolio_cms_records source
+    left join public.portfolio_cms_public_records projection
+      on projection.content_type = source.content_type
+      and projection.record_id = source.record_id
+    where source.published_payload is not null
+      and source.published_payload ->> 'visibility' = 'true'
+      and projection.published_payload is distinct from source.published_payload
+  )
+  and not exists (
+    select 1
+    from public.portfolio_cms_public_records projection
+    left join public.portfolio_cms_records source
+      on source.content_type = projection.content_type
+      and source.record_id = projection.record_id
+    where source.record_id is null
+      or source.published_payload is null
+      or source.published_payload ->> 'visibility' is distinct from 'true'
+      or source.published_payload is distinct from projection.published_payload
+  )
+  and not exists (
+    select 1
+    from public.portfolio_cms_settings source
+    left join public.portfolio_cms_public_settings projection on projection.id = source.id
+    where source.published_payload is not null
+      and source.published_payload ->> 'visibility' = 'true'
+      and projection.published_payload is distinct from source.published_payload
+  )
+  and not exists (
+    select 1
+    from public.portfolio_cms_public_settings projection
+    left join public.portfolio_cms_settings source on source.id = projection.id
+    where source.id is null
+      or source.published_payload is null
+      or source.published_payload ->> 'visibility' is distinct from 'true'
+      or source.published_payload is distinct from projection.published_payload
+  )
+$function$;
+
 create index if not exists portfolio_cms_records_public_type_idx
   on public.portfolio_cms_records (content_type)
   where published_payload is not null;
@@ -53,11 +225,13 @@ alter table public.portfolio_cms_records enable row level security;
 alter table public.portfolio_cms_settings enable row level security;
 alter table public.portfolio_cms_public_records enable row level security;
 alter table public.portfolio_cms_public_settings enable row level security;
+alter table public.portfolio_cms_storage_audit enable row level security;
 
 revoke all on public.portfolio_cms_records from public, anon, authenticated;
 revoke all on public.portfolio_cms_settings from public, anon, authenticated;
 revoke all on public.portfolio_cms_public_records from public, anon, authenticated;
 revoke all on public.portfolio_cms_public_settings from public, anon, authenticated;
+revoke all on public.portfolio_cms_storage_audit from public, anon, authenticated;
 grant select on public.portfolio_cms_public_records to anon, authenticated;
 grant select on public.portfolio_cms_public_settings to anon, authenticated;
 
@@ -78,24 +252,12 @@ create policy portfolio_cms_admin_settings_read
 drop policy if exists portfolio_cms_public_projection_read on public.portfolio_cms_public_records;
 create policy portfolio_cms_public_projection_read
   on public.portfolio_cms_public_records for select to anon, authenticated
-  using (
-    case
-      when published_payload ->> 'visibility' in ('true', 'false')
-        then (published_payload ->> 'visibility')::boolean
-      else true
-    end
-  );
+  using (published_payload ->> 'visibility' = 'true' and public.cms_public_content_audited());
 
 drop policy if exists portfolio_cms_public_settings_projection_read on public.portfolio_cms_public_settings;
 create policy portfolio_cms_public_settings_projection_read
   on public.portfolio_cms_public_settings for select to anon, authenticated
-  using (
-    case
-      when published_payload ->> 'visibility' in ('true', 'false')
-        then (published_payload ->> 'visibility')::boolean
-      else true
-    end
-  );
+  using (published_payload ->> 'visibility' = 'true' and public.cms_public_content_audited());
 
 create or replace function public.cms_sync_public_record()
 returns trigger
@@ -104,15 +266,22 @@ security definer
 set search_path = ''
 as $function$
 begin
+  if tg_op = 'DELETE' then
+    delete from public.portfolio_cms_public_records
+    where content_type = old.content_type and record_id = old.record_id;
+    return old;
+  end if;
+  if tg_op = 'UPDATE'
+    and (old.content_type, old.record_id) is distinct from (new.content_type, new.record_id)
+  then
+    delete from public.portfolio_cms_public_records
+    where content_type = old.content_type and record_id = old.record_id;
+  end if;
   if tg_op = 'UPDATE' and old.published_payload is not distinct from new.published_payload then
     return new;
   end if;
   if new.published_payload is not null
-    and case
-      when new.published_payload ->> 'visibility' in ('true', 'false')
-        then (new.published_payload ->> 'visibility')::boolean
-      else true
-    end
+    and new.published_payload ->> 'visibility' = 'true'
   then
     insert into public.portfolio_cms_public_records (content_type, record_id, published_payload)
     values (new.content_type, new.record_id, new.published_payload)
@@ -133,15 +302,18 @@ security definer
 set search_path = ''
 as $function$
 begin
+  if tg_op = 'DELETE' then
+    delete from public.portfolio_cms_public_settings where id = old.id;
+    return old;
+  end if;
+  if tg_op = 'UPDATE' and old.id is distinct from new.id then
+    delete from public.portfolio_cms_public_settings where id = old.id;
+  end if;
   if tg_op = 'UPDATE' and old.published_payload is not distinct from new.published_payload then
     return new;
   end if;
   if new.published_payload is not null
-    and case
-      when new.published_payload ->> 'visibility' in ('true', 'false')
-        then (new.published_payload ->> 'visibility')::boolean
-      else true
-    end
+    and new.published_payload ->> 'visibility' = 'true'
   then
     insert into public.portfolio_cms_public_settings (id, published_payload)
     values (new.id, new.published_payload)
@@ -154,15 +326,33 @@ begin
 end;
 $function$;
 
-drop trigger if exists portfolio_cms_public_record_sync on public.portfolio_cms_records;
-create trigger portfolio_cms_public_record_sync
-  after insert or update on public.portfolio_cms_records
-  for each row execute function public.cms_sync_public_record();
+create or replace function public.cms_invalidate_projection_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  update public.portfolio_cms_storage_audit
+  set projections_audited_at = null
+  where bucket_id = 'portfolio-published';
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$function$;
 
+drop trigger if exists portfolio_cms_public_record_audit_invalidation on public.portfolio_cms_public_records;
+create trigger portfolio_cms_public_record_audit_invalidation
+  after insert or update or delete on public.portfolio_cms_public_records
+  for each row execute function public.cms_invalidate_projection_audit();
+
+drop trigger if exists portfolio_cms_public_settings_audit_invalidation on public.portfolio_cms_public_settings;
+create trigger portfolio_cms_public_settings_audit_invalidation
+  after insert or update or delete on public.portfolio_cms_public_settings
+  for each row execute function public.cms_invalidate_projection_audit();
+
+drop trigger if exists portfolio_cms_public_record_sync on public.portfolio_cms_records;
 drop trigger if exists portfolio_cms_public_settings_sync on public.portfolio_cms_settings;
-create trigger portfolio_cms_public_settings_sync
-  after insert or update on public.portfolio_cms_settings
-  for each row execute function public.cms_sync_public_settings();
 
 create or replace function public.cms_jsonb_uses_storage_path(p_value jsonb, p_path text)
 returns boolean
@@ -195,6 +385,141 @@ begin
 end;
 $function$;
 
+create or replace function public.cms_jsonb_uses_storage_bucket(p_value jsonb, p_bucket text)
+returns boolean
+language plpgsql
+immutable
+set search_path = ''
+as $function$
+declare
+  v_child jsonb;
+  v_text text;
+begin
+  if jsonb_typeof(p_value) = 'string' then
+    v_text := p_value #>> '{}';
+    return left(v_text, char_length(p_bucket) + 1) = p_bucket || '/'
+      or position('/' || p_bucket || '/' in v_text) > 0;
+  elsif jsonb_typeof(p_value) = 'object' then
+    if left(coalesce(p_value ->> 'storagePath', ''), char_length(p_bucket) + 1) = p_bucket || '/' then
+      return true;
+    end if;
+    for v_child in select value from jsonb_each(p_value)
+    loop
+      if public.cms_jsonb_uses_storage_bucket(v_child, p_bucket) then
+        return true;
+      end if;
+    end loop;
+  elsif jsonb_typeof(p_value) = 'array' then
+    for v_child in select value from jsonb_array_elements(p_value)
+    loop
+      if public.cms_jsonb_uses_storage_bucket(v_child, p_bucket) then
+        return true;
+      end if;
+    end loop;
+  end if;
+  return false;
+end;
+$function$;
+
+create or replace function public.cms_jsonb_has_unknown_storage_bucket(p_value jsonb)
+returns boolean
+language plpgsql
+immutable
+set search_path = ''
+as $function$
+declare
+  v_child jsonb;
+  v_path text;
+  v_bucket text;
+begin
+  if jsonb_typeof(p_value) = 'object' then
+    if p_value ? 'storagePath' then
+      v_path := nullif(p_value ->> 'storagePath', '');
+      if v_path is not null then
+        v_bucket := split_part(v_path, '/', 1);
+        if position('/' in v_path) = 0
+          or v_bucket not in (
+            'portfolio-private', 'portfolio-published',
+            'portfolio_media', 'portfolio-media', 'portfolio-media.'
+          )
+        then
+          return true;
+        end if;
+      end if;
+    end if;
+    for v_child in select value from jsonb_each(p_value)
+    loop
+      if public.cms_jsonb_has_unknown_storage_bucket(v_child) then
+        return true;
+      end if;
+    end loop;
+  elsif jsonb_typeof(p_value) = 'array' then
+    for v_child in select value from jsonb_array_elements(p_value)
+    loop
+      if public.cms_jsonb_has_unknown_storage_bucket(v_child) then
+        return true;
+      end if;
+    end loop;
+  end if;
+  return false;
+end;
+$function$;
+
+create or replace function public.cms_legacy_bucket_safe(p_bucket text, p_require_private boolean default false)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  v_exists boolean;
+  v_public boolean;
+  v_empty boolean;
+  v_referenced boolean;
+begin
+  if p_bucket is null or p_bucket not in ('portfolio_media', 'portfolio-media', 'portfolio-media.') then
+    return false;
+  end if;
+
+  select exists (select 1 from storage.buckets b where b.id = p_bucket),
+         coalesce(bool_or(b.public), false)
+    into v_exists, v_public
+    from storage.buckets b where b.id = p_bucket;
+
+  if p_require_private then
+    return v_exists and not v_public;
+  end if;
+
+  select not exists (select 1 from storage.objects o where o.bucket_id = p_bucket)
+    into v_empty;
+  select exists (
+    select 1
+    from public.portfolio_cms_records r
+    where public.cms_jsonb_uses_storage_bucket(coalesce(r.draft_payload, '{}'::jsonb), p_bucket)
+       or public.cms_jsonb_uses_storage_bucket(coalesce(r.published_payload, '{}'::jsonb), p_bucket)
+    union all
+    select 1
+    from public.portfolio_cms_settings s
+    where public.cms_jsonb_uses_storage_bucket(coalesce(s.draft_payload, '{}'::jsonb), p_bucket)
+       or public.cms_jsonb_uses_storage_bucket(coalesce(s.published_payload, '{}'::jsonb), p_bucket)
+    union all
+    select 1
+    from public.portfolio_cms_public_records r
+    where public.cms_jsonb_uses_storage_bucket(r.published_payload, p_bucket)
+    union all
+    select 1
+    from public.portfolio_cms_public_settings s
+    where public.cms_jsonb_uses_storage_bucket(s.published_payload, p_bucket)
+  ) into v_referenced;
+
+  if not v_exists then
+    return not v_referenced;
+  end if;
+  return not v_public or (v_empty and not v_referenced);
+end;
+$function$;
+
 create or replace function public.cms_require_portfolio_admin()
 returns uuid
 language plpgsql
@@ -205,12 +530,70 @@ declare
   v_uid uuid := auth.uid();
 begin
   if v_uid is null
-    or v_uid <> '350db73c-d045-4b51-88bf-36ee9b2d07db'::uuid
     or not coalesce(public.is_portfolio_admin(), false)
   then
     raise exception using errcode = '42501', message = 'This account is not authorized to manage portfolio content.';
   end if;
   return v_uid;
+end;
+$function$;
+
+create or replace function public.cms_publication_block_reason()
+returns text
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  v_public_bucket boolean;
+  v_visibility_verified boolean;
+  v_content_audited boolean;
+  v_projections_audited boolean;
+begin
+  perform public.cms_require_portfolio_admin();
+
+  if not exists (
+    select 1 from storage.buckets b
+    where b.id = 'portfolio-private' and not b.public
+  ) then
+    return 'The portfolio-private bucket must exist and remain private for unpublished uploads.';
+  end if;
+  if not public.cms_legacy_bucket_safe('portfolio_media', true) then
+    return 'The legacy portfolio_media bucket is missing or public; restore this exact private bucket for existing asset paths. The distinct hyphenated legacy buckets are not substitutes.';
+  end if;
+  if not public.cms_legacy_bucket_safe('portfolio-media', false) then
+    return 'The legacy portfolio-media bucket is public and contains objects or CMS references; review it before publishing.';
+  end if;
+  if not public.cms_legacy_bucket_safe('portfolio-media.', false) then
+    return 'The exact legacy portfolio-media. bucket is public and contains objects or CMS references; review it before publishing.';
+  end if;
+
+  select coalesce(bool_or(b.public), false)
+    into v_public_bucket
+    from storage.buckets b where b.id = 'portfolio-published';
+  select coalesce(bool_or(a.visibility_verified_at is not null), false),
+         coalesce(bool_or(a.audited_at is not null), false),
+         coalesce(bool_or(a.projections_audited_at is not null), false)
+    into v_visibility_verified, v_content_audited, v_projections_audited
+    from public.portfolio_cms_storage_audit a where a.bucket_id = 'portfolio-published';
+
+  if not v_public_bucket then
+    return 'The portfolio-published bucket must be explicitly configured as public by an operator before publishing.';
+  end if;
+  if not v_visibility_verified then
+    return 'A trusted operator must verify and record the portfolio-published bucket visibility before publishing.';
+  end if;
+  if not v_content_audited then
+    return 'A trusted operator must review the portfolio-published bucket contents and record the audit before publishing.';
+  end if;
+  if not v_projections_audited then
+    return 'A trusted operator must review existing CMS public projections and record the audit before publishing.';
+  end if;
+  if not public.cms_public_content_audited() then
+    return 'The public content audit is stale or the CMS public projections do not match published content; review and reconcile them before publishing.';
+  end if;
+  return '';
 end;
 $function$;
 
@@ -221,7 +604,7 @@ stable
 security definer
 set search_path = ''
 as $function$
-  select auth.uid() = '350db73c-d045-4b51-88bf-36ee9b2d07db'::uuid
+  select auth.uid() is not null
     and coalesce(public.is_portfolio_admin(), false)
 $function$;
 
@@ -234,25 +617,35 @@ set search_path = ''
 as $function$
 declare
   v_media_public boolean;
+  v_visibility_verified boolean;
+  v_media_audited boolean;
+  v_projections_audited boolean;
   v_private_ready boolean;
+  v_message text;
 begin
   perform public.cms_require_portfolio_admin();
   select coalesce(bool_or(b.public), false) into v_media_public
-    from storage.buckets b where b.id = 'portfolio-media';
+    from storage.buckets b where b.id = 'portfolio-published';
+  select coalesce(bool_or(a.visibility_verified_at is not null), false),
+         coalesce(bool_or(a.audited_at is not null), false),
+         coalesce(bool_or(a.projections_audited_at is not null), false)
+    into v_visibility_verified, v_media_audited, v_projections_audited
+    from public.portfolio_cms_storage_audit a where a.bucket_id = 'portfolio-published';
   select coalesce(bool_and(not b.public), false) into v_private_ready
     from storage.buckets b where b.id = 'portfolio-private';
+  v_message := public.cms_publication_block_reason();
   return jsonb_build_object(
     'ok', true,
     'database', jsonb_build_object('ready', true),
     'storage', jsonb_build_object(
-      'ready', v_media_public and v_private_ready,
+      'ready', v_media_public and v_media_audited and v_projections_audited and v_private_ready
+        and v_visibility_verified and v_message = '',
       'publicBucketReady', v_media_public,
       'privateBucketReady', v_private_ready,
-      'message', case
-        when not v_media_public then 'The portfolio-media bucket must be public for stable published asset URLs. Verify it contains only assets intended for public viewing before enabling public access.'
-        when not v_private_ready then 'The portfolio-private bucket must exist and remain private for unpublished uploads.'
-        else ''
-      end
+      'publicBucketVisibilityVerified', v_visibility_verified,
+      'publicBucketAudited', v_media_audited,
+      'publicContentAudited', v_projections_audited,
+      'message', v_message
     ),
     'admin', true
   );
@@ -441,6 +834,7 @@ declare
   v_current public.portfolio_cms_records%rowtype;
   v_payload jsonb;
   v_now timestamptz := now();
+  v_block_reason text;
 begin
   if p_type is null
     or p_type not in ('projects', 'experiences', 'education', 'resumes', 'media')
@@ -448,6 +842,10 @@ begin
     or p_expected_revision < 0
   then
     raise exception using errcode = '22023', message = 'Unsupported portfolio collection.';
+  end if;
+  v_block_reason := public.cms_publication_block_reason();
+  if v_block_reason <> '' then
+    raise exception using errcode = '55000', message = v_block_reason;
   end if;
   select * into v_current from public.portfolio_cms_records
     where content_type = p_type and record_id = p_id for update;
@@ -470,6 +868,16 @@ begin
     'id', 'status', 'revision', 'publishedRevision', 'basePublishedRevision',
     'createdAt', 'updatedAt', 'publishedAt', 'publishedBy', 'updatedBy', 'deletedAt'
   ];
+  if public.cms_jsonb_uses_storage_bucket(v_payload, 'portfolio-private')
+    or public.cms_jsonb_uses_storage_bucket(v_payload, 'portfolio_media')
+    or public.cms_jsonb_uses_storage_bucket(v_payload, 'portfolio-media')
+    or public.cms_jsonb_uses_storage_bucket(v_payload, 'portfolio-media.')
+  then
+    raise exception using errcode = '55000', message = 'Private or legacy asset paths must be promoted to portfolio-published before publishing.';
+  end if;
+  if public.cms_jsonb_has_unknown_storage_bucket(v_payload) then
+    raise exception using errcode = '55000', message = 'A storage path uses an unsupported bucket ID; verify the exact bucket ID and promote the asset to portfolio-published.';
+  end if;
   if p_type = 'projects' and exists (
     select 1 from public.portfolio_cms_records other
     where other.content_type = 'projects' and other.record_id <> p_id
@@ -729,9 +1137,14 @@ as $function$
 declare
   v_uid uuid := public.cms_require_portfolio_admin();
   v_current public.portfolio_cms_settings%rowtype;
+  v_block_reason text;
 begin
   if p_expected_revision is null or p_expected_revision < 0 then
     raise exception using errcode = '22023', message = 'Provide a valid expected revision before publishing settings.';
+  end if;
+  v_block_reason := public.cms_publication_block_reason();
+  if v_block_reason <> '' then
+    raise exception using errcode = '55000', message = v_block_reason;
   end if;
   select * into v_current from public.portfolio_cms_settings where id = 'main' for update;
   if not found or v_current.draft_payload is null then
@@ -741,6 +1154,16 @@ begin
     or v_current.base_published_revision <> v_current.published_revision
   then
     raise exception using errcode = '40001', message = 'Portfolio settings changed after this draft was started. Reload before publishing.';
+  end if;
+  if public.cms_jsonb_uses_storage_bucket(v_current.draft_payload, 'portfolio-private')
+    or public.cms_jsonb_uses_storage_bucket(v_current.draft_payload, 'portfolio_media')
+    or public.cms_jsonb_uses_storage_bucket(v_current.draft_payload, 'portfolio-media')
+    or public.cms_jsonb_uses_storage_bucket(v_current.draft_payload, 'portfolio-media.')
+  then
+    raise exception using errcode = '55000', message = 'Private or legacy asset paths must be promoted to portfolio-published before publishing settings.';
+  end if;
+  if public.cms_jsonb_has_unknown_storage_bucket(v_current.draft_payload) then
+    raise exception using errcode = '55000', message = 'A storage path uses an unsupported bucket ID; verify the exact bucket ID and promote the asset to portfolio-published.';
   end if;
   update public.portfolio_cms_settings set
     status = 'published',
@@ -804,13 +1227,15 @@ begin
         v_row
       );
       if jsonb_typeof(v_draft_payload) is distinct from 'object' then continue; end if;
-      v_state := lower(coalesce(
-        v_row ->> 'status',
-        v_draft_payload ->> 'status',
-        case when lower(coalesce(v_row ->> 'published', 'true')) = 'false' then 'draft' else 'published' end
-      ));
-      if v_state not in ('draft', 'published', 'unpublished', 'deleted') then
-        v_state := case when coalesce(v_row ->> 'published', 'true') = 'false' then 'draft' else 'published' end;
+      v_state := lower(nullif(btrim(coalesce(v_row ->> 'status', v_draft_payload ->> 'status')), ''));
+      if v_state is null then
+        v_state := case
+          when lower(coalesce(v_row ->> 'published', v_draft_payload ->> 'published', '')) = 'true'
+            then 'published'
+          else 'draft'
+        end;
+      elsif v_state not in ('draft', 'published', 'unpublished', 'deleted') then
+        v_state := 'draft';
       end if;
       v_published_payload := coalesce(
         nullif(v_row -> 'published_payload', 'null'::jsonb),
@@ -818,7 +1243,7 @@ begin
         case when v_state = 'published' then v_draft_payload end
       );
       if jsonb_typeof(v_published_payload) is distinct from 'object'
-        or v_state in ('unpublished', 'deleted')
+        or v_state <> 'published'
       then
         v_published_payload := null;
       end if;
@@ -846,10 +1271,22 @@ begin
         'published_by', 'updatedBy', 'updated_by', 'deletedAt', 'deleted_at',
         'draft', 'draft_payload', 'published', 'published_payload'
       ];
+      if v_type = 'projects' and jsonb_typeof(v_draft_payload -> 'techStack') = 'string' then
+        v_draft_payload := jsonb_set(
+          v_draft_payload,
+          '{techStack}',
+          coalesce((
+            select jsonb_agg(btrim(item.value) order by item.ordinality)
+            from unnest(string_to_array(v_draft_payload ->> 'techStack', ',')) with ordinality item(value, ordinality)
+            where btrim(item.value) <> ''
+          ), '[]'::jsonb),
+          true
+        );
+      end if;
       if not (v_draft_payload ? 'visibility')
         or v_draft_payload ->> 'visibility' not in ('true', 'false')
       then
-        v_draft_payload := v_draft_payload || '{"visibility":true}'::jsonb;
+        v_draft_payload := v_draft_payload || '{"visibility":false}'::jsonb;
       end if;
       if v_published_payload is not null then
         v_published_payload := v_published_payload - array[
@@ -859,10 +1296,22 @@ begin
           'published_by', 'updatedBy', 'updated_by', 'deletedAt', 'deleted_at',
           'draft', 'draft_payload', 'published', 'published_payload'
         ];
+        if v_type = 'projects' and jsonb_typeof(v_published_payload -> 'techStack') = 'string' then
+          v_published_payload := jsonb_set(
+            v_published_payload,
+            '{techStack}',
+            coalesce((
+              select jsonb_agg(btrim(item.value) order by item.ordinality)
+              from unnest(string_to_array(v_published_payload ->> 'techStack', ',')) with ordinality item(value, ordinality)
+              where btrim(item.value) <> ''
+            ), '[]'::jsonb),
+            true
+          );
+        end if;
         if not (v_published_payload ? 'visibility')
           or v_published_payload ->> 'visibility' not in ('true', 'false')
         then
-          v_published_payload := v_published_payload || '{"visibility":true}'::jsonb;
+          v_published_payload := v_published_payload || '{"visibility":false}'::jsonb;
         end if;
       end if;
       insert into public.portfolio_cms_records (
@@ -891,15 +1340,16 @@ begin
         v_row
       );
       if jsonb_typeof(v_draft_payload) is distinct from 'object' then continue; end if;
-      v_state := lower(coalesce(v_row ->> 'status', v_draft_payload ->> 'status', 'published'));
-      if v_state not in ('draft', 'published', 'unpublished') then v_state := 'published'; end if;
+      v_state := lower(nullif(btrim(coalesce(v_row ->> 'status', v_draft_payload ->> 'status')), ''));
+      if v_state is null then v_state := 'draft'; end if;
+      if v_state not in ('draft', 'published', 'unpublished') then v_state := 'draft'; end if;
       v_published_payload := coalesce(
         nullif(v_row -> 'published_payload', 'null'::jsonb),
         case when jsonb_typeof(v_row -> 'published') = 'object' then v_row -> 'published' end,
         case when v_state = 'published' then v_draft_payload end
       );
       if jsonb_typeof(v_published_payload) is distinct from 'object'
-        or v_state = 'unpublished'
+        or v_state <> 'published'
       then
         v_published_payload := null;
       end if;
@@ -923,6 +1373,11 @@ begin
           'published_by', 'updatedBy', 'updated_by', 'draft', 'draft_payload',
           'published', 'published_payload'
         ];
+        if not (v_published_payload ? 'visibility')
+          or v_published_payload ->> 'visibility' not in ('true', 'false')
+        then
+          v_published_payload := v_published_payload || '{"visibility":false}'::jsonb;
+        end if;
       end if;
       insert into public.portfolio_cms_settings (
         id, status, draft_payload, published_payload, revision, published_revision,
@@ -942,61 +1397,46 @@ insert into public.portfolio_cms_public_records (content_type, record_id, publis
 select content_type, record_id, published_payload
 from public.portfolio_cms_records
 where published_payload is not null
-  and case
-    when published_payload ->> 'visibility' in ('true', 'false')
-      then (published_payload ->> 'visibility')::boolean
-    else true
-  end
-on conflict (content_type, record_id) do update
-  set published_payload = excluded.published_payload;
-
-delete from public.portfolio_cms_public_records public_record
-where not exists (
-  select 1 from public.portfolio_cms_records source
-  where source.content_type = public_record.content_type
-    and source.record_id = public_record.record_id
-    and source.published_payload is not null
-    and case
-      when source.published_payload ->> 'visibility' in ('true', 'false')
-        then (source.published_payload ->> 'visibility')::boolean
-      else true
-    end
-);
+  and published_payload ->> 'visibility' = 'true'
+on conflict (content_type, record_id) do nothing;
 
 insert into public.portfolio_cms_public_settings (id, published_payload)
 select id, published_payload
 from public.portfolio_cms_settings
 where id = 'main' and published_payload is not null
-  and case
-    when published_payload ->> 'visibility' in ('true', 'false')
-      then (published_payload ->> 'visibility')::boolean
-    else true
-  end
-on conflict (id) do update
-  set published_payload = excluded.published_payload;
+  and published_payload ->> 'visibility' = 'true'
+on conflict (id) do nothing;
 
-delete from public.portfolio_cms_public_settings public_setting
-where not exists (
-  select 1 from public.portfolio_cms_settings source
-  where source.id = public_setting.id and source.published_payload is not null
-    and case
-      when source.published_payload ->> 'visibility' in ('true', 'false')
-        then (source.published_payload ->> 'visibility')::boolean
-      else true
-    end
-);
+drop trigger if exists portfolio_cms_public_record_sync on public.portfolio_cms_records;
+create trigger portfolio_cms_public_record_sync
+  after insert or update or delete on public.portfolio_cms_records
+  for each row execute function public.cms_sync_public_record();
+
+drop trigger if exists portfolio_cms_public_settings_sync on public.portfolio_cms_settings;
+create trigger portfolio_cms_public_settings_sync
+  after insert or update or delete on public.portfolio_cms_settings
+  for each row execute function public.cms_sync_public_settings();
+
+-- Any bootstrap pass can add projections, so require a fresh review after each migration run.
+update public.portfolio_cms_storage_audit
+set projections_audited_at = null
+where bucket_id = 'portfolio-published';
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('portfolio-private', 'portfolio-private', false, 12582912, array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
-on conflict (id) do update set public = false,
+on conflict (id) do update set
   file_size_limit = 12582912,
-  allowed_mime_types = excluded.allowed_mime_types;
+  allowed_mime_types = excluded.allowed_mime_types
+where storage.buckets.file_size_limit is distinct from 12582912
+   or storage.buckets.allowed_mime_types is distinct from array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('portfolio-media', 'portfolio-media', false, 12582912, array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+values ('portfolio-published', 'portfolio-published', false, 12582912, array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
+  allowed_mime_types = excluded.allowed_mime_types
+where storage.buckets.file_size_limit is distinct from 12582912
+   or storage.buckets.allowed_mime_types is distinct from array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 drop policy if exists portfolio_private_admin_select on storage.objects;
 create policy portfolio_private_admin_select on storage.objects
@@ -1012,20 +1452,33 @@ drop policy if exists portfolio_private_admin_delete on storage.objects;
 create policy portfolio_private_admin_delete on storage.objects
   for delete to authenticated using (bucket_id = 'portfolio-private' and public.cms_is_admin());
 
-drop policy if exists portfolio_media_admin_select on storage.objects;
-create policy portfolio_media_admin_select on storage.objects
-  for select to authenticated using (bucket_id = 'portfolio-media' and public.cms_is_admin());
+drop policy if exists portfolio_published_admin_select on storage.objects;
+create policy portfolio_published_admin_select on storage.objects
+  for select to authenticated using (bucket_id = 'portfolio-published' and public.cms_is_admin());
+drop policy if exists portfolio_published_admin_insert on storage.objects;
+create policy portfolio_published_admin_insert on storage.objects
+  for insert to authenticated with check (bucket_id = 'portfolio-published' and public.cms_is_admin());
+drop policy if exists portfolio_published_admin_update on storage.objects;
+create policy portfolio_published_admin_update on storage.objects
+  for update to authenticated using (bucket_id = 'portfolio-published' and public.cms_is_admin())
+  with check (bucket_id = 'portfolio-published' and public.cms_is_admin());
+drop policy if exists portfolio_published_admin_delete on storage.objects;
+create policy portfolio_published_admin_delete on storage.objects
+  for delete to authenticated using (bucket_id = 'portfolio-published' and public.cms_is_admin());
 
+drop policy if exists portfolio_legacy_underscore_admin_select on storage.objects;
+create policy portfolio_legacy_underscore_admin_select on storage.objects
+  for select to authenticated using (bucket_id = 'portfolio_media' and public.cms_is_admin());
+drop policy if exists portfolio_media_admin_select on storage.objects;
 drop policy if exists portfolio_media_admin_insert on storage.objects;
-create policy portfolio_media_admin_insert on storage.objects
-  for insert to authenticated with check (bucket_id = 'portfolio-media' and public.cms_is_admin());
 drop policy if exists portfolio_media_admin_update on storage.objects;
-create policy portfolio_media_admin_update on storage.objects
-  for update to authenticated using (bucket_id = 'portfolio-media' and public.cms_is_admin())
-  with check (bucket_id = 'portfolio-media' and public.cms_is_admin());
 drop policy if exists portfolio_media_admin_delete on storage.objects;
-create policy portfolio_media_admin_delete on storage.objects
-  for delete to authenticated using (bucket_id = 'portfolio-media' and public.cms_is_admin());
+drop policy if exists portfolio_legacy_hyphen_admin_select on storage.objects;
+create policy portfolio_legacy_hyphen_admin_select on storage.objects
+  for select to authenticated using (bucket_id = 'portfolio-media' and public.cms_is_admin());
+drop policy if exists portfolio_legacy_dotted_admin_select on storage.objects;
+create policy portfolio_legacy_dotted_admin_select on storage.objects
+  for select to authenticated using (bucket_id = 'portfolio-media.' and public.cms_is_admin());
 
 drop policy if exists portfolio_private_anon_block on storage.objects;
 create policy portfolio_private_anon_block on storage.objects
@@ -1039,17 +1492,35 @@ create policy portfolio_private_authenticated_guard on storage.objects
   using (bucket_id <> 'portfolio-private' or public.cms_is_admin())
   with check (bucket_id <> 'portfolio-private' or public.cms_is_admin());
 
-drop policy if exists portfolio_media_anon_guard on storage.objects;
-create policy portfolio_media_anon_guard on storage.objects
+drop policy if exists portfolio_published_anon_guard on storage.objects;
+create policy portfolio_published_anon_guard on storage.objects
   as restrictive for all to anon
-  using (bucket_id <> 'portfolio-media')
-  with check (bucket_id <> 'portfolio-media');
+  using (bucket_id <> 'portfolio-published')
+  with check (bucket_id <> 'portfolio-published');
 
-drop policy if exists portfolio_media_authenticated_guard on storage.objects;
-create policy portfolio_media_authenticated_guard on storage.objects
+drop policy if exists portfolio_published_authenticated_guard on storage.objects;
+create policy portfolio_published_authenticated_guard on storage.objects
   as restrictive for all to authenticated
-  using (bucket_id <> 'portfolio-media' or public.cms_is_admin())
-  with check (bucket_id <> 'portfolio-media' or public.cms_is_admin());
+  using (bucket_id <> 'portfolio-published' or public.cms_is_admin())
+  with check (bucket_id <> 'portfolio-published' or public.cms_is_admin());
+
+drop policy if exists portfolio_legacy_buckets_anon_guard on storage.objects;
+create policy portfolio_legacy_buckets_anon_guard on storage.objects
+  as restrictive for all to anon
+  using (bucket_id not in ('portfolio_media', 'portfolio-media', 'portfolio-media.'))
+  with check (bucket_id not in ('portfolio_media', 'portfolio-media', 'portfolio-media.'));
+
+drop policy if exists portfolio_legacy_buckets_authenticated_guard on storage.objects;
+create policy portfolio_legacy_buckets_authenticated_guard on storage.objects
+  as restrictive for all to authenticated
+  using (
+    bucket_id not in ('portfolio_media', 'portfolio-media', 'portfolio-media.')
+    or public.cms_is_admin()
+  )
+  with check (
+    bucket_id not in ('portfolio_media', 'portfolio-media', 'portfolio-media.')
+    or public.cms_is_admin()
+  );
 
 do $realtime$
 begin
@@ -1071,10 +1542,19 @@ end;
 $realtime$;
 
 revoke all on function public.cms_jsonb_uses_storage_path(jsonb, text) from public, anon, authenticated;
+revoke all on function public.cms_jsonb_uses_storage_bucket(jsonb, text) from public, anon, authenticated;
+revoke all on function public.cms_jsonb_has_unknown_storage_bucket(jsonb) from public, anon, authenticated;
+revoke all on function public.cms_legacy_bucket_safe(text, boolean) from public, anon, authenticated;
+revoke all on function public.cms_public_content_audited() from public, anon, authenticated;
 revoke all on function public.cms_require_portfolio_admin() from public, anon, authenticated;
+revoke all on function public.cms_publication_block_reason() from public, anon, authenticated;
 revoke all on function public.cms_record_json(text, text, text) from public, anon, authenticated;
 revoke all on function public.cms_sync_public_record() from public, anon, authenticated;
 revoke all on function public.cms_sync_public_settings() from public, anon, authenticated;
+revoke all on function public.cms_invalidate_storage_audit() from public, anon, authenticated;
+revoke all on function public.cms_invalidate_projection_audit() from public, anon, authenticated;
+revoke all on function public.is_portfolio_admin() from public, anon;
+grant execute on function public.is_portfolio_admin() to authenticated;
 revoke all on function public.cms_list_records(text, text) from public, anon;
 revoke all on function public.cms_get_record(text, text, text) from public, anon;
 revoke all on function public.cms_save_record(text, text, jsonb, integer) from public, anon;
@@ -1102,5 +1582,6 @@ grant execute on function public.cms_publish_settings(integer) to authenticated;
 grant execute on function public.cms_unpublish_settings() to authenticated;
 grant execute on function public.cms_is_admin() to authenticated;
 grant execute on function public.cms_health() to authenticated;
+grant execute on function public.cms_public_content_audited() to anon, authenticated;
 
 commit;
