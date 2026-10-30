@@ -6,6 +6,7 @@ import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { usePublishedCollection } from '../../hooks/usePublishedCollection.js'
 import { toPublicEducation, toPublicExperience } from '../../lib/db/presentation.js'
+import { skillBadgeColor } from '../../lib/db/skillBadges.js'
 import SectionHeading from '../common/SectionHeading'
 import Reveal from '../common/Reveal'
 import Section from '../common/Section'
@@ -51,8 +52,8 @@ function Timeline({ items }) {
           )}
           {entry.skills?.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-2" aria-label="Skills used">
-              {entry.skills.map((skill) => (
-                <li key={skill} className="rounded-full bg-white/70 px-3 py-1 text-xs text-forest/80">{skill}</li>
+              {entry.skills.map((skill, index) => (
+                <li key={skill} className="background-skill-badge" style={{ backgroundColor: skillBadgeColor(index) }}>{skill}</li>
               ))}
             </ul>
           )}

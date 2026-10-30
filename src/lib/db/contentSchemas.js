@@ -12,6 +12,24 @@ const optionalUrl = z.union([z.literal(''), httpUrlSchema])
 const localFileUrl = z.string().refine((value) => /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value) && !value.split('/').includes('..'), 'Local file URL must be a safe development upload path.')
 const storedFileUrl = z.union([httpUrlSchema, localFileUrl])
 const optionalText = (max = 5000) => z.string().trim().max(max)
+export function normalizeSkills(value) {
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+  const seen = new Set()
+  return entries
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => {
+      if (!entry) return false
+      const key = entry.toLocaleLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
 const imageUrl = z.union([
   z.literal(''),
   httpUrlSchema,
@@ -90,7 +108,10 @@ export const experienceSchema = z.object({
   location: optionalText(120).default(''),
   employmentType: optionalText(80).default(''),
   description: optionalText(5000).default(''),
-  skills: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
+  skills: z.preprocess(
+    normalizeSkills,
+    z.array(z.string().min(1).max(60)).max(40),
+  ).default([]),
   recommendationLetter: optionalPrivateImage,
   recommendationLetterUrl: optionalUrl.default(''),
   visibility: z.boolean().default(true),

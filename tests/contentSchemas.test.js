@@ -4,11 +4,13 @@ import {
   educationSchema,
   experienceSchema,
   mediaSchema,
+  normalizeSkills,
   projectSchema,
   resumeSchema,
   siteSettingsSchema,
 } from '../src/lib/db/contentSchemas.js'
 import { toPublicEducation, toPublicExperience } from '../src/lib/db/presentation.js'
+import { skillBadgeColor, skillBadgeColors } from '../src/lib/db/skillBadges.js'
 
 test('project schema applies safe defaults and limits synopsis length', () => {
   const project = projectSchema.parse({
@@ -52,6 +54,44 @@ test('experience schema validates dates and current role rules', () => {
   assert.equal(experienceSchema.safeParse(base).success, false)
   assert.equal(experienceSchema.safeParse({ ...base, endDate: '', isCurrent: true }).success, true)
   assert.equal(experienceSchema.safeParse({ ...base, isCurrent: true }).success, false)
+})
+
+test('experience skills normalize legacy strings and de-duplicate arrays without losing valid entries', () => {
+  const skills = [' IT Support ', 'Network Administration', 'IT support', '', '  ']
+  assert.deepEqual(normalizeSkills(skills), ['IT Support', 'Network Administration'])
+  assert.deepEqual(normalizeSkills(' IT Support, Network Administration, IT support, , '), ['IT Support', 'Network Administration'])
+  assert.deepEqual(experienceSchema.parse({
+    role: 'Engineer',
+    company: 'Example',
+    startDate: '2024-01-01',
+    skills: 'IT Support, Network Administration',
+  }).skills, ['IT Support', 'Network Administration'])
+  assert.deepEqual(experienceSchema.parse({
+    role: 'Engineer',
+    company: 'Example',
+    startDate: '2024-01-01',
+    description: 'Updated description only',
+    skills: ['Windows Server', 'Database Management'],
+  }).skills, ['Windows Server', 'Database Management'])
+  assert.deepEqual(experienceSchema.parse({
+    role: 'Engineer',
+    company: 'Example',
+    startDate: '2024-01-01',
+    skills: '',
+  }).skills, [])
+})
+
+test('public experience projection retains legacy skills and badge colors are stable and varied', () => {
+  const experience = toPublicExperience({
+    id: 'experience-1',
+    role: 'Engineer',
+    startDate: '2024-01-01',
+    skills: 'IT Support, Network Administration, Windows Server',
+  })
+  assert.deepEqual(experience.skills, ['IT Support', 'Network Administration', 'Windows Server'])
+  assert.equal(skillBadgeColor(0), skillBadgeColor(0))
+  assert.notEqual(skillBadgeColor(0), skillBadgeColor(1))
+  assert.equal(skillBadgeColor(skillBadgeColors.length), skillBadgeColor(0))
 })
 
 test('education schema rejects an end year before the start year', () => {

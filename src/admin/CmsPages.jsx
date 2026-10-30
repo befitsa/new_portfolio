@@ -9,7 +9,7 @@ import { profile } from '../data/profile.js'
 import MarkdownContent from '../components/common/MarkdownContent.jsx'
 import { adminApi, checkCmsApiHealth, isLocalCmsMode, useCmsApiStatus } from '../lib/adminApi.js'
 import { cmsHref } from './cmsPaths.js'
-import { projectSchema, experienceSchema, educationSchema, normalizeProjectCategory, siteSettingsSchema } from '../lib/db/contentSchemas.js'
+import { projectSchema, experienceSchema, educationSchema, normalizeProjectCategory, normalizeSkills, siteSettingsSchema } from '../lib/db/contentSchemas.js'
 import { getPublicSiteUrl } from '../lib/siteUrls.js'
 
 const EMPTY_PROJECT = {
@@ -109,6 +109,36 @@ function BackgroundImageUpload({ title, description, asset, busy, uploading, onU
       </label>
       {asset?.storagePath && <Button className="cms-action-delete" disabled={busy} onClick={onRemove}><Trash2 size={14} /> Remove image</Button>}
       <small>JPG, JPEG, PNG, WebP · max 12 MB. Stored privately until publication.</small>
+    </div>
+  </section>
+}
+
+function SkillTagInput({ values, onChange, disabled }) {
+  const [input, setInput] = useState('')
+  const skills = normalizeSkills(values)
+  const addSkill = () => {
+    const skill = input.trim()
+    if (!skill) return
+    onChange(normalizeSkills([...skills, skill]))
+    setInput('')
+  }
+
+  return <section className="cms-skill-editor" aria-label="Work experience skills">
+    <div className="cms-skill-editor-heading"><strong>Skills</strong><small>Add one at a time; press Enter or use Add skill.</small></div>
+    {skills.length > 0 && <ul className="cms-skill-chip-list">
+      {skills.map((skill) => <li className="cms-skill-chip" key={skill}>
+        <span>{skill}</span>
+        <button type="button" aria-label={`Remove ${skill}`} disabled={disabled} onClick={() => onChange(skills.filter((item) => item !== skill))}><span aria-hidden="true">×</span></button>
+      </li>)}
+    </ul>}
+    <div className="cms-skill-entry">
+      <label className="cms-field"><span>Add a skill</span><input value={input} disabled={disabled} maxLength={60} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          addSkill()
+        }
+      }} placeholder="e.g. Network Administration" /></label>
+      <Button disabled={disabled || !input.trim() || skills.some((skill) => skill.toLocaleLowerCase() === input.trim().toLocaleLowerCase())} onClick={addSkill}><Plus size={14} /> Add skill</Button>
     </div>
   </section>
 }
@@ -503,6 +533,9 @@ export function CmsBackgroundPage() {
       ? {
         ...empty,
         ...existing,
+        ...(targetKind === 'experiences' ? {
+          skills: normalizeSkills(existing.skills),
+        } : {}),
         ...(targetKind === 'education' ? {
           degree: isKnownDegree ? existing.degree : 'Other',
           customDegree: existing.customDegree || (isKnownDegree ? '' : existing.degree || ''),
@@ -654,7 +687,7 @@ export function CmsBackgroundPage() {
           </div>
           <label className="cms-checkbox-field"><input type="checkbox" checked={form.isCurrent} onChange={(event) => setForm({ ...form, isCurrent: event.target.checked, endDate: '' })} /> This is my current position</label>
           <TextArea label="Description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} rows={4} />
-          <TagInput label="Skills" values={form.skills} onChange={(value) => setForm({ ...form, skills: value })} />
+          <SkillTagInput values={form.skills} onChange={(value) => setForm((current) => ({ ...current, skills: value }))} disabled={mutation.busy} />
           <section className="cms-background-documents">
             <div className="cms-section-heading"><span className="cms-step-number">04</span><div><h2>Recommendation Letter</h2><p>Attach a private image, an external link, or both. Neither is required.</p></div></div>
             <BackgroundImageUpload title="Recommendation letter image" description="Upload a photograph or scan of the recommendation letter." asset={form.recommendationLetter} busy={mutation.busy} uploading={uploadingAsset} onUpload={(file) => uploadBackgroundImage('recommendationLetter', file)} onRemove={() => setForm((current) => ({ ...current, recommendationLetter: null }))} />

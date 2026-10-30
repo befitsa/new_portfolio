@@ -3087,6 +3087,91 @@ button.cms-sync-pill:disabled {
   outline: 3px solid #c49a4e;
   outline-offset: 3px;
 }
+.cms-skill-editor {
+  display: grid;
+  gap: 9px;
+  margin-top: 15px;
+}
+.cms-skill-editor-heading {
+  display: grid;
+  gap: 3px;
+  color: #34463a;
+  font-size: 12px;
+  font-weight: 700;
+}
+.cms-skill-editor-heading small {
+  color: #64736a;
+  font-size: 10px;
+  font-weight: 400;
+}
+.cms-skill-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cms-skill-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dfe7df;
+  border-radius: 999px;
+  background: #f3efe3;
+  padding: 5px 6px 5px 11px;
+  color: #294235;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.cms-skill-chip button {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #e8dfce;
+  color: #34463a;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cms-skill-chip button:hover:not(:disabled) { background: #ddcdb6; }
+.cms-skill-chip button:focus-visible { outline: 2px solid #537d63; outline-offset: 2px; }
+.cms-skill-chip button:disabled { cursor: not-allowed; opacity: .6; }
+.cms-skill-entry {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+}
+.cms-skill-entry > .cms-field { flex: 1 1 220px; margin: 0; }
+.cms-skill-entry > .cms-button { flex: 0 0 auto; min-height: 39px; }
+.background-skill-badge {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid rgb(48 69 55 / 10%);
+  border-radius: 999px;
+  padding: 7px 13px;
+  color: #263d30;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.background-skill-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 9px rgb(34 54 41 / 10%);
+}
 @media (prefers-reduced-motion: reduce) {
-  .cms-public-document-link { transition: none; }
+  .cms-public-document-link,
+  .background-skill-badge { transition: none; }
+}
+@media (max-width: 540px) {
+  .cms-skill-entry { align-items: stretch; flex-direction: column; }
+  .cms-skill-entry > .cms-button { align-self: flex-start; }
+  .background-skill-badge { font-size: 11px; }
 }

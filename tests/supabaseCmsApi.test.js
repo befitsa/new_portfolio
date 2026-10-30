@@ -381,6 +381,54 @@ test('education and experience draft saves preserve skills and optional document
   assert.equal(saved[1].p_payload.recommendationLetterUrl, 'https://example.test/recommendation')
 })
 
+test('experience saves normalize legacy skills and publishing retains them when other fields change', async () => {
+  const calls = []
+  let draft = {
+    id: 'experience-1',
+    role: 'Engineer',
+    company: 'Example Studio',
+    startDate: '2024-01-01',
+    isCurrent: false,
+    endDate: '',
+    skills: 'IT Support, Network Administration, Windows Server, Database Management, Technical Support',
+    description: 'Original description',
+    status: 'draft',
+    revision: 3,
+  }
+  const client = mockClient(async (name, args) => {
+    calls.push([name, args])
+    if (name === 'cms_save_record') {
+      draft = { id: 'experience-1', ...args.p_payload, status: 'draft', revision: 4 }
+      return { data: draft, error: null }
+    }
+    if (name === 'cms_get_record') return { data: draft, error: null }
+    if (name === 'cms_publish_record') {
+      return { data: { id: 'experience-1', ...args.p_payload, status: 'published', revision: 5 }, error: null }
+    }
+    throw new Error(`Unexpected RPC ${name}`)
+  })
+  const api = createSupabaseCmsApi(client)
+  const saved = await api.save('experiences', 'experience-1', {
+    ...draft,
+    description: 'Updated description only',
+  }, 3)
+
+  assert.deepEqual(saved.skills, [
+    'IT Support',
+    'Network Administration',
+    'Windows Server',
+    'Database Management',
+    'Technical Support',
+  ])
+  assert.equal(saved.description, 'Updated description only')
+  assert.deepEqual(calls[0][1].p_payload.skills, saved.skills)
+
+  const published = await api.publish('experiences', 'experience-1', 4)
+  const publishCall = calls.find(([name]) => name === 'cms_publish_record')
+  assert.equal(published.status, 'published')
+  assert.deepEqual(publishCall[1].p_payload.skills, saved.skills)
+})
+
 test('save maps optimistic concurrency errors to a conflict state', async () => {
   const client = mockClient(async () => ({
     data: null,

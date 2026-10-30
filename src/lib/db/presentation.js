@@ -1,4 +1,4 @@
-import { normalizeProjectCategory } from './contentSchemas.js'
+import { normalizeProjectCategory, normalizeSkills } from './contentSchemas.js'
 
 /** Convert the CMS project shape to the legacy public portfolio view model. */
 export function toPublicProject(record) {
@@ -68,7 +68,7 @@ export function toPublicExperience(record) {
     place,
     date,
     description: record.description || '',
-    skills: Array.isArray(record.skills) ? record.skills : [],
+    skills: normalizeSkills(record.skills),
     recommendationLetterUrl: record.recommendationLetterUrl || '',
     recommendationLetterImageUrl: record.recommendationLetter?.url || '',
     order: record.order ?? 0,
