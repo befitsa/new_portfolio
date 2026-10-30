@@ -16,9 +16,18 @@ export default function Skills() {
   const reduced = useReducedMotion()
   const [active, setActive] = useState(0)
   const [paused, setPaused] = useState(false)
+  const [autoCycle, setAutoCycle] = useState(false)
   const activeRef = useRef(active)
 
   activeRef.current = active
+
+  useEffect(() => {
+    const query = window.matchMedia('(hover: hover) and (pointer: fine)')
+    const update = () => setAutoCycle(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   useLayoutEffect(() => {
     const section = root.current
@@ -72,7 +81,7 @@ export default function Skills() {
   }, [])
 
   useEffect(() => {
-    if (reduced || paused) {
+    if (reduced || paused || !autoCycle) {
       gsap.killTweensOf(progress.current)
       return undefined
     }
@@ -83,7 +92,7 @@ export default function Skills() {
       clearTimeout(timer)
       gsap.killTweensOf(progress.current)
     }
-  }, [active, paused, reduced])
+  }, [active, autoCycle, paused, reduced])
 
   const move = (step) => {
     setActive((index) => (index + step + skills.length) % skills.length)
@@ -180,7 +189,7 @@ export default function Skills() {
           ))}
         </div>
         <p className="mt-5 text-center text-[0.62rem] font-semibold tracking-[0.2em] text-forest/40 uppercase">
-          Auto cycles · swipe or use a horizontal trackpad
+          {autoCycle ? 'Auto cycles · swipe or use a horizontal trackpad' : 'Swipe or choose a technology'}
         </p>
       </div>
     </Section>

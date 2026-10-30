@@ -1,8 +1,6 @@
 // src/hooks/useSectionTransitions.js
-// The "authentic transition" between sections, driven entirely by GSAP ScrollTrigger:
-//   1. the NEXT section starts as a rounded, inset card and expands to full-bleed as it rises
-//   2. the PREVIOUS section shrinks slightly and dims, as if the new one slides over it
-// Everything is scrubbed: it follows the scrollbar exactly, forwards and backwards.
+// Desktop sections use the full stacked-card transition; tablets use a subtle
+// transform reveal, while mobile and reduced-motion users keep native scrolling.
 import { useLayoutEffect } from 'react'
 import { gsap } from '../utils/gsap'
 import { useReducedMotion } from './useReducedMotion'
@@ -14,33 +12,55 @@ export function useSectionTransitions() {
     if (reduced) return undefined
 
     const ctx = gsap.context(() => {
-      const sections = gsap.utils.toArray('[data-section]')
+      const media = gsap.matchMedia()
+      const sections = () => gsap.utils.toArray('[data-section]')
 
-      sections.forEach((section, i) => {
-        if (i === 0) return // the hero has nothing before it
-        const prev = sections[i - 1]
-        const trigger = { trigger: section, start: 'top 100%', scrub: true }
+      media.add('(min-width: 1024px) and (prefers-reduced-motion: no-preference)', () => {
+        sections().forEach((section, i, all) => {
+          if (i === 0) return
+          const prev = all[i - 1]
+          const trigger = { trigger: section, start: 'top 100%', scrub: true }
 
-        // 1) incoming section: rounded inset card -> full-bleed
-        gsap.fromTo(
-          section,
-          { clipPath: 'inset(10vh 4vw 0vw 4vw round 2.5rem)' },
-          { clipPath: 'inset(0vh 0vw 0vw 0vw round 0rem)', ease: 'none', scrollTrigger: { ...trigger, end: 'top 22%' } },
-        )
-
-        // 2) outgoing section: recedes and dims
-        gsap.to(prev, {
-          scale: 0.94,
-          transformOrigin: '50% 100%',
-          ease: 'none',
-          scrollTrigger: { ...trigger, end: 'top 0%' },
-        })
-        gsap.to(prev.querySelector('[data-dim]'), {
-          opacity: 0.08,
-          ease: 'none',
-          scrollTrigger: { ...trigger, end: 'top 0%' },
+          gsap.fromTo(
+            section,
+            { clipPath: 'inset(10vh 4vw 0vw 4vw round 2.5rem)' },
+            { clipPath: 'inset(0vh 0vw 0vw 0vw round 0rem)', ease: 'none', scrollTrigger: { ...trigger, end: 'top 22%' } },
+          )
+          gsap.to(prev, {
+            scale: 0.94,
+            transformOrigin: '50% 100%',
+            ease: 'none',
+            scrollTrigger: { ...trigger, end: 'top 0%' },
+          })
+          gsap.to(prev.querySelector('[data-dim]'), {
+            opacity: 0.08,
+            ease: 'none',
+            scrollTrigger: { ...trigger, end: 'top 0%' },
+          })
         })
       })
+
+      media.add('(min-width: 640px) and (max-width: 1023px) and (prefers-reduced-motion: no-preference)', () => {
+        sections().slice(1).forEach((section) => {
+          gsap.fromTo(
+            section,
+            { y: 10, opacity: 0.96 },
+            {
+              y: 0,
+              opacity: 1,
+              ease: 'none',
+              scrollTrigger: {
+                trigger: section,
+                start: 'top 96%',
+                end: 'top 55%',
+                scrub: 0.5,
+              },
+            },
+          )
+        })
+      })
+
+      return () => media.revert()
     })
 
     return () => ctx.revert()

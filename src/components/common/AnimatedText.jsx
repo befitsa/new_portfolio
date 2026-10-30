@@ -36,33 +36,34 @@ export default function AnimatedText({
         mask: mode === 'scrub' ? undefined : 'lines',
         autoSplit: true,
         onSplit(self) {
+          const compact = window.matchMedia('(max-width: 639px)').matches
           if (mode === 'scrub') {
             return gsap.fromTo(
               self.words,
-              { opacity: 0.16 },
+              { opacity: compact ? 0.55 : 0.16 },
               {
                 opacity: 1,
                 ease: 'none',
-                stagger: 0.12,
-                scrollTrigger: { trigger: el, start: 'top 82%', end: 'bottom 48%', scrub: true },
+                stagger: compact ? 0.035 : 0.12,
+                scrollTrigger: { trigger: el, start: 'top 82%', end: compact ? 'bottom 62%' : 'bottom 48%', scrub: true },
               },
             )
           }
           if (mode === 'chars') {
             return gsap.from(self.chars, {
-              yPercent: 115,
-              duration: 1.1,
+              yPercent: compact ? 104 : 115,
+              duration: compact ? 0.78 : 1.1,
               ease: 'power4.out',
-              stagger: 0.03,
+              stagger: compact ? 0.018 : 0.03,
               delay,
               scrollTrigger: once,
             })
           }
           return gsap.from(self.lines, {
-            yPercent: 110,
-            duration: 1.1,
+            yPercent: compact ? 104 : 110,
+            duration: compact ? 0.78 : 1.1,
             ease: 'power4.out',
-            stagger: 0.09,
+            stagger: compact ? 0.055 : 0.09,
             delay,
             scrollTrigger: once,
           })

@@ -59,15 +59,29 @@ export default function ProjectCard({ project }) {
   useLayoutEffect(() => {
     if (reduced) return undefined
     const ctx = gsap.context(() => {
-      const trigger = { trigger: root.current, start: 'top 88%', once: true }
-      gsap.fromTo(
-        frame.current,
-        { clipPath: 'inset(16% 16% 16% 16% round 2rem)', scale: 1.06 },
-        { clipPath: 'inset(0% 0% 0% 0% round 2rem)', scale: 1, duration: 1.3, ease: 'power4.out', scrollTrigger: trigger },
-      )
-      gsap.from(root.current.querySelectorAll('[data-fade]'), {
-        y: 36, opacity: 0, duration: 0.9, ease: 'power3.out', stagger: 0.08, delay: 0.25, scrollTrigger: trigger,
+      const media = gsap.matchMedia()
+      media.add('(min-width: 1024px) and (prefers-reduced-motion: no-preference)', () => {
+        const trigger = { trigger: root.current, start: 'top 88%', once: true }
+        gsap.fromTo(
+          frame.current,
+          { clipPath: 'inset(16% 16% 16% 16% round 2rem)', scale: 1.06 },
+          { clipPath: 'inset(0% 0% 0% 0% round 2rem)', scale: 1, duration: 1.15, ease: 'power4.out', scrollTrigger: trigger },
+        )
+        gsap.from(root.current.querySelectorAll('[data-fade]'), {
+          y: 24, opacity: 0, duration: 0.7, ease: 'power3.out', stagger: 0.06, delay: 0.18, scrollTrigger: trigger,
+        })
       })
+      media.add('(max-width: 1023px) and (prefers-reduced-motion: no-preference)', () => {
+        gsap.from(root.current.querySelectorAll('[data-fade]'), {
+          y: 12,
+          opacity: 0,
+          duration: 0.55,
+          ease: 'power2.out',
+          stagger: 0.04,
+          scrollTrigger: { trigger: root.current, start: 'top 92%', once: true },
+        })
+      })
+      return () => media.revert()
     }, root)
     return () => ctx.revert()
   }, [reduced])

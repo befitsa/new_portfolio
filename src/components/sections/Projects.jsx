@@ -45,11 +45,26 @@ export default function Projects() {
     if (!expanded || reduced || !root.current) return undefined
 
     const ctx = gsap.context(() => {
-      gsap.fromTo(
-        root.current.querySelectorAll('[data-expanded-project]'),
-        { y: 34, opacity: 0, filter: 'blur(5px)' },
-        { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.75, stagger: 0.12, ease: 'power3.out' },
-      )
+      const media = gsap.matchMedia()
+      media.add('(min-width: 640px) and (prefers-reduced-motion: no-preference)', () => {
+        gsap.from(root.current.querySelectorAll('[data-expanded-project]'), {
+          y: 20,
+          opacity: 0,
+          duration: 0.55,
+          stagger: 0.08,
+          ease: 'power3.out',
+        })
+      })
+      media.add('(max-width: 639px) and (prefers-reduced-motion: no-preference)', () => {
+        gsap.from(root.current.querySelectorAll('[data-expanded-project]'), {
+          y: 8,
+          opacity: 0,
+          duration: 0.4,
+          stagger: 0.04,
+          ease: 'power2.out',
+        })
+      })
+      return () => media.revert()
     }, root)
 
     return () => ctx.revert()

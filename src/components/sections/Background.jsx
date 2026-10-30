@@ -1,6 +1,6 @@
 // src/components/sections/Background.jsx
 // Education | Experience toggle with an animated timeline.
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
@@ -68,18 +68,26 @@ export default function Background() {
   const reduced = useReducedMotion()
   const publishedEducation = usePublishedCollection('education')
   const publishedExperience = usePublishedCollection('experiences')
-  const tabs = [
+  const educationItems = useMemo(
+    () => publishedEducation.data.map(toPublicEducation),
+    [publishedEducation.data],
+  )
+  const experienceItems = useMemo(
+    () => publishedExperience.data.map(toPublicExperience),
+    [publishedExperience.data],
+  )
+  const tabs = useMemo(() => [
     {
       id: 'education',
       label: 'Education',
-      items: publishedEducation.data.map(toPublicEducation),
+      items: educationItems,
     },
     {
       id: 'experience',
       label: 'Experience',
-      items: publishedExperience.data.map(toPublicExperience),
+      items: experienceItems,
     },
-  ]
+  ], [educationItems, experienceItems])
   const current = tabs.find((t) => t.id === active)
 
   // Arrow keys move between tabs (standard accessible tab behavior).

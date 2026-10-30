@@ -90,11 +90,10 @@ export default function Opportunities() {
     const ctx = gsap.context(() => {
       gsap.fromTo(
         section.querySelectorAll('[data-opportunity-role-word]'),
-        { yPercent: 110, autoAlpha: 0.25, filter: 'blur(5px)' },
+        { yPercent: 110, autoAlpha: 0.35 },
         {
           yPercent: 0,
           autoAlpha: 1,
-          filter: 'blur(0px)',
           stagger: 0.08,
           ease: 'none',
           scrollTrigger: {

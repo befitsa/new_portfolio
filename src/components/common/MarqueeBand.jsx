@@ -16,25 +16,38 @@ export default function MarqueeBand({ words, outline = false, reverse = false, c
     const base = reverse ? -1 : 1
 
     const ctx = gsap.context(() => {
-      // The track holds the same content twice, so sliding it -50% loops with no visible jump.
-      const tween = gsap.to(track.current, { xPercent: -50, duration: 40, ease: 'none', repeat: -1 })
-      tween.totalTime(2000) // start deep inside the loop so it can also run backwards smoothly
-      tween.timeScale(base)
+      const media = gsap.matchMedia()
+      media.add('(min-width: 768px) and (prefers-reduced-motion: no-preference)', () => {
+        const tween = gsap.to(track.current, { xPercent: -50, duration: 40, ease: 'none', repeat: -1, paused: true })
+        tween.totalTime(2000)
+        tween.timeScale(base)
 
-      const skew = gsap.quickTo(track.current, 'skewX', { duration: 0.5, ease: 'power3.out' })
-      let settle
-      ScrollTrigger.create({
-        trigger: band.current,
-        start: 'top bottom',
-        end: 'bottom top',
-        onUpdate(self) {
-          const v = self.getVelocity()
-          tween.timeScale(base * self.direction * (1 + Math.min(Math.abs(v) / 220, 9)))
-          skew(gsap.utils.clamp(-9, 9, -v / 260))
-          clearTimeout(settle)
-          settle = setTimeout(() => skew(0), 120) // straighten up when scrolling stops
-        },
+        const skew = gsap.quickTo(track.current, 'skewX', { duration: 0.5, ease: 'power3.out' })
+        let settle
+        ScrollTrigger.create({
+          trigger: band.current,
+          start: 'top bottom',
+          end: 'bottom top',
+          onToggle(self) {
+            if (self.isActive) tween.play()
+            else {
+              tween.pause()
+              tween.timeScale(base)
+              skew(0)
+            }
+          },
+          onUpdate(self) {
+            if (!self.isActive) return
+            const velocity = self.getVelocity()
+            tween.timeScale(base * self.direction * (1 + Math.min(Math.abs(velocity) / 220, 9)))
+            skew(gsap.utils.clamp(-9, 9, -velocity / 260))
+            clearTimeout(settle)
+            settle = setTimeout(() => skew(0), 120)
+          },
+        })
+        return () => clearTimeout(settle)
       })
+      return () => media.revert()
     }, band)
 
     return () => ctx.revert()
@@ -46,7 +59,7 @@ export default function MarqueeBand({ words, outline = false, reverse = false, c
 
   return (
     <div ref={band} aria-hidden="true" className={`overflow-hidden py-6 md:py-10 ${className}`}>
-      <div ref={track} className="flex w-max whitespace-nowrap will-change-transform">
+      <div ref={track} className="flex w-max whitespace-nowrap">
         {[0, 1].map((copy) => (
           <div key={copy} className="flex shrink-0 items-center">
             {words.map((word) => (

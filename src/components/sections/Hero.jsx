@@ -45,7 +45,7 @@ const item = {
   },
 }
 
-/* Repeating typewriter effect */
+/* A brief typewriter entrance that settles into static text. */
 function TypewriterGreeting() {
   const reduced = useReducedMotion()
   const [typedText, setTypedText] = useState(
@@ -59,36 +59,19 @@ function TypewriterGreeting() {
     }
 
     let index = 0
-    let deleting = false
     let timeoutId
 
     setTypedText('')
 
-    const animateText = () => {
-      if (!deleting) {
-        index += 1
-        setTypedText(GREETING.slice(0, index))
-
-        if (index >= GREETING.length) {
-          deleting = true
-          timeoutId = window.setTimeout(animateText, 1000)
-        } else {
-          timeoutId = window.setTimeout(animateText, 90)
-        }
-      } else {
-        index -= 1
-        setTypedText(GREETING.slice(0, index))
-
-        if (index <= 0) {
-          deleting = false
-          timeoutId = window.setTimeout(animateText, 350)
-        } else {
-          timeoutId = window.setTimeout(animateText, 55)
-        }
+    const typeNextCharacter = () => {
+      index += 1
+      setTypedText(GREETING.slice(0, index))
+      if (index < GREETING.length) {
+        timeoutId = window.setTimeout(typeNextCharacter, 75)
       }
     }
 
-    timeoutId = window.setTimeout(animateText, 400)
+    timeoutId = window.setTimeout(typeNextCharacter, 250)
 
     return () => window.clearTimeout(timeoutId)
   }, [reduced])
@@ -326,9 +309,8 @@ export default function Hero({
 
       gsap.fromTo(
         title,
-        { filter: 'blur(10px)', opacity: 0.25 },
+        { opacity: 0.45 },
         {
-          filter: 'blur(0px)',
           opacity: 1,
           duration: 1.35,
           ease: 'power4.out',

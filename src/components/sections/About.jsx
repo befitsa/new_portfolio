@@ -44,8 +44,8 @@ export default function About() {
 
         reveal
           .fromTo(title,
-            { y: 30, autoAlpha: 0.3, filter: 'blur(9px)' },
-            { y: 0, autoAlpha: 1, filter: 'blur(0px)', ease: 'none', duration: 0.42 },
+            { y: 24, autoAlpha: 0.45 },
+            { y: 0, autoAlpha: 1, ease: 'none', duration: 0.42 },
             0,
           )
         if (subheading) {

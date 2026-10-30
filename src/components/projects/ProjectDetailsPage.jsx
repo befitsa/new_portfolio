@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowLeft,
@@ -15,6 +15,7 @@ import MarkdownContent from '../common/MarkdownContent.jsx'
 import BrandLink from '../common/BrandLink.jsx'
 import { projectDetailsPath } from '../../data/projects'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import { gsap, ScrollTrigger } from '../../utils/gsap'
 
 const sections = [
   { id: 'overview', label: 'Overview' },
@@ -161,10 +162,78 @@ function GalleryImage({ image, projectTitle }) {
 
 export default function ProjectDetailsPage({ project }) {
   const profile = usePortfolioProfile()
+  const contentRef = useRef(null)
   const [activeSection, setActiveSection] = useState(sections[0].id)
   const [selectedImage, setSelectedImage] = useState(null)
   const [coverImageFailed, setCoverImageFailed] = useState(false)
   const reduced = useReducedMotion()
+
+  useLayoutEffect(() => {
+    const root = contentRef.current
+    if (!root || reduced) return undefined
+
+    const ctx = gsap.context(() => {
+      const media = gsap.matchMedia()
+      const animateContent = (distance, duration) => {
+        gsap.utils.toArray('[data-case-study-reveal]', root).forEach((section) => {
+          const content = section.firstElementChild
+          if (!content) return
+          const targets = content.children.length
+            ? [...content.children]
+            : [...section.children]
+          gsap.from(targets, {
+            y: distance,
+            opacity: 0,
+            duration,
+            ease: 'power3.out',
+            stagger: 0.07,
+            scrollTrigger: { trigger: section, start: 'top 88%', once: true },
+          })
+        })
+      }
+
+      media.add('(min-width: 640px) and (prefers-reduced-motion: no-preference)', () => {
+        animateContent(16, 0.7)
+      })
+      media.add('(max-width: 639px) and (prefers-reduced-motion: no-preference)', () => {
+        animateContent(8, 0.5)
+      })
+      return () => media.revert()
+    }, root)
+
+    return () => ctx.revert()
+  }, [project.slug, reduced])
+
+  useEffect(() => {
+    const root = contentRef.current
+    if (!root) return undefined
+    let active = true
+    let frame = 0
+    const refresh = () => {
+      if (!active) return
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        if (active) ScrollTrigger.refresh()
+      })
+    }
+    const images = [...root.querySelectorAll('img')]
+    images.forEach((image) => {
+      image.addEventListener('load', refresh)
+      image.addEventListener('error', refresh)
+    })
+    document.fonts?.ready.then(refresh)
+    window.addEventListener('load', refresh)
+    refresh()
+    return () => {
+      active = false
+      window.cancelAnimationFrame(frame)
+      images.forEach((image) => {
+        image.removeEventListener('load', refresh)
+        image.removeEventListener('error', refresh)
+      })
+      window.removeEventListener('load', refresh)
+    }
+  }, [project.slug])
 
   useEffect(() => setCoverImageFailed(false), [project.image])
   const galleryImages = useMemo(() => {
@@ -254,8 +323,8 @@ export default function ProjectDetailsPage({ project }) {
         </div>
       </header>
 
-      <main id="main">
-        <section className="mx-auto max-w-7xl px-5 pt-7 pb-10 sm:px-8 sm:pt-11 sm:pb-12">
+      <main id="main" ref={contentRef}>
+        <section data-case-study-reveal className="mx-auto max-w-7xl px-5 pt-7 pb-10 sm:px-8 sm:pt-11 sm:pb-12">
           <div className="mx-auto max-w-4xl text-center">
             <p className="inline-flex items-center gap-2 rounded-full border border-[#e5cda9] bg-white/80 px-3 py-1.5 text-[9px] font-bold tracking-[.12em] text-[#a55a0a] uppercase sm:text-[10px]">
               <span className="size-1.5 rounded-full bg-[#d96800]" />
@@ -330,7 +399,7 @@ export default function ProjectDetailsPage({ project }) {
           </ul>
         </nav>
 
-        <section id="overview" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
+        <section id="overview" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto grid max-w-6xl gap-7 px-5 sm:px-8 lg:grid-cols-[1.2fr_.8fr] lg:gap-12">
             <div>
               <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">01 / Overview</p>
@@ -360,7 +429,7 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
-        <section id="technical-highlights" className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
+        <section id="technical-highlights" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">02 / Engineering</p>
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Technical Highlights &amp; Architecture</h2>
@@ -385,7 +454,7 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
-        <section id="impact-outcomes" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
+        <section id="impact-outcomes" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">03 / Results</p>
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Impact &amp; Measured Outcomes</h2>
@@ -423,7 +492,7 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
-        <section id="tech-stack" className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
+        <section id="tech-stack" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <p className="text-center text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">04 / Tools &amp; Stack</p>
             <h2 className="mt-2 text-center font-serif text-2xl sm:text-3xl">Technologies Employed</h2>
@@ -458,7 +527,7 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
-        <section id="interface-gallery" className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
+        <section id="interface-gallery" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
             <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">05 / User Experience</p>
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Interface Gallery &amp; User Journeys</h2>
@@ -479,7 +548,7 @@ export default function ProjectDetailsPage({ project }) {
           </div>
         </section>
 
-        <section className="bg-[#eaf3ed] px-5 py-12 text-center sm:px-8 sm:py-16">
+        <section data-case-study-reveal className="bg-[#eaf3ed] px-5 py-12 text-center sm:px-8 sm:py-16">
           <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">Next milestone</p>
           <h2 className="mx-auto mt-2 max-w-2xl font-serif text-2xl leading-tight sm:text-4xl">Interested in Building a High-Impact Solution?</h2>
           <p className="mx-auto mt-3 max-w-xl text-xs leading-relaxed text-forest/65 sm:text-sm">Let&apos;s discuss your next project, or return to the portfolio to explore the other work.</p>
