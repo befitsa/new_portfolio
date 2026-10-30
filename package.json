@@ -6,10 +6,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/contentSchemas.test.js tests/contentService.test.js tests/pdfValidation.test.js tests/backendSchemas.test.js tests/localCmsServer.test.js tests/supabaseCmsApi.test.js",
+    "test": "node --test tests/contentSchemas.test.js tests/contentService.test.js tests/pdfValidation.test.js tests/backendSchemas.test.js tests/localCmsServer.test.js tests/supabaseCmsApi.test.js tests/fontAwesome.test.js",
     "test:rules": "npm exec --yes --package=firebase-tools@13.35.1 -- firebase emulators:exec --project demo-fitsum-portfolio --only firestore,storage \"node --test tests/firebaseRules.test.js\""
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.3.1",
+    "@fortawesome/react-fontawesome": "^3.5.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@supabase/supabase-js": "^2.118.0",

@@ -1,7 +1,9 @@
 // src/components/layout/MobileMenu.jsx
 import { useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { Grid2X2, X } from 'lucide-react'
+import { X } from 'lucide-react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { byPrefixAndName } from '../../lib/fontawesome'
 import { navItems } from '../../data/profile'
 import { scrollToId, scrollToTop } from '../../utils/scroll'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
@@ -146,7 +148,7 @@ export default function MobileMenu({ open, onClose, onToggle, activeId }) {
             aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
             className={`grid size-12 shrink-0 place-items-center rounded-full transition-[background-color,color,transform] duration-200 active:scale-95 ${open ? 'bg-forest text-white' : 'text-forest hover:bg-soft-green focus-visible:bg-soft-green'}`}
           >
-            {open ? <X className="size-6" aria-hidden="true" /> : <Grid2X2 className="size-6" aria-hidden="true" />}
+            {open ? <X className="size-6" aria-hidden="true" /> : <FontAwesomeIcon icon={byPrefixAndName.fadt['grid-2']} className="size-6" aria-hidden="true" />}
           </button>
           <span aria-live="polite" className="min-w-0 flex-1 truncate px-3 text-center text-xs font-semibold text-forest/75">
             {activeItem?.label ?? 'Explore'}

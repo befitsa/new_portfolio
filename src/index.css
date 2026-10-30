@@ -6,6 +6,7 @@
 */
 
 @import "tailwindcss";
+@import "@fortawesome/fontawesome-svg-core/styles.css";
 
 /* Inktera font for the Fitsum Mesfin hero name and cinematic intro */
 @font-face {
