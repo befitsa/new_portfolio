@@ -566,7 +566,7 @@ function createCmsApi(client) {
       return {
         ...asset,
         storagePath: destinationStoragePath,
-        ...(asset.url ? { url } : {}),
+        ...('url' in asset ? { url } : {}),
         ...(asset.fileUrl ? { fileUrl: url } : {}),
         ...(asset.previewUrl ? { previewUrl: url } : {}),
       }
@@ -823,6 +823,64 @@ function createCmsApi(client) {
     getStorageAssetDiagnostics,
     subscribeStorageAssetDiagnostics,
     retryStorageAssetChecks,
+
+    async uploadPrivateAsset(file, { onProgress = () => {} } = {}) {
+      const checked = await validateSupabaseUpload(file, 'image')
+      const authResult = await client.auth.getUser()
+
+      if (authResult?.error) {
+        throw sanitizeSupabaseError(authResult.error)
+      }
+
+      const userId = authResult?.data?.user?.id
+      if (!userId || await assertRpc(client, 'cms_is_admin', {}) !== true) {
+        throw new SupabaseCmsError(
+          'auth',
+          'Sign in with the registered portfolio administrator account before uploading.',
+        )
+      }
+
+      const path = `drafts/${userId}/${crypto.randomUUID()}/${safeFileName(file.name)}`
+      const storagePath = `${PRIVATE_BUCKET}/${path}`
+
+      try {
+        await uploadFile(file, PRIVATE_BUCKET, path, checked.contentType, onProgress)
+        const url = await signedUrl(storagePath)
+        onProgress(100)
+        return {
+          url,
+          storagePath,
+          fileName: file.name,
+          mimeType: checked.contentType,
+        }
+      } catch (error) {
+        const { error: cleanupError } = await client.storage
+          .from(PRIVATE_BUCKET)
+          .remove([path])
+
+        if (cleanupError) {
+          throw new SupabaseCmsError(
+            'upload',
+            `${error.message} The failed private upload could not be removed: ${cleanupError.message}`,
+            cleanupError,
+          )
+        }
+        throw error
+      }
+    },
+
+    async discardUnreferencedPrivateAssets(storagePaths) {
+      const paths = [...new Set(storagePaths || [])]
+      if (paths.some((storagePath) =>
+        storageBucketAndPath(storagePath)?.bucket !== PRIVATE_BUCKET,
+      )) {
+        throw new SupabaseCmsError(
+          'validation',
+          'Only unreferenced portfolio-private assets can be discarded.',
+        )
+      }
+      await removeUnreferencedPrivateAssets(paths)
+    },
 
     async recordPublicStorageAudit(snapshot) {
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
@@ -1420,19 +1478,23 @@ function createCmsApi(client) {
     const references = new Set()
 
     for (const type of contentTypes) {
-      const records = await api.list(type, 'drafts')
+      for (const view of ['drafts', 'published']) {
+        const records = await api.list(type, view)
 
-      for (const record of records) {
-        for (const path of collectStoragePaths(record, PRIVATE_BUCKET)) {
-          references.add(path)
+        for (const record of records) {
+          for (const path of collectStoragePaths(record, PRIVATE_BUCKET)) {
+            references.add(path)
+          }
         }
       }
     }
 
-    const settings = await api.getSettings('drafts')
+    for (const view of ['drafts', 'published']) {
+      const settings = await api.getSettings(view)
 
-    for (const path of collectStoragePaths(settings, PRIVATE_BUCKET)) {
-      references.add(path)
+      for (const path of collectStoragePaths(settings, PRIVATE_BUCKET)) {
+        references.add(path)
+      }
     }
 
     const unused = candidates.filter((path) => !references.has(path))

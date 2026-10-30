@@ -334,13 +334,51 @@ test('create sends validated draft content with initial optimistic revision', as
     }
   })
   const api = createSupabaseCmsApi(client)
-  const result = await api.create('projects', project())
+  const result = await api.create('projects', project({ techStack: ['Supabase', 'React'] }))
 
   assert.equal(result.id, 'project-1')
   assert.equal(result.status, 'draft')
   assert.equal(savedArgs.p_id, null)
   assert.equal(savedArgs.p_expected_revision, 0)
   assert.equal(savedArgs.p_payload.slug, 'editorial-project')
+  assert.deepEqual(savedArgs.p_payload.techStack, ['Supabase', 'React'])
+})
+
+test('education and experience draft saves preserve skills and optional document references', async () => {
+  const saved = []
+  const client = mockClient(async (name, args) => {
+    assert.equal(name, 'cms_save_record')
+    saved.push(args)
+    return {
+      data: { id: args.p_id || `record-${saved.length}`, ...args.p_payload, status: 'draft', revision: saved.length },
+      error: null,
+    }
+  })
+  const api = createSupabaseCmsApi(client)
+  await api.create('education', {
+    degree: 'Other',
+    customDegree: 'Advanced Certificate',
+    institution: 'Example University',
+    startYear: 2020,
+    credentialImage: { url: '', storagePath: `${PRIVATE_BUCKET}/drafts/admin/certificate.png` },
+  })
+  await api.create('experiences', {
+    role: 'Engineer',
+    company: 'Example Studio',
+    startDate: '2024-01-01',
+    skills: ['Supabase', 'React'],
+    recommendationLetter: { url: '', storagePath: `${PRIVATE_BUCKET}/drafts/admin/recommendation.png` },
+    recommendationLetterUrl: 'https://example.test/recommendation',
+  })
+
+  assert.equal(saved[0].p_type, 'education')
+  assert.equal(saved[0].p_payload.degree, 'Other')
+  assert.equal(saved[0].p_payload.customDegree, 'Advanced Certificate')
+  assert.equal(saved[0].p_payload.credentialImage.storagePath, `${PRIVATE_BUCKET}/drafts/admin/certificate.png`)
+  assert.equal(saved[1].p_type, 'experiences')
+  assert.deepEqual(saved[1].p_payload.skills, ['Supabase', 'React'])
+  assert.equal(saved[1].p_payload.recommendationLetter.storagePath, `${PRIVATE_BUCKET}/drafts/admin/recommendation.png`)
+  assert.equal(saved[1].p_payload.recommendationLetterUrl, 'https://example.test/recommendation')
 })
 
 test('save maps optimistic concurrency errors to a conflict state', async () => {
@@ -374,6 +412,108 @@ test('uploads use the trusted admin registry instead of a fixed administrator UI
     (error) => error instanceof SupabaseCmsError && error.state === 'auth',
   )
   assert.equal(client.storageCalls.some(([operation]) => operation === 'upload'), false)
+})
+
+test('background document uploads are private, admin-authorized Storage uploads', async () => {
+  const client = mockClient(async () => ({ data: true, error: null }))
+  const api = createSupabaseCmsApi(client)
+  const progress = []
+  const asset = await api.uploadPrivateAsset(imageFile(), {
+    onProgress: (value) => progress.push(value),
+  })
+
+  assert.match(asset.storagePath, new RegExp(`^${PRIVATE_BUCKET}/drafts/${client.auth ? '11111111-1111-4111-8111-111111111111' : ''}/`))
+  assert.match(asset.url, /^https:\/\/signed\.example\//)
+  assert.equal(asset.mimeType, 'image/png')
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PRIVATE_BUCKET))
+  assert.deepEqual(progress, [5, 85, 100])
+})
+
+test('non-admin users cannot upload background document assets', async () => {
+  const client = mockClient(async () => ({ data: true, error: null }), { isAdmin: false })
+  const api = createSupabaseCmsApi(client)
+
+  await assert.rejects(
+    api.uploadPrivateAsset(imageFile()),
+    (error) => error instanceof SupabaseCmsError && error.state === 'auth',
+  )
+  assert.equal(client.storageCalls.some(([operation]) => operation === 'upload'), false)
+})
+
+test('background asset cleanup accepts only private paths and keeps referenced files', async () => {
+  const referencedPath = `${PRIVATE_BUCKET}/drafts/admin/referenced.png`
+  const client = mockClient(async (name, args) => {
+    if (name === 'cms_list_records' && args.p_type === 'projects' && args.p_view === 'published') {
+      return {
+        data: [{
+          id: 'project-1',
+          ...project({ heroImage: { url: '', storagePath: referencedPath } }),
+          status: 'draft',
+        }],
+        error: null,
+      }
+    }
+    if (name === 'cms_list_records') return { data: [], error: null }
+    if (name === 'cms_get_settings') return { data: null, error: null }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const api = createSupabaseCmsApi(client)
+
+  await api.discardUnreferencedPrivateAssets([referencedPath])
+  assert.equal(client.storageCalls.some(([operation]) => operation === 'remove'), false)
+  await assert.rejects(
+    api.discardUnreferencedPrivateAssets([`${PUBLIC_BUCKET}/published/document.png`]),
+    (error) => error instanceof SupabaseCmsError && error.state === 'validation',
+  )
+
+  await api.discardUnreferencedPrivateAssets([`${PRIVATE_BUCKET}/drafts/admin/unused.png`])
+  assert.ok(client.storageCalls.some(([operation, bucket, paths]) =>
+    operation === 'remove'
+    && bucket === PRIVATE_BUCKET
+    && paths.includes('drafts/admin/unused.png'),
+  ))
+})
+
+test('education publishing promotes credential images through the existing gate', async () => {
+  const sourcePath = `${PRIVATE_BUCKET}/drafts/admin/education/certificate.png`
+  let publicationPayload
+  const client = mockClient(async (name, args) => {
+    if (name === 'cms_get_record') {
+      return {
+        data: {
+          id: 'education-1',
+          degree: 'BSc Degree',
+          institution: 'Example University',
+          startYear: 2020,
+          endYear: 2024,
+          credentialUrl: 'https://example.test/credential',
+          credentialImage: { url: '', storagePath: sourcePath },
+          visibility: true,
+          order: 0,
+          status: 'draft',
+          revision: 3,
+          publishedRevision: 2,
+          basePublishedRevision: 2,
+        },
+        error: null,
+      }
+    }
+    if (name === 'cms_health') return { data: { storage: { ready: true } }, error: null }
+    if (name === 'cms_publish_record') {
+      publicationPayload = args.p_payload
+      return { data: { id: args.p_id, ...args.p_payload, status: 'published', revision: 3 }, error: null }
+    }
+    if (name === 'cms_list_records') return { data: [], error: null }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const api = createSupabaseCmsApi(client)
+  const result = await api.publish('education', 'education-1', 3)
+
+  assert.equal(publicationPayload.credentialImage.storagePath, `${PUBLIC_BUCKET}/published/drafts/admin/education/certificate.png`)
+  assert.equal(publicationPayload.credentialImage.url, 'https://public.example/published/drafts/admin/education/certificate.png')
+  assert.equal(result.status, 'published')
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === PRIVATE_BUCKET))
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
 })
 
 test('legacy bucket IDs remain distinct and the exact dotted ID is parsed', async () => {

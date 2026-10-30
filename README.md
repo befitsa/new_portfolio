@@ -59,6 +59,13 @@ The exact bucket IDs are distinct. `portfolio-private` must remain private; `por
 Publishing has an additional trusted-operator gate. The health RPC can report the CMS API/database as connected while publication is blocked because the public bucket inventory has not been reviewed. An authorized operator signs in through Supabase Auth, uses **Storage review** in the admin UI to inspect the bucket configuration and every `portfolio-published` object (including unreferenced objects), and explicitly records the snapshot. The server verifies the administrator and derives `audited_by` from the authenticated identity. Public-bucket object changes invalidate the content audit; another review is then required before the next publish. Public objects remain directly accessible by URL while present in a public bucket; database RLS does not protect their URLs.
 
 The admin health check separately verifies the authenticated CMS health RPC and access to list both required Storage buckets. A missing Storage audit blocks publish only; it must not be interpreted as the Content API or Storage being unconfigured. Draft saves and private uploads can proceed when their API/bucket access checks succeed. Actual writes, publication, Auth, and object promotion still require verification against the intended hosted test project before relying on them in production.
+
+### Background documents and credentials
+
+Education credential images and work-experience recommendation-letter images are optional nested asset references in the existing JSONB CMS records; no database-column migration is needed. The admin uploads them to `portfolio-private` through the authenticated administrator flow. Draft payloads persist the exact bucket-prefixed `storagePath`, not the short-lived signed URL; signed URLs are generated when private records are loaded. Credential and recommendation URLs are optional HTTP(S) links and remain separate from image uploads.
+
+Publishing continues through the existing CMS publication RPC and audit gate. Referenced private images are promoted to `portfolio-published` as part of the existing asset-promotion workflow, making those objects directly accessible by URL once copied. Any public-bucket mutation invalidates the Storage content audit as before, so a trusted operator may need to review Storage again before the next publish. Unused private attachments are removed only after reference checks; failed saves retain current records and report cleanup failures.
+
 ## Checks
 
 ```powershell

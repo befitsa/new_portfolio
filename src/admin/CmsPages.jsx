@@ -18,8 +18,9 @@ const EMPTY_PROJECT = {
   links: { github: '', figma: '', live: '' }, techStack: [], coreProblem: '', strategicObjectives: [],
   leadership: '', methodology: '', technicalHighlights: [], metrics: [], seo: { metaTitle: '', metaDescription: '' },
 }
-const EMPTY_EXPERIENCE = { role: '', company: '', logoInitials: '', startDate: '', endDate: '', isCurrent: false, location: '', employmentType: '', description: '', skills: [], visibility: true, order: 0 }
-const EMPTY_EDUCATION = { degree: '', institution: '', startYear: new Date().getFullYear(), endYear: null, notes: '', credentialUrl: '', visibility: true, order: 0 }
+const EMPTY_EXPERIENCE = { role: '', company: '', logoInitials: '', startDate: '', endDate: '', isCurrent: false, location: '', employmentType: '', description: '', skills: [], recommendationLetter: null, recommendationLetterUrl: '', visibility: true, order: 0 }
+const EDUCATION_DEGREES = ['Certificate', 'Diploma', 'BSc Degree', 'MSc Degree', 'Doctorate (PhD)', 'Other']
+const EMPTY_EDUCATION = { degree: '', customDegree: '', institution: '', startYear: new Date().getFullYear(), endYear: null, notes: '', credentialUrl: '', credentialImage: null, visibility: true, order: 0 }
 const EMPTY_SETTINGS = {
   name: profile.name, title: profile.title, bio: profile.intro, about: profile.about, location: 'Addis Ababa, Ethiopia',
   socialLinks: Object.fromEntries(profile.socials.map(({ id, url }) => [id, url])), featuredProjectIds: [],
@@ -62,6 +63,9 @@ function persistableProject(value, localMode) {
     : asset
   return { ...value, heroImage: persistableAsset(value.heroImage), gallery: (value.gallery || []).map(persistableAsset) }
 }
+function backgroundAssetPaths(value = {}) {
+  return [value.credentialImage?.storagePath, value.recommendationLetter?.storagePath].filter(Boolean)
+}
 
 function PageHeader({ eyebrow, title, description, actions, showStorageNotice = true }) {
   const apiStatus = useCmsApiStatus()
@@ -89,6 +93,24 @@ function TextInput({ label, value, onChange, type = 'text', ...props }) {
 
 function TextArea({ label, value, onChange, rows = 4, ...props }) {
   return <Field label={label} hint={props.hint} className={props.className}><textarea rows={rows} value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...Object.fromEntries(Object.entries(props).filter(([key]) => !['hint', 'className'].includes(key)))} /></Field>
+}
+
+function BackgroundImageUpload({ title, description, asset, busy, uploading, onUpload, onRemove }) {
+  return <section className="cms-background-document">
+    <div><h3>{title}</h3><p>{description}</p></div>
+    {asset?.url && <img className="cms-background-document-preview" src={asset.url} alt={`${title} preview`} />}
+    <div className="cms-upload-row">
+      <label className={`cms-upload-control${busy ? ' is-busy' : ''}`}>
+        <Upload size={15} /><span>{uploading ? 'Uploading image…' : asset?.storagePath ? 'Replace image' : 'Upload image'}</span>
+        <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={busy} onChange={(event) => {
+          onUpload(event.target.files?.[0])
+          event.target.value = ''
+        }} />
+      </label>
+      {asset?.storagePath && <Button className="cms-action-delete" disabled={busy} onClick={onRemove}><Trash2 size={14} /> Remove image</Button>}
+      <small>JPG, JPEG, PNG, WebP · max 12 MB. Stored privately until publication.</small>
+    </div>
+  </section>
 }
 
 function TagInput({ label, values, onChange, hint }) {
@@ -461,6 +483,9 @@ export function CmsBackgroundPage() {
   const [form, setForm] = useState(EMPTY_EXPERIENCE)
   const [previewId, setPreviewId] = useState('')
   const [editorPreview, setEditorPreview] = useState(false)
+  const [assetCleanupWarning, setAssetCleanupWarning] = useState('')
+  const [uploadingAsset, setUploadingAsset] = useState(false)
+  const uploadedAssetPaths = useRef(new Set())
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
   const records = useMemo(() => {
@@ -472,24 +497,71 @@ export function CmsBackgroundPage() {
     setKind(targetKind)
     const empty = targetKind === 'experiences' ? EMPTY_EXPERIENCE : EMPTY_EDUCATION
     setSelected(item || { isNew: true })
-    setForm(item ? { ...empty, ...cleanRecord(item) } : { ...empty, order: targetKind === kind ? records.length : 0 })
+    const existing = item ? cleanRecord(item) : {}
+    const isKnownDegree = EDUCATION_DEGREES.includes(existing.degree)
+    setForm(item
+      ? {
+        ...empty,
+        ...existing,
+        ...(targetKind === 'education' ? {
+          degree: isKnownDegree ? existing.degree : 'Other',
+          customDegree: existing.customDegree || (isKnownDegree ? '' : existing.degree || ''),
+          credentialImage: existing.credentialImage || null,
+        } : {
+          recommendationLetter: existing.recommendationLetter || null,
+          recommendationLetterUrl: existing.recommendationLetterUrl || '',
+        }),
+      }
+      : { ...empty, order: targetKind === kind ? records.length : 0 })
     setEditorPreview(false)
+    setAssetCleanupWarning('')
+    uploadedAssetPaths.current.clear()
     mutation.clear()
   }
-  const closeEditor = () => {
+  const closeEditor = async () => {
     if (mutation.busy) return
+    const paths = [...uploadedAssetPaths.current]
+    if (paths.length) {
+      const discarded = await mutation.run(
+        () => adminApi.discardUnreferencedPrivateAssets(paths),
+        'Uncommitted document uploads removed.',
+      )
+      if (!discarded) return
+    }
     setSelected(null)
     setForm(kind === 'experiences' ? EMPTY_EXPERIENCE : EMPTY_EDUCATION)
     setEditorPreview(false)
+    uploadedAssetPaths.current.clear()
     mutation.clear()
+  }
+  const uploadBackgroundImage = async (field, file) => {
+    if (!file) return
+    setUploadingAsset(true)
+    try {
+      const asset = await mutation.run(
+        () => adminApi.uploadPrivateAsset(file),
+        'Document image uploaded to private storage.',
+      )
+      if (!asset) return
+      uploadedAssetPaths.current.add(asset.storagePath)
+      setForm((current) => ({ ...current, [field]: asset }))
+    } finally {
+      setUploadingAsset(false)
+    }
   }
   const save = async (publishAfterSave = false) => {
     const schema = kind === 'experiences' ? experienceSchema : educationSchema
     let content
     try { content = schema.parse({ ...form, order: Number(form.order), ...(kind === 'education' ? { startYear: Number(form.startYear), endYear: form.endYear === '' || form.endYear == null ? null : Number(form.endYear) } : {}) }) }
     catch (error) { mutation.clear(); return mutation.run(() => { throw new Error(error.issues?.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · ') || error.message) }) }
+    if (!isLocalCmsMode()) {
+      for (const field of ['credentialImage', 'recommendationLetter']) {
+        if (content[field]?.storagePath) content[field] = { ...content[field], url: '' }
+      }
+    }
     if (publishAfterSave) {
-      const title = kind === 'experiences' ? `${form.role} at ${form.company}` : `${form.degree} · ${form.institution}`
+      const degreeTitle = form.degree === 'Other' ? form.customDegree : form.degree
+      const title = kind === 'experiences' ? `${form.role} at ${form.company}` : `${degreeTitle} · ${form.institution}`
       if (!window.confirm(`Review background publish\n\n${title}\n${kind === 'experiences' ? form.description : form.notes}\n\nSave and publish this ${kind === 'experiences' ? 'experience' : 'education'} entry?`)) return
     }
     let savedDraft = null
@@ -501,11 +573,29 @@ export function CmsBackgroundPage() {
         ? adminApi.publish(kind, savedDraft.id, savedDraft.revision)
         : savedDraft
     }, publishAfterSave ? 'Background entry saved and published.' : 'Background draft saved.')
+    const savedPaths = new Set(backgroundAssetPaths(savedDraft || form))
+    const noLongerReferenced = [
+      ...backgroundAssetPaths(selected?.id ? cleanRecord(selected) : {}),
+      ...uploadedAssetPaths.current,
+    ].filter((path) => path.startsWith('portfolio-private/') && !savedPaths.has(path))
+    if (noLongerReferenced.length) {
+      try {
+        await adminApi.discardUnreferencedPrivateAssets(noLongerReferenced)
+        noLongerReferenced.forEach((path) => uploadedAssetPaths.current.delete(path))
+        setAssetCleanupWarning('')
+      } catch (error) {
+        setAssetCleanupWarning(`Saved content is intact, but an unused private upload could not be cleaned up: ${error.message}`)
+      }
+    }
+    if (savedDraft) {
+      uploadedAssetPaths.current.clear()
+    }
     if (savedDraft) {
       let current = { ...savedDraft, ...(result || {}) }
       try {
-        current = await adminApi.get(kind, savedDraft.id, publishAfterSave ? 'published' : 'drafts') || current
-      } catch { /* The successful mutation result still lets the editor remain open. */ }
+        const view = publishAfterSave && result ? 'published' : 'drafts'
+        current = await adminApi.get(kind, savedDraft.id, view) || current
+      } catch { /* Retain the successful draft-save result if the refresh fails. */ }
       setSelected(current)
       recordsState.refresh()
     }
@@ -536,12 +626,12 @@ export function CmsBackgroundPage() {
     if (result) recordsState.refresh()
   }
   const edit = Boolean(selected?.id)
-  const titleOf = (item) => kind === 'experiences' ? item.role : item.degree
-  const previewTitle = kind === 'experiences' ? form.role : form.degree
+  const titleOf = (item) => kind === 'experiences' ? item.role : item.degree === 'Other' ? item.customDegree || 'Other' : item.degree
+  const previewTitle = kind === 'experiences' ? form.role : form.degree === 'Other' ? form.customDegree : form.degree
   const previewSubtitle = kind === 'experiences' ? form.company : form.institution
   const previewDescription = kind === 'experiences' ? form.description : form.notes
   return <><PageHeader eyebrow="EDITORIAL BIOGRAPHY" title="Background & Credentials" description="Manage professional experience, education, dates, skills, visibility, and portfolio sequence." actions={<><Button variant="brown" onClick={() => start(null, 'experiences')}><Plus size={15} /> Add Experience</Button><Button onClick={() => start(null, 'education')}><Plus size={15} /> Add Education</Button></>} />
-    {!ready && <CmsConnectionNotice status={apiStatus} />}{recordsState.error && <ContentError error={recordsState.error} retry={recordsState.refresh} />}{mutation.error && <Notice kind="error">{mutation.error}</Notice>}{mutation.success && <Notice kind="success">{mutation.success}</Notice>}
+    {!ready && <CmsConnectionNotice status={apiStatus} />}{recordsState.error && <ContentError error={recordsState.error} retry={recordsState.refresh} />}{mutation.error && <Notice kind="error">{mutation.error}</Notice>}{assetCleanupWarning && <Notice kind="warning">{assetCleanupWarning}</Notice>}{mutation.success && <Notice kind="success">{mutation.success}</Notice>}
     <section className="cms-stats-grid cms-background-stats"><StatCard icon={FolderKanban} label="TOTAL MILESTONES" value={records.length} detail={`${records.filter((item) => item.status === 'published').length} live on portfolio`} badge="Records" tone="green" /><StatCard icon={GraduationCap} label="CAREER & ACADEMICS" value={kind === 'experiences' ? 'Experience' : 'Education'} detail={`${records.length} entries in this section`} badge="Selected view" tone="neutral" /><StatCard icon={FileText} label="PENDING REVIEW" value={records.filter((item) => item.status === 'draft').length} detail="Draft entries awaiting publish" badge="Private drafts" tone="amber" /><StatCard icon={ShieldCheck} label="PUBLIC VISIBILITY" value={records.filter((item) => item.visibility && item.status === 'published').length} detail="Published and set to visible" badge="Live items" tone="green" /></section>
     <div className="cms-tabs" role="tablist"><button role="tab" aria-selected={kind === 'experiences'} className={kind === 'experiences' ? 'is-active' : ''} onClick={() => { setKind('experiences'); setSelected(null) }}><FolderKanban size={15} /> Work Experience <span>{recordsState.drafts.length}</span></button><button role="tab" aria-selected={kind === 'education'} className={kind === 'education' ? 'is-active' : ''} onClick={() => { setKind('education'); setSelected(null) }}><GraduationCap size={15} /> Education & Degrees</button></div>
     {recordsState.loading ? <LoadingPanel /> : records.length ? <div className="cms-background-list">{records.map((item, index) => <article key={item.id} className={`cms-background-card${item.status === 'draft' ? ' is-draft' : ''}`}><div className="cms-drag-handle" aria-hidden="true">⠿</div><div className="cms-background-monogram">{kind === 'experiences' ? item.logoInitials || item.company?.slice(0, 2) : item.institution?.slice(0, 2)}</div><div className="cms-background-copy"><div className="cms-background-title"><h2>{titleOf(item)}</h2><span>•</span><strong>{kind === 'experiences' ? item.company : item.institution}</strong>{kind === 'experiences' && item.isCurrent && <span className="cms-badge cms-badge-green">Current role</span>}<StatusBadge status={item.status} /></div><p className="cms-background-meta">{kind === 'experiences' ? `${dateValue(item.startDate)} — ${item.isCurrent ? 'Present' : dateValue(item.endDate)} · ${item.location} · ${item.employmentType}` : `${item.startYear}${item.endYear ? ` — ${item.endYear}` : ''}`}</p><p>{kind === 'experiences' ? item.description : item.notes}</p>{item.skills?.length > 0 && <div className="cms-tag-list">{item.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}</div><div className="cms-record-controls"><Button className="cms-square-button" title="Move earlier" disabled={!ready || index === 0 || mutation.busy} onClick={() => reorder(item, -1)}><ArrowUp size={14} /></Button><Button className="cms-square-button" title="Move later" disabled={!ready || index === records.length - 1 || mutation.busy} onClick={() => reorder(item, 1)}><ArrowDown size={14} /></Button><Button className="cms-action-preview" onClick={() => setPreviewId((current) => current === item.id ? '' : item.id)}><Eye size={13} /> {previewId === item.id ? 'Hide preview' : 'Preview'}</Button><Button className="cms-action-edit" onClick={() => start(item)}>Edit</Button>{item.status === 'published' ? <Button className="cms-action-unpublish" onClick={() => unpublish(item)} disabled={!ready || mutation.busy}>Unpublish</Button> : <Button className="cms-action-publish" variant="brown" onClick={() => publishRecord(item)} disabled={!ready || mutation.busy}>Publish</Button>}<Button className="cms-square-button cms-action-delete" title="Delete and retain history" disabled={!ready || mutation.busy} onClick={() => deleteBackground(item)}><Trash2 size={14} /></Button></div>{previewId === item.id && <div className="cms-record-preview"><p className="cms-eyebrow">PRIVATE PREVIEW · {kind === 'experiences' ? 'EXPERIENCE' : 'EDUCATION'}</p><h3>{titleOf(item)}</h3><strong>{kind === 'experiences' ? item.company : item.institution}</strong><p>{kind === 'experiences' ? item.description : item.notes}</p>{item.skills?.length > 0 && <div className="cms-tag-list">{item.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}</div>}</article>)}</div> : <EmptyState title="No background entries yet" text="Add your work history and education, then publish each item to the portfolio." />}
@@ -565,16 +655,26 @@ export function CmsBackgroundPage() {
           <label className="cms-checkbox-field"><input type="checkbox" checked={form.isCurrent} onChange={(event) => setForm({ ...form, isCurrent: event.target.checked, endDate: '' })} /> This is my current position</label>
           <TextArea label="Description" value={form.description} onChange={(value) => setForm({ ...form, description: value })} rows={4} />
           <TagInput label="Skills" values={form.skills} onChange={(value) => setForm({ ...form, skills: value })} />
+          <section className="cms-background-documents">
+            <div className="cms-section-heading"><span className="cms-step-number">04</span><div><h2>Recommendation Letter</h2><p>Attach a private image, an external link, or both. Neither is required.</p></div></div>
+            <BackgroundImageUpload title="Recommendation letter image" description="Upload a photograph or scan of the recommendation letter." asset={form.recommendationLetter} busy={mutation.busy} uploading={uploadingAsset} onUpload={(file) => uploadBackgroundImage('recommendationLetter', file)} onRemove={() => setForm((current) => ({ ...current, recommendationLetter: null }))} />
+            <TextInput label="Recommendation letter URL" type="url" value={form.recommendationLetterUrl} onChange={(value) => setForm((current) => ({ ...current, recommendationLetterUrl: value }))} placeholder="https://…" />
+          </section>
         </> : <>
           <div className="cms-field-grid">
-            <TextInput label="Degree or credential *" value={form.degree} onChange={(value) => setForm({ ...form, degree: value })} required />
+            <Field label="Degree or credential *"><select value={form.degree} onChange={(event) => setForm((current) => ({ ...current, degree: event.target.value, customDegree: event.target.value === 'Other' ? current.customDegree : '' }))} required><option value="">Choose a qualification</option>{EDUCATION_DEGREES.map((degree) => <option key={degree} value={degree}>{degree}</option>)}</select></Field>
+            {form.degree === 'Other' && <TextInput label="Custom qualification *" value={form.customDegree} onChange={(value) => setForm((current) => ({ ...current, customDegree: value }))} required maxLength={160} />}
             <TextInput label="Institution *" value={form.institution} onChange={(value) => setForm({ ...form, institution: value })} required />
             <TextInput label="Start year *" type="number" value={form.startYear} onChange={(value) => setForm({ ...form, startYear: value })} required />
             <TextInput label="End year" type="number" value={form.endYear ?? ''} onChange={(value) => setForm({ ...form, endYear: value })} placeholder="Leave blank if current" />
-            <TextInput label="Credential URL" type="url" value={form.credentialUrl} onChange={(value) => setForm({ ...form, credentialUrl: value })} />
             <TextInput label="Display order" type="number" value={form.order} onChange={(value) => setForm({ ...form, order: Number(value) })} />
           </div>
           <TextArea label="Notes" value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} rows={3} />
+          <section className="cms-background-documents">
+            <div className="cms-section-heading"><span className="cms-step-number">04</span><div><h2>Degree or Credential Documents</h2><p>Attach a private certificate image, an external credential link, or both. Neither is required.</p></div></div>
+            <BackgroundImageUpload title="Credential image" description="Upload a photograph or scan of the certificate or diploma." asset={form.credentialImage} busy={mutation.busy} uploading={uploadingAsset} onUpload={(file) => uploadBackgroundImage('credentialImage', file)} onRemove={() => setForm((current) => ({ ...current, credentialImage: null }))} />
+            <TextInput label="Credential Link" type="url" value={form.credentialUrl} onChange={(value) => setForm((current) => ({ ...current, credentialUrl: value }))} placeholder="https://…" />
+          </section>
         </>}
         <label className="cms-checkbox-field"><input type="checkbox" checked={form.visibility} onChange={(event) => setForm({ ...form, visibility: event.target.checked })} /> Visible after publishing</label>
         {editorPreview && <section className="cms-record-preview" aria-label="Private draft preview">
@@ -584,7 +684,8 @@ export function CmsBackgroundPage() {
           <p>{kind === 'experiences' ? `${dateValue(form.startDate) || 'Start date'} — ${form.isCurrent ? 'Present' : dateValue(form.endDate) || 'End date'}${form.location ? ` · ${form.location}` : ''}` : `${form.startYear || 'Start year'}${form.endYear ? ` — ${form.endYear}` : ''}`}</p>
           <p>{previewDescription || 'No description provided.'}</p>
           {kind === 'experiences' && form.skills?.length > 0 && <div className="cms-tag-list">{form.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>}
-          {kind === 'education' && form.credentialUrl && <a href={form.credentialUrl} target="_blank" rel="noreferrer">View credential</a>}
+          {kind === 'education' && (form.credentialUrl || form.credentialImage?.url) && <div className="cms-background-document-links">{form.credentialImage?.url && <a href={form.credentialImage.url} target="_blank" rel="noopener noreferrer">View Certificate</a>}{form.credentialUrl && <a href={form.credentialUrl} target="_blank" rel="noopener noreferrer">View Credential</a>}</div>}
+          {kind === 'experiences' && (form.recommendationLetter?.url || form.recommendationLetterUrl) && <div className="cms-background-document-links">{form.recommendationLetter?.url && <a href={form.recommendationLetter.url} target="_blank" rel="noopener noreferrer">View Recommendation Letter</a>}{form.recommendationLetterUrl && <a href={form.recommendationLetterUrl} target="_blank" rel="noopener noreferrer">Recommendation Letter Link</a>}</div>}
         </section>}
         <div className="cms-modal-actions">
           <Button onClick={closeEditor} disabled={mutation.busy}>Cancel</Button>

@@ -41,7 +41,14 @@ function Timeline({ items }) {
           <h3 className="mt-2 font-display text-[clamp(1.6rem,3vw,2.5rem)] leading-tight font-semibold">{entry.title}</h3>
           <p className="mt-1 text-forest/75">{entry.place}</p>
           {entry.description && <p className="mt-3 max-w-lg text-forest/75">{entry.description}</p>}
-          {entry.credentialUrl && <a className="mt-3 inline-flex text-sm font-semibold text-forest underline underline-offset-4" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View credential</a>}
+          {(entry.credentialImageUrl || entry.credentialUrl || entry.recommendationLetterImageUrl || entry.recommendationLetterUrl) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {entry.credentialImageUrl && <a className="cms-public-document-link" href={entry.credentialImageUrl} target="_blank" rel="noopener noreferrer">{/diploma/i.test(entry.title) ? 'View Diploma' : 'View Certificate'}</a>}
+              {entry.credentialUrl && <a className="cms-public-document-link" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View Credential</a>}
+              {entry.recommendationLetterImageUrl && <a className="cms-public-document-link" href={entry.recommendationLetterImageUrl} target="_blank" rel="noopener noreferrer">View Recommendation Letter</a>}
+              {entry.recommendationLetterUrl && <a className="cms-public-document-link" href={entry.recommendationLetterUrl} target="_blank" rel="noopener noreferrer">Recommendation Letter Link</a>}
+            </div>
+          )}
           {entry.skills?.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-2" aria-label="Skills used">
               {entry.skills.map((skill) => (

@@ -139,11 +139,31 @@ export function createLocalCmsStore(dataDirectory) {
 
   function mediaUsage(current, storagePath) {
     const usedIn = new Set()
+    const visit = (value) => {
+      if (!value || typeof value !== 'object') return
+      if (value.storagePath === storagePath) {
+        usedIn.add('Background credential or recommendation letter')
+      }
+      if (Array.isArray(value)) value.forEach(visit)
+      else Object.values(value).forEach(visit)
+    }
     for (const view of ['drafts', 'published']) {
       for (const project of current[view].projects) {
         if (project.status === 'deleted') continue
         if (project.heroImage?.storagePath === storagePath || project.gallery?.some((asset) => asset.storagePath === storagePath)) {
           usedIn.add(project.title || project.slug || 'Project')
+        }
+      }
+      for (const type of ['experiences', 'education']) {
+        for (const record of current[view][type]) {
+          if (record.status === 'deleted') continue
+          visit(record)
+          if (record.recommendationLetter?.storagePath === storagePath) {
+            usedIn.add(record.role || record.company || 'Work experience')
+          }
+          if (record.credentialImage?.storagePath === storagePath) {
+            usedIn.add(record.degree || record.institution || 'Education')
+          }
         }
       }
       for (const resume of current[view].resumes) {

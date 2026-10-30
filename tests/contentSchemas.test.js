@@ -8,6 +8,7 @@ import {
   resumeSchema,
   siteSettingsSchema,
 } from '../src/lib/db/contentSchemas.js'
+import { toPublicEducation, toPublicExperience } from '../src/lib/db/presentation.js'
 
 test('project schema applies safe defaults and limits synopsis length', () => {
   const project = projectSchema.parse({
@@ -67,6 +68,59 @@ test('education schema rejects an end year before the start year', () => {
   assert.equal(educationSchema.safeParse({
     degree: 'Certificate', institution: 'Example', startYear: 2024, credentialUrl: 'javascript:alert(1)',
   }).success, false)
+})
+
+test('background document fields are optional, validated, and backward compatible', () => {
+  const education = {
+    degree: 'BSc Degree',
+    institution: 'Example University',
+    startYear: 2020,
+  }
+  const image = { url: 'https://storage.example/signed-image', storagePath: 'portfolio-private/drafts/user/certificate.png' }
+  assert.equal(educationSchema.parse(education).credentialImage, null)
+  assert.equal(educationSchema.parse({ ...education, credentialImage: image }).credentialImage.storagePath, image.storagePath)
+  assert.equal(educationSchema.parse({ ...education, credentialUrl: 'https://example.test/credential' }).credentialUrl, 'https://example.test/credential')
+  assert.equal(educationSchema.safeParse({ ...education, credentialUrl: 'javascript:alert(1)' }).success, false)
+  assert.equal(educationSchema.safeParse({ ...education, degree: 'Other' }).success, false)
+  assert.equal(educationSchema.parse({ ...education, degree: 'Other', customDegree: 'Advanced Certificate' }).customDegree, 'Advanced Certificate')
+
+  const experience = {
+    role: 'Engineer',
+    company: 'Example',
+    startDate: '2024-01-01',
+  }
+  assert.equal(experienceSchema.parse(experience).recommendationLetter, null)
+  assert.equal(experienceSchema.parse({ ...experience, recommendationLetter: image }).recommendationLetter.storagePath, image.storagePath)
+  assert.equal(experienceSchema.parse({ ...experience, recommendationLetterUrl: 'https://example.test/recommendation' }).recommendationLetterUrl, 'https://example.test/recommendation')
+  assert.equal(experienceSchema.safeParse({ ...experience, recommendationLetterUrl: 'javascript:alert(1)' }).success, false)
+})
+
+test('public background projections include only saved document destinations', () => {
+  const education = toPublicEducation({
+    id: 'education-1',
+    degree: 'Other',
+    customDegree: 'Advanced Certificate',
+    institution: 'Example University',
+    startYear: 2020,
+    credentialImage: { url: 'https://storage.example/public-certificate.png' },
+    credentialUrl: 'https://example.test/credential',
+  })
+  assert.equal(education.title, 'Advanced Certificate')
+  assert.equal(education.credentialImageUrl, 'https://storage.example/public-certificate.png')
+  assert.equal(education.credentialUrl, 'https://example.test/credential')
+
+  const experience = toPublicExperience({
+    id: 'experience-1',
+    role: 'Engineer',
+    company: 'Example',
+    startDate: '2024-01-01',
+    recommendationLetter: { url: 'https://storage.example/public-letter.png' },
+    recommendationLetterUrl: 'https://example.test/recommendation',
+  })
+  assert.equal(experience.recommendationLetterImageUrl, 'https://storage.example/public-letter.png')
+  assert.equal(experience.recommendationLetterUrl, 'https://example.test/recommendation')
+  assert.equal(toPublicEducation({ degree: 'BSc Degree', startYear: 2020 }).credentialImageUrl, '')
+  assert.equal(toPublicExperience({ role: 'Engineer', startDate: '2024-01-01' }).recommendationLetterImageUrl, '')
 })
 
 test('resume, media, and settings schemas reject invalid external data', () => {

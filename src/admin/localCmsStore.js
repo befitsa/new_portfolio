@@ -59,6 +59,39 @@ function upload(file, { kind = 'image', alt = '', replaceMediaId = '', onProgres
   })
 }
 
+async function uploadPrivateAsset(file, { onProgress = () => {} } = {}) {
+  const record = await upload(file, { kind: 'image', onProgress })
+  return {
+    url: record.url,
+    storagePath: record.storagePath,
+    fileName: record.fileName,
+    mimeType: record.mimeType,
+  }
+}
+
+async function discardUnreferencedPrivateAssets(storagePaths) {
+  const [media, records] = await Promise.all([
+    request('/media?view=drafts'),
+    Promise.all(['projects', 'experiences', 'education', 'resumes'].flatMap((type) =>
+      ['drafts', 'published'].map((view) => request(`/${type}?view=${view}`)),
+    )),
+  ])
+  const references = new Set()
+  const visit = (value) => {
+    if (!value || typeof value !== 'object') return
+    if (typeof value.storagePath === 'string') references.add(value.storagePath)
+    if (Array.isArray(value)) value.forEach(visit)
+    else Object.values(value).forEach(visit)
+  }
+  records.flat().forEach(visit)
+  const candidates = new Set((storagePaths || []).filter((storagePath) => !references.has(storagePath)))
+  for (const item of media) {
+    if (candidates.has(item.storagePath)) {
+      await request(`/media/${encoded(item.id)}`, { method: 'DELETE' })
+    }
+  }
+}
+
 export const localCmsApi = Object.freeze({
   request,
   health: () => request('/health'),
@@ -76,4 +109,6 @@ export const localCmsApi = Object.freeze({
   publishSettings: (expectedRevision) => request('/settings/publish', { method: 'POST', body: { expectedRevision } }),
   importImage: (sourceUrl, alt = '') => request('/media/import', { method: 'POST', body: { sourceUrl, alt } }),
   upload,
+  uploadPrivateAsset,
+  discardUnreferencedPrivateAssets,
 })

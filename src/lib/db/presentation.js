@@ -69,6 +69,8 @@ export function toPublicExperience(record) {
     date,
     description: record.description || '',
     skills: Array.isArray(record.skills) ? record.skills : [],
+    recommendationLetterUrl: record.recommendationLetterUrl || '',
+    recommendationLetterImageUrl: record.recommendationLetter?.url || '',
     order: record.order ?? 0,
   }
 }
@@ -80,11 +82,12 @@ export function toPublicEducation(record) {
 
   return {
     id: record.id,
-    title: record.degree,
+    title: record.degree === 'Other' ? record.customDegree || 'Other' : record.degree,
     place: [record.institution, record.notes].filter(Boolean).join(' · '),
     date,
     description: '',
     credentialUrl: record.credentialUrl || '',
+    credentialImageUrl: record.credentialImage?.url || '',
     order: record.order ?? 0,
   }
 }

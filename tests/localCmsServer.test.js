@@ -113,6 +113,47 @@ test('local image upload and replacement persist bytes and update published proj
   })
 })
 
+test('local education and experience documents persist through draft and publish lifecycles', async () => {
+  await withStore(async (directory) => {
+    const store = createLocalCmsStore(directory)
+    const credential = await store.upload({ bytes: imageBytes, fileName: 'credential.png', mimeType: 'image/png' })
+    const recommendation = await store.upload({ bytes: imageBytes, fileName: 'recommendation.png', mimeType: 'image/png' })
+    const education = await store.create('education', {
+      degree: 'Other',
+      customDegree: 'Advanced Certificate',
+      institution: 'Local University',
+      startYear: 2020,
+      credentialImage: { url: credential.url, storagePath: credential.storagePath },
+    })
+    const experience = await store.create('experiences', {
+      role: 'Engineer',
+      company: 'Local Studio',
+      startDate: '2022-01-01',
+      isCurrent: true,
+      skills: ['React'],
+      recommendationLetter: { url: recommendation.url, storagePath: recommendation.storagePath },
+      recommendationLetterUrl: 'https://example.test/recommendation',
+    })
+    assert.equal((await store.get('education', education.id)).credentialImage.storagePath, credential.storagePath)
+    assert.equal((await store.get('experiences', experience.id)).recommendationLetter.storagePath, recommendation.storagePath)
+    await store.publish('education', education.id, education.revision)
+    await store.publish('experiences', experience.id, experience.revision)
+    assert.equal((await store.get('education', education.id, 'published')).customDegree, 'Advanced Certificate')
+    assert.equal((await store.get('experiences', experience.id, 'published')).recommendationLetterUrl, 'https://example.test/recommendation')
+
+    await assert.rejects(store.deleteItem('media', credential.id), /still used/)
+    const updatedEducation = await store.save('education', education.id, {
+      ...education,
+      credentialImage: null,
+    }, education.revision)
+    await assert.rejects(store.deleteItem('media', credential.id), /still used/)
+    await store.publish('education', education.id, updatedEducation.revision)
+    await store.deleteItem('media', credential.id)
+    assert.equal(await store.serveUpload(credential.storagePath), null)
+    assert.deepEqual((await store.serveUpload(recommendation.storagePath)).contents, imageBytes)
+  })
+})
+
 test('local resume upload validates PDF bytes and keeps the resume draft private until publish', async () => {
   await withStore(async (directory) => {
     const store = createLocalCmsStore(directory)

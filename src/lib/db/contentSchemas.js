@@ -23,6 +23,10 @@ const imageAssetSchema = z.object({
   caption: optionalText(300).default(''),
   order: z.number().int().nonnegative().default(0),
 })
+const optionalPrivateImage = z.object({
+  url: z.union([z.literal(''), httpUrlSchema, localFileUrl]).default(''),
+  storagePath: z.string().trim().max(1024).default(''),
+}).nullable().default(null)
 
 export function normalizeProjectCategory(value) {
   if (value === 'Mobile App' || value === 'Mobile') return 'Mobile'
@@ -87,6 +91,8 @@ export const experienceSchema = z.object({
   employmentType: optionalText(80).default(''),
   description: optionalText(5000).default(''),
   skills: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
+  recommendationLetter: optionalPrivateImage,
+  recommendationLetterUrl: optionalUrl.default(''),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
 }).superRefine((value, context) => {
@@ -111,14 +117,23 @@ export const experienceSchema = z.object({
 
 export const educationSchema = z.object({
   degree: z.string().trim().min(1).max(160),
+  customDegree: optionalText(160).default(''),
   institution: z.string().trim().min(1).max(160),
   startYear: z.number().int().min(1900).max(2200),
   endYear: z.number().int().min(1900).max(2200).nullable().default(null),
   notes: optionalText(3000).default(''),
   credentialUrl: optionalUrl.default(''),
+  credentialImage: optionalPrivateImage,
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
 }).superRefine((value, context) => {
+  if (value.degree === 'Other' && !value.customDegree.trim()) {
+    context.addIssue({
+      code: 'custom',
+      path: ['customDegree'],
+      message: 'Enter the custom qualification.',
+    })
+  }
   if (value.endYear !== null && value.endYear < value.startYear) {
     context.addIssue({
       code: 'custom',
