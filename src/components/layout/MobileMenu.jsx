@@ -148,7 +148,7 @@ export default function MobileMenu({ open, onClose, onToggle, activeId }) {
             aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
             className={`grid size-12 shrink-0 place-items-center rounded-full transition-[background-color,color,transform] duration-200 active:scale-95 ${open ? 'bg-forest text-white' : 'text-forest hover:bg-soft-green focus-visible:bg-soft-green'}`}
           >
-            {open ? <X className="size-6" aria-hidden="true" /> : <FontAwesomeIcon icon={byPrefixAndName.fadl['grid-2']} className="size-6" aria-hidden="true" />}
+            {open ? <X className="size-6" aria-hidden="true" /> : <FontAwesomeIcon icon={byPrefixAndName.far['grid-2']} className="size-6" aria-hidden="true" />}
           </button>
           <span aria-live="polite" className="min-w-0 flex-1 truncate px-3 text-center text-xs font-semibold text-forest/75">
             {activeItem?.label ?? 'Explore'}

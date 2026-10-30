@@ -48,13 +48,14 @@ function strokeRrect(x, y, w, h, r, s) {
   return outer + inner
 }
 
-// 512x512 canvas: 4 tiles in a 2x2 grid (184x184 with 48px margins & gaps)
-// Font Awesome Duotone paths: [secondaryPath, primaryPath]
-// secondaryPath = fa-secondary (rendered at default opacity 0.4)
-// primaryPath = fa-primary (rendered at default opacity 1.0)
-// Duotone Light and Thin grid-2 paths (512x512 canvas, 4 tiles in 2x2 grid)
-// secondaryPath = fa-secondary (rendered at default opacity 0.4)
-// primaryPath = fa-primary (rendered at default opacity 1.0)
+// Regular (single-layer outline), Duotone Light, and Duotone Thin grid-2 paths (512x512 canvas, 4 tiles in 2x2 grid)
+const regularPath = [
+  strokeRrect(48, 48, 184, 184, 36, 32),
+  strokeRrect(280, 48, 184, 184, 36, 32),
+  strokeRrect(48, 280, 184, 184, 36, 32),
+  strokeRrect(280, 280, 184, 184, 36, 32),
+].join(' ')
+
 const lightSec = `${strokeRrect(48, 48, 184, 184, 28, 24)} ${strokeRrect(280, 280, 184, 184, 28, 24)}`
 const lightPri = `${strokeRrect(280, 48, 184, 184, 28, 24)} ${strokeRrect(48, 280, 184, 184, 28, 24)}`
 
@@ -63,6 +64,12 @@ const thinPri = `${strokeRrect(280, 48, 184, 184, 28, 20)} ${strokeRrect(48, 280
 
 const solidSec = `${rrect(48, 48, 184, 184, 28)} ${rrect(280, 280, 184, 184, 28)}`
 const solidPri = `${rrect(280, 48, 184, 184, 28)} ${rrect(48, 280, 184, 184, 28)}`
+
+export const faGrid2Regular = {
+  prefix: 'far',
+  iconName: 'grid-2',
+  icon: [512, 512, [], 'e196', regularPath],
+}
 
 export const faGrid2DuotoneLight = {
   prefix: 'fadl',
@@ -83,10 +90,13 @@ export const faGrid2Duotone = {
 }
 
 // Register icons with Font Awesome library
-library.add(faGrid2DuotoneLight, faGrid2DuotoneThin, faGrid2Duotone)
+library.add(faGrid2Regular, faGrid2DuotoneLight, faGrid2DuotoneThin, faGrid2Duotone)
 
 // Registered icon mappings for byPrefixAndName lookup
 const iconRegistry = {
+  far: {
+    'grid-2': faGrid2Regular,
+  },
   fadl: {
     'grid-2': faGrid2DuotoneLight,
   },
