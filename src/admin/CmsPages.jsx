@@ -166,6 +166,7 @@ export function CmsDashboardPage() {
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
   const localMode = apiStatus.state === 'local'
+  const [assetDiagnostics, setAssetDiagnostics] = useState([])
   const publishedProjects = projects.published.filter((item) => item.status === 'published' && item.visibility)
   const drafts = projects.drafts.filter((item) => item.status === 'draft')
   const currentResume = resumes.published.find((item) => item.isActive && item.visibility)
@@ -174,6 +175,34 @@ export function CmsDashboardPage() {
     + education.published.filter((item) => item.status === 'published' && item.visibility).length
   const careerDraftCount = experiences.drafts.filter((item) => item.status === 'draft').length
     + education.drafts.filter((item) => item.status === 'draft').length
+  const assetIssues = assetDiagnostics.filter((item) => item.status !== 'accessible')
+  useEffect(() => {
+    if (!ready || localMode) {
+      setAssetDiagnostics([])
+      return undefined
+    }
+
+    let active = true
+    const updateDiagnostics = () => {
+      if (active) setAssetDiagnostics(adminApi.getStorageAssetDiagnostics())
+    }
+    const unsubscribe = adminApi.subscribeStorageAssetDiagnostics(updateDiagnostics)
+    updateDiagnostics()
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [ready, localMode])
+  const retryAssetDiagnostics = async () => {
+    adminApi.retryStorageAssetChecks()
+    await Promise.all([
+      projects.refresh(),
+      experiences.refresh(),
+      education.refresh(),
+      resumes.refresh(),
+      media.refresh(),
+    ])
+  }
   let publicUrl = ''
   try { publicUrl = getPublicSiteUrl() } catch { /* The public host may not be configured yet. */ }
   const latest = useMemo(() => {
@@ -195,6 +224,29 @@ export function CmsDashboardPage() {
     <PageHeader eyebrow={localMode ? 'LOCAL DEVELOPMENT · PORTFOLIO ENGINE' : 'CURATOR CONSOLE · PORTFOLIO ENGINE'} title={`Welcome back, ${profile.firstName[0] + profile.firstName.slice(1).toLowerCase()}`} description={localMode ? 'Manage a local copy of the existing portfolio. Changes stay on this device and do not reach the live website.' : ready ? apiStatus.publishReady ? 'The live CMS is connected for drafts and uploads. Publishing remains subject to the trusted Storage review.' : 'The live CMS is connected for drafts and uploads; publishing is blocked until Storage is ready and reviewed.' : 'Review the portfolio. Production content editing requires a persistent CMS provider.'} />
     {!ready && <CmsConnectionNotice status={apiStatus} />}
     {errors.length > 0 && <ContentError error={errors[0]} retry={() => [projects.refresh(), experiences.refresh(), education.refresh(), resumes.refresh(), media.refresh()]} />}
+    {assetDiagnostics.length > 0 && <section className="cms-dashboard-panel cms-asset-diagnostics" aria-live="polite">
+      <div className="cms-panel-heading">
+        <div><h2>Storage asset diagnostics</h2><p>{assetIssues.length ? `${assetIssues.length} asset access issue${assetIssues.length === 1 ? '' : 's'} found.` : `${assetDiagnostics.length} referenced asset${assetDiagnostics.length === 1 ? '' : 's'} accessible.`}</p></div>
+        {assetIssues.length > 0 && <Button onClick={retryAssetDiagnostics}><RefreshCw size={14} /> Retry failed assets</Button>}
+      </div>
+      <div className="cms-version-list">{assetDiagnostics.map((item, index) => <article className="cms-version-row" key={`${item.recordType}:${item.recordId}:${item.field}:${item.bucket}:${item.objectPath}:${index}`}>
+        <span className={`cms-version-marker${item.status === 'accessible' ? ' is-active' : ''}`}>{item.status === 'accessible' ? <Check size={14} /> : <CircleAlert size={14} />}</span>
+        <div><strong>{item.status === 'accessible' ? 'Accessible' : item.status.replaceAll('-', ' ')}</strong>
+          <small>{item.recordType} · record {item.recordId} · field {item.field}</small>
+          <small>Bucket {item.bucket} · object {item.objectPath}</small>
+          <small>Recommended action: {item.recommendedAction}</small>
+          {item.status !== 'accessible' && <a className="cms-quiet-link" href={cmsHref(
+            item.recordType === 'projects'
+              ? `/projects/${encodeURIComponent(item.recordId)}`
+              : item.recordType === 'experiences' || item.recordType === 'education'
+                ? '/background'
+                : item.recordType === 'resumes'
+                  ? '/resume'
+                  : '/media',
+          )}>Open record to replace or investigate</a>}
+        </div>
+      </article>)}</div>
+    </section>}
     <section className="cms-welcome-card cms-dashboard-welcome"><div><span className="cms-dashboard-kicker"><ShieldCheck size={15} /> {localMode ? 'LOCAL PREVIEW' : 'CURATOR CONSOLE'}</span><h2>Your portfolio workspace</h2><p>{localMode ? 'Create, edit, and remove local records. Local publish actions update only the local public preview.' : ready ? 'Your connected CMS provider can save drafts and manage private uploads. Publishing remains protected by the Storage audit gate.' : apiStatus.message}</p></div><div className="cms-welcome-status"><strong className={ready && !errors.length ? 'is-ready' : ''}>{localMode ? 'Local JSON + disk ready' : ready && !errors.length ? 'Persistent provider connected' : apiStatus.label}</strong><p>{localMode ? 'Records are saved in local JSON files; uploads are stored on disk.' : ready ? apiStatus.publishReady ? 'Content API is connected; publishing is ready.' : apiStatus.publishMessage || 'Content API is connected; publishing needs Storage review.' : apiStatus.message}</p></div></section>
     <div className="cms-quick-actions"><span className="cms-section-kicker">QUICK ACTIONS</span><Button variant="primary" href="/projects/new"><Plus size={15} /> Add Project</Button><Button href="/background"><Plus size={15} /> Add Experience</Button><Button href="/resume"><Upload size={15} /> Upload Resume</Button><Button href="/media"><ImageIcon size={15} /> Manage Media</Button></div>
     <section className="cms-stats-grid">

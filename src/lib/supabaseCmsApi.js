@@ -207,9 +207,11 @@ function storageBucketAndPath(storagePath) {
   }
 }
 
-function walkAssets(value, transform) {
+function walkAssets(value, transform, fieldPath = []) {
   if (Array.isArray(value)) {
-    return Promise.all(value.map((item) => walkAssets(item, transform)))
+    return Promise.all(value.map((item, index) =>
+      walkAssets(item, transform, [...fieldPath, `[${index}]`]),
+    ))
   }
 
   if (!value || typeof value !== 'object') {
@@ -219,11 +221,13 @@ function walkAssets(value, transform) {
   return Promise.all(
     Object.entries(value).map(async ([key, item]) => [
       key,
-      await walkAssets(item, transform),
+      await walkAssets(item, transform, [...fieldPath, key]),
     ]),
   ).then(async (entries) => {
     const result = Object.fromEntries(entries)
-    return result.storagePath ? transform(result) : result
+    return result.storagePath
+      ? transform(result, [...fieldPath, 'storagePath'].join('.'))
+      : result
   })
 }
 
@@ -296,48 +300,217 @@ function createCmsApi(client) {
     )
   }
 
+  const signedUrlCache = new Map()
+  const assetDiagnostics = new Map()
+  const assetDiagnosticListeners = new Set()
+
+  function publishAssetDiagnostic(diagnostic) {
+    const key = [
+      diagnostic.recordType,
+      diagnostic.recordId,
+      diagnostic.field,
+      diagnostic.bucket,
+      diagnostic.objectPath,
+    ].join(':')
+    assetDiagnostics.set(key, diagnostic)
+    assetDiagnosticListeners.forEach((listener) => listener())
+  }
+
+  function classifySigningFailure(error) {
+    const code = String(error?.statusCode || error?.code || '')
+    const status = Number(error?.status || error?.statusCode || 0)
+    const message = String(error?.message || '')
+
+    if (/jwt|token/.test(message.toLowerCase()) && /expired|invalid/.test(message.toLowerCase())) {
+      return { status: 'expired-auth', action: 'Sign in again, then retry.' }
+    }
+    if (status === 403 || code === '42501' || /unauthorized|permission denied|row-level security/i.test(message)) {
+      return { status: 'access-denied', action: 'Investigate administrator and Storage object permissions.' }
+    }
+    if (status === 401) {
+      return { status: 'access-denied', action: 'Check the administrator sign-in and Storage object permissions.' }
+    }
+    if (status === 404 || code === '404' || /^object not found\.?$/i.test(message.trim())) {
+      return { status: 'missing', action: 'Replace or re-upload this asset.' }
+    }
+    if (error instanceof TypeError || /network|fetch|timeout|failed to fetch/i.test(message)) {
+      return { status: 'network-error', action: 'Check the connection and retry.' }
+    }
+    return { status: 'storage-error', action: 'Inspect the Storage error and project configuration.' }
+  }
+
+  function diagnosticClassification(error) {
+    const status = error instanceof SupabaseCmsError
+      ? error.state
+      : classifySigningFailure(error).status
+
+    if (status === 'missing_asset' || status === 'missing') {
+      return { status: 'missing', action: 'Replace or re-upload this asset.' }
+    }
+    if (status === 'auth') {
+      return { status: 'access-denied', action: 'Investigate administrator and Storage object permissions.' }
+    }
+    if (status === 'expired-auth') {
+      return { status, action: 'Sign in again, then retry.' }
+    }
+    if (status === 'access-denied') {
+      return { status, action: 'Investigate administrator and Storage object permissions.' }
+    }
+    if (status === 'network-error') {
+      return { status, action: 'Check the connection and retry.' }
+    }
+    return { status: 'storage-error', action: 'Inspect the Storage error and project configuration.' }
+  }
+
   async function signedUrl(storagePath, download) {
     const parsed = storageBucketAndPath(storagePath)
 
     if (!parsed) return ''
 
-    const { data, error } = await client.storage
-      .from(parsed.bucket)
-      .createSignedUrl(
-        parsed.path,
-        60 * 60,
-        download ? { download } : {},
-      )
+    const cacheKey = `${storagePath}\u0000${download || ''}`
+    const now = Date.now()
+    const cached = signedUrlCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+      if (cached.error) throw cached.error
+      return cached.promise
+    }
 
-    await throwStorageError(error, 'signing')
+    const entry = {
+      expiresAt: now + 55 * 60 * 1000,
+      error: null,
+      promise: null,
+    }
+    entry.promise = (async () => {
+      try {
+        const { data, error } = await client.storage
+          .from(parsed.bucket)
+          .createSignedUrl(
+            parsed.path,
+            60 * 60,
+            download ? { download } : {},
+          )
 
-    return data.signedUrl
+        if (error) {
+          const classification = classifySigningFailure(error)
+          entry.expiresAt = Date.now() + 15 * 1000
+          entry.error = new SupabaseCmsError(
+            classification.status === 'missing' ? 'missing_asset' : classification.status,
+            error.message || 'Supabase Storage signing failed.',
+            error,
+          )
+          throw entry.error
+        }
+
+        return data.signedUrl
+      } catch (error) {
+        if (error instanceof SupabaseCmsError) throw error
+        const classification = classifySigningFailure(error)
+        entry.expiresAt = Date.now() + 15 * 1000
+        entry.error = new SupabaseCmsError(
+          classification.status,
+          error?.message || 'Supabase Storage signing failed.',
+          error,
+        )
+        throw entry.error
+      }
+    })()
+    signedUrlCache.set(cacheKey, entry)
+    return entry.promise
   }
 
-  async function hydratePrivateAssets(value) {
-    return walkAssets(value, async (asset) => {
+  async function hydratePrivateAssets(value, recordType = 'unknown', recordId = 'unknown') {
+    const normalizedRecordId = String(recordId || 'unknown')
+    let diagnosticsChanged = false
+    for (const [key, diagnostic] of assetDiagnostics) {
+      if (diagnostic.recordType === recordType && diagnostic.recordId === normalizedRecordId) {
+        assetDiagnostics.delete(key)
+        diagnosticsChanged = true
+      }
+    }
+    if (diagnosticsChanged) {
+      assetDiagnosticListeners.forEach((listener) => listener())
+    }
+
+    return walkAssets(value, async (asset, field) => {
       const parsed = storageBucketAndPath(asset.storagePath)
 
       if (!parsed || !sourceBuckets.has(parsed.bucket)) {
         return asset
       }
 
-      const url = await signedUrl(asset.storagePath)
+      const diagnosticBase = {
+        recordType,
+        recordId: normalizedRecordId,
+        field,
+        bucket: parsed.bucket,
+        objectPath: parsed.path,
+      }
+      let url
+      try {
+        url = await signedUrl(asset.storagePath)
+        publishAssetDiagnostic({
+          ...diagnosticBase,
+          status: 'accessible',
+          recommendedAction: 'No action required.',
+        })
+      } catch (error) {
+        const classification = diagnosticClassification(error)
+        publishAssetDiagnostic({
+          ...diagnosticBase,
+          status: classification.status,
+          recommendedAction: classification.action,
+        })
+        return {
+          ...asset,
+          url: '',
+          ...(Object.hasOwn(asset, 'fileUrl') ? { fileUrl: '' } : {}),
+          ...(Object.hasOwn(asset, 'previewUrl') ? { previewUrl: '' } : {}),
+        }
+      }
+
       const result = { ...asset }
 
       if ('url' in result) result.url = url
 
       if ('fileUrl' in result) {
-        result.fileUrl = await signedUrl(
-          asset.storagePath,
-          asset.fileName || true,
-        )
+        try {
+          result.fileUrl = await signedUrl(asset.storagePath, asset.fileName || true)
+        } catch (error) {
+          result.fileUrl = ''
+          const classification = diagnosticClassification(error)
+          publishAssetDiagnostic({
+            ...diagnosticBase,
+            field: `${field} (download)`,
+            status: classification.status,
+            recommendedAction: classification.action,
+          })
+        }
       }
 
       if ('previewUrl' in result) result.previewUrl = url
 
       return result
     })
+  }
+
+  function getStorageAssetDiagnostics() {
+    return [...assetDiagnostics.values()]
+      .sort((left, right) =>
+        left.recordType.localeCompare(right.recordType)
+        || left.recordId.localeCompare(right.recordId)
+        || left.field.localeCompare(right.field),
+      )
+  }
+
+  function subscribeStorageAssetDiagnostics(listener) {
+    assetDiagnosticListeners.add(listener)
+    return () => assetDiagnosticListeners.delete(listener)
+  }
+
+  function retryStorageAssetChecks() {
+    for (const [key, entry] of signedUrlCache) {
+      if (entry.error) signedUrlCache.delete(key)
+    }
   }
 
   async function uploadFile(file, bucket, path, contentType, onProgress) {
@@ -526,7 +699,11 @@ function createCmsApi(client) {
 
     const records = await Promise.all(
       value.map((row) =>
-        hydratePrivateAssets(recordFromRpc(row, type, view)),
+        hydratePrivateAssets(
+          recordFromRpc(row, type, view),
+          type,
+          row?.id,
+        ),
       ),
     )
 
@@ -643,6 +820,10 @@ function createCmsApi(client) {
       }
     },
 
+    getStorageAssetDiagnostics,
+    subscribeStorageAssetDiagnostics,
+    retryStorageAssetChecks,
+
     async recordPublicStorageAudit(snapshot) {
       if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
         throw new SupabaseCmsError(
@@ -669,7 +850,7 @@ function createCmsApi(client) {
         p_view: view,
       })
 
-      return hydratePrivateAssets(recordFromRpc(value, type, view))
+      return hydratePrivateAssets(recordFromRpc(value, type, view), type, id)
     },
 
     async create(type, content) {
@@ -932,9 +1113,7 @@ function createCmsApi(client) {
         p_view: view,
       })
 
-      return hydratePrivateAssets(
-        recordFromRpc(value, 'settings', view),
-      )
+      return hydratePrivateAssets(recordFromRpc(value, 'settings', view), 'settings', 'main')
     },
 
     async saveSettings(content, expectedRevision = 0) {

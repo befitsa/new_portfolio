@@ -23,13 +23,19 @@ function project(overrides = {}) {
   })
 }
 
-function mockClient(rpc, { isAdmin = true, userId = '11111111-1111-4111-8111-111111111111' } = {}) {
+function mockClient(rpc, {
+  isAdmin = true,
+  userId = '11111111-1111-4111-8111-111111111111',
+  signingErrors = new Map(),
+} = {}) {
   const storageCalls = []
   const storage = {
     from(bucket) {
       return {
         async createSignedUrl(path) {
           storageCalls.push(['signed', bucket, path])
+          const error = signingErrors.get(`${bucket}/${path}`)
+          if (error) return { data: null, error }
           return { data: { signedUrl: `https://signed.example/${path}` }, error: null }
         },
         async upload(path) {
@@ -165,6 +171,156 @@ test('health separates Storage reachability from the publication audit gate', as
     client.storageCalls.filter(([operation]) => operation === 'list').map(([, bucket]) => bucket),
     [PRIVATE_BUCKET, PUBLIC_BUCKET],
   )
+})
+
+test('missing project images do not break dashboard record loading and are reported by record', async () => {
+  const missingPath = `${PRIVATE_BUCKET}/drafts/admin/shared/cover.png`
+  const client = mockClient(async (name, args) => {
+    assert.equal(name, 'cms_list_records')
+    assert.equal(args.p_type, 'projects')
+    return {
+      data: [
+        {
+          id: 'project-missing-a',
+          ...project({ heroImage: { storagePath: missingPath, url: 'https://example.test/old-cover.png' } }),
+          status: 'draft',
+          revision: 1,
+        },
+        {
+          id: 'project-missing-b',
+          ...project({ title: 'Second project', heroImage: { storagePath: missingPath, url: 'https://example.test/old-cover.png' } }),
+          status: 'draft',
+          revision: 1,
+        },
+        {
+          id: 'project-valid',
+          ...project({ title: 'Valid project', heroImage: { storagePath: `${PRIVATE_BUCKET}/drafts/admin/valid/cover.png` } }),
+          status: 'draft',
+          revision: 1,
+        },
+      ],
+      error: null,
+    }
+  }, {
+    signingErrors: new Map([[missingPath, { statusCode: '404', message: 'Object not found' }]]),
+  })
+  const api = createSupabaseCmsApi(client)
+  const records = await api.list('projects', 'drafts')
+
+  assert.equal(records.length, 3)
+  assert.equal(records[0].heroImage.storagePath, missingPath)
+  assert.equal(records[0].heroImage.url, '')
+  assert.equal(records[2].heroImage.url, 'https://signed.example/drafts/admin/valid/cover.png')
+  assert.equal(client.storageCalls.filter(([op, bucket, path]) =>
+    op === 'signed' && bucket === PRIVATE_BUCKET && path === 'drafts/admin/shared/cover.png',
+  ).length, 1, 'same missing object should be signed only once during this collection load')
+  assert.deepEqual(
+    api.getStorageAssetDiagnostics()
+      .filter((item) => item.objectPath === 'drafts/admin/shared/cover.png')
+      .map(({ recordType, recordId, field, bucket, status, recommendedAction }) => ({
+        recordType, recordId, field, bucket, status, recommendedAction,
+      })),
+    [
+      {
+        recordType: 'projects',
+        recordId: 'project-missing-a',
+        field: 'heroImage.storagePath',
+        bucket: PRIVATE_BUCKET,
+        status: 'missing',
+        recommendedAction: 'Replace or re-upload this asset.',
+      },
+      {
+        recordType: 'projects',
+        recordId: 'project-missing-b',
+        field: 'heroImage.storagePath',
+        bucket: PRIVATE_BUCKET,
+        status: 'missing',
+        recommendedAction: 'Replace or re-upload this asset.',
+      },
+    ],
+  )
+})
+
+test('missing resume assets preserve resume records while exposing a diagnostic', async () => {
+  const storagePath = `${PRIVATE_BUCKET}/drafts/admin/resume/file.pdf`
+  const client = mockClient(async () => ({
+    data: [{
+      id: 'resume-missing',
+      fileName: 'resume.pdf',
+      fileUrl: 'expired-url',
+      previewUrl: 'expired-preview',
+      storagePath,
+      status: 'published',
+      revision: 3,
+      visibility: true,
+    }],
+    error: null,
+  }), {
+    signingErrors: new Map([[storagePath, { statusCode: '404', message: 'Object not found' }]]),
+  })
+  const api = createSupabaseCmsApi(client)
+  const [resume] = await api.list('resumes', 'published')
+
+  assert.equal(resume.id, 'resume-missing')
+  assert.equal(resume.fileName, 'resume.pdf')
+  assert.equal(resume.storagePath, storagePath)
+  assert.equal(resume.fileUrl, '')
+  assert.equal(resume.previewUrl, '')
+  assert.equal(api.getStorageAssetDiagnostics()[0].recordType, 'resumes')
+  assert.equal(api.getStorageAssetDiagnostics()[0].status, 'missing')
+})
+
+test('Storage diagnostics distinguish access denial, expired auth, network and other errors', async () => {
+  const assets = [
+    ['denied', { status: 403, message: 'Unauthorized' }, 'access-denied'],
+    ['unauthenticated', { status: 401, message: 'Unauthorized' }, 'access-denied'],
+    ['expired', { status: 401, message: 'JWT expired' }, 'expired-auth'],
+    ['offline', new TypeError('Failed to fetch'), 'network-error'],
+    ['other', { status: 500, message: 'Storage internal error' }, 'storage-error'],
+  ]
+  const signingErrors = new Map(assets.map(([name, error]) => [
+    `${PRIVATE_BUCKET}/drafts/${name}.png`,
+    error,
+  ]))
+  const client = mockClient(async () => ({
+    data: assets.map(([name]) => ({
+      id: `project-${name}`,
+      ...project({ title: name, heroImage: { storagePath: `${PRIVATE_BUCKET}/drafts/${name}.png`, url: 'https://example.test/stale.png' } }),
+      status: 'draft',
+    })),
+    error: null,
+  }), { signingErrors })
+  const api = createSupabaseCmsApi(client)
+  const records = await api.list('projects', 'drafts')
+
+  assert.equal(records.length, assets.length)
+  assert.ok(records.every((record) => record.heroImage.url === '' && record.heroImage.storagePath))
+  assert.deepEqual(
+    api.getStorageAssetDiagnostics().map((item) => item.status).sort(),
+    assets.map(([, , status]) => status).sort(),
+  )
+})
+
+test('failed asset diagnostics can be retried after an object is restored', async () => {
+  const storagePath = `${PRIVATE_BUCKET}/drafts/admin/restored.png`
+  const signingErrors = new Map([[storagePath, { statusCode: '404', message: 'Object not found' }]])
+  const client = mockClient(async () => ({
+    data: [{
+      id: 'project-restored',
+      ...project({ heroImage: { storagePath } }),
+      status: 'draft',
+    }],
+    error: null,
+  }), { signingErrors })
+  const api = createSupabaseCmsApi(client)
+
+  await api.list('projects', 'drafts')
+  assert.equal(api.getStorageAssetDiagnostics()[0].status, 'missing')
+  signingErrors.delete(storagePath)
+  api.retryStorageAssetChecks()
+  const [restored] = await api.list('projects', 'drafts')
+  assert.match(restored.heroImage.url, /restored\.png/)
+  assert.equal(api.getStorageAssetDiagnostics()[0].status, 'accessible')
 })
 
 test('create sends validated draft content with initial optimistic revision', async () => {
