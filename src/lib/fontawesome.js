@@ -52,11 +52,23 @@ function strokeRrect(x, y, w, h, r, s) {
 // Font Awesome Duotone paths: [secondaryPath, primaryPath]
 // secondaryPath = fa-secondary (rendered at default opacity 0.4)
 // primaryPath = fa-primary (rendered at default opacity 1.0)
+// Duotone Light and Thin grid-2 paths (512x512 canvas, 4 tiles in 2x2 grid)
+// secondaryPath = fa-secondary (rendered at default opacity 0.4)
+// primaryPath = fa-primary (rendered at default opacity 1.0)
+const lightSec = `${strokeRrect(48, 48, 184, 184, 28, 24)} ${strokeRrect(280, 280, 184, 184, 28, 24)}`
+const lightPri = `${strokeRrect(280, 48, 184, 184, 28, 24)} ${strokeRrect(48, 280, 184, 184, 28, 24)}`
+
 const thinSec = `${strokeRrect(48, 48, 184, 184, 28, 20)} ${strokeRrect(280, 280, 184, 184, 28, 20)}`
 const thinPri = `${strokeRrect(280, 48, 184, 184, 28, 20)} ${strokeRrect(48, 280, 184, 184, 28, 20)}`
 
 const solidSec = `${rrect(48, 48, 184, 184, 28)} ${rrect(280, 280, 184, 184, 28)}`
 const solidPri = `${rrect(280, 48, 184, 184, 28)} ${rrect(48, 280, 184, 184, 28)}`
+
+export const faGrid2DuotoneLight = {
+  prefix: 'fadl',
+  iconName: 'grid-2',
+  icon: [512, 512, [], 'e196', [lightSec, lightPri]],
+}
 
 export const faGrid2DuotoneThin = {
   prefix: 'fadt',
@@ -71,10 +83,13 @@ export const faGrid2Duotone = {
 }
 
 // Register icons with Font Awesome library
-library.add(faGrid2DuotoneThin, faGrid2Duotone)
+library.add(faGrid2DuotoneLight, faGrid2DuotoneThin, faGrid2Duotone)
 
 // Registered icon mappings for byPrefixAndName lookup
 const iconRegistry = {
+  fadl: {
+    'grid-2': faGrid2DuotoneLight,
+  },
   fadt: {
     'grid-2': faGrid2DuotoneThin,
   },

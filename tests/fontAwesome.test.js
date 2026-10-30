@@ -3,13 +3,12 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { library } from '@fortawesome/fontawesome-svg-core'
-import { byPrefixAndName, faGrid2DuotoneThin } from '../src/lib/fontawesome.js'
+import { byPrefixAndName } from '../src/lib/fontawesome.js'
 
-test('Font Awesome duotone thin grid-2 is registered and accessible via byPrefixAndName', () => {
-  const icon = byPrefixAndName.fadt['grid-2']
+test('Font Awesome duotone light grid-2 is registered and accessible via byPrefixAndName.fadl', () => {
+  const icon = byPrefixAndName.fadl['grid-2']
   assert.ok(icon, 'Icon definition should exist')
-  assert.equal(icon.prefix, 'fadt')
+  assert.equal(icon.prefix, 'fadl')
   assert.equal(icon.iconName, 'grid-2')
   assert.equal(icon.icon[0], 512)
   assert.equal(icon.icon[1], 512)
@@ -20,13 +19,13 @@ test('Font Awesome duotone thin grid-2 is registered and accessible via byPrefix
   // Render with FontAwesomeIcon
   const html = renderToStaticMarkup(
     React.createElement(FontAwesomeIcon, {
-      icon: byPrefixAndName.fadt['grid-2'],
+      icon: byPrefixAndName.fadl['grid-2'],
       className: 'size-6',
       'aria-hidden': 'true',
     })
   )
 
-  assert.ok(html.includes('data-prefix="fadt"'), 'Should render with fadt prefix')
+  assert.ok(html.includes('data-prefix="fadl"'), 'Should render with fadl prefix')
   assert.ok(html.includes('data-icon="grid-2"'), 'Should render with grid-2 icon name')
   assert.ok(html.includes('svg-inline--fa fa-grid-2 size-6'), 'Should preserve size-6 and FA classes')
   assert.ok(html.includes('fa-duotone-group'), 'Should include duotone group element')
@@ -34,3 +33,8 @@ test('Font Awesome duotone thin grid-2 is registered and accessible via byPrefix
   assert.ok(html.includes('fa-primary'), 'Should include primary layer')
 })
 
+test('Font Awesome duotone thin grid-2 remains available via byPrefixAndName.fadt', () => {
+  const icon = byPrefixAndName.fadt['grid-2']
+  assert.ok(icon, 'Icon definition should exist')
+  assert.equal(icon.prefix, 'fadt')
+})
