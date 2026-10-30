@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import {
   createSupabaseCmsApi,
+  getSupabaseCmsReadiness,
   LEGACY_STORAGE_BUCKETS,
   MAX_IMAGE_BYTES,
   PRIVATE_BUCKET,
@@ -126,6 +127,43 @@ test('resume validation accepts structurally valid PDFs and rejects non-PDF byte
   await assert.rejects(
     validateSupabaseUpload(imageFile({ type: 'application/pdf' }), 'resume'),
     (error) => error instanceof SupabaseCmsError && error.state === 'validation',
+  )
+})
+
+test('health separates Storage reachability from the publication audit gate', async () => {
+  const client = mockClient(async (name) => {
+    assert.equal(name, 'cms_health')
+    return {
+      data: {
+        ok: true,
+        admin: true,
+        database: { ready: true },
+        storage: {
+          ready: false,
+          message: 'A trusted operator must review the public bucket.',
+        },
+      },
+      error: null,
+    }
+  })
+  const api = createSupabaseCmsApi(client)
+  const health = await api.health()
+
+  assert.equal(health.database.ready, true)
+  assert.equal(health.storage.accessible, true)
+  assert.equal(health.storage.ready, false)
+  assert.equal(health.storage.availabilityMessage, '')
+  assert.match(health.storage.publicationMessage, /trusted operator/)
+  assert.equal(health.storage.message, health.storage.publicationMessage)
+  assert.deepEqual(getSupabaseCmsReadiness(health), {
+    databaseReady: true,
+    ready: true,
+    storageReady: true,
+    publishReady: false,
+  })
+  assert.deepEqual(
+    client.storageCalls.filter(([operation]) => operation === 'list').map(([, bucket]) => bucket),
+    [PRIVATE_BUCKET, PUBLIC_BUCKET],
   )
 })
 

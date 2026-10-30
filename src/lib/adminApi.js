@@ -8,7 +8,11 @@ import {
   productionCmsStorageLabel,
 } from '../services/cmsProvider.js'
 import { supabase } from './supabase.js'
-import { createSupabaseCmsApi, SupabaseCmsError } from './supabaseCmsApi.js'
+import {
+  createSupabaseCmsApi,
+  getSupabaseCmsReadiness,
+  SupabaseCmsError,
+} from './supabaseCmsApi.js'
 
 const statusLabels = {
   checking: 'Checking CMS…',
@@ -56,10 +60,10 @@ export const adminApi = new Proxy(unavailableApi, {
 })
 
 let apiStatus = isLocalCmsMode()
-  ? { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
+  ? { state: 'checking', ready: false, storageReady: false, publishReady: false, checking: true, label: statusLabels.checking, message: statusLabels.checking, checkedAt: null }
   : hasProductionCmsProvider
-    ? { state: 'checking', ready: false, storageReady: false, checking: true, label: statusLabels.checking, message: 'Checking Supabase administrator access and storage…', checkedAt: null }
-    : { state: 'unconfigured', ready: false, storageReady: false, checking: false, label: statusLabels.unconfigured, message: productionMessage, checkedAt: new Date().toISOString() }
+    ? { state: 'checking', ready: false, storageReady: false, publishReady: false, checking: true, label: statusLabels.checking, message: 'Checking Supabase administrator access and storage…', checkedAt: null }
+    : { state: 'unconfigured', ready: false, storageReady: false, publishReady: false, checking: false, label: statusLabels.unconfigured, message: productionMessage, checkedAt: new Date().toISOString() }
 
 const statusListeners = new Set()
 
@@ -85,6 +89,7 @@ export async function checkCmsApiHealth() {
       const note = health.recoveryNotice ? ` ${health.recoveryNotice}` : ''
       updateApiStatus({
         state: 'local', ready: true, storageReady: true, checking: false,
+        publishReady: true,
         message: `Development mode: changes are saved in local JSON files and uploads are stored on this machine. They are not published to the live website.${note}`,
         checkedAt: new Date().toISOString(),
       })
@@ -97,29 +102,42 @@ export async function checkCmsApiHealth() {
   }
 
   if (!productionApi) {
-    updateApiStatus({ state: 'unconfigured', ready: false, storageReady: false, checking: false, message: productionMessage, checkedAt: new Date().toISOString() })
+    updateApiStatus({ state: 'unconfigured', ready: false, storageReady: false, publishReady: false, checking: false, message: productionMessage, checkedAt: new Date().toISOString() })
     return false
   }
 
   updateApiStatus({ state: 'checking', ready: false, checking: true, message: 'Checking Supabase administrator access and storage…', checkedAt: apiStatus.checkedAt })
   try {
     const health = await productionApi.health()
-    const databaseReady = health?.database?.ready === true
-    const storageReady = health?.storage?.ready === true
-    const ready = health?.ok === true && health?.admin === true && databaseReady && storageReady
+    const {
+      databaseReady,
+      ready,
+      storageReady,
+      publishReady,
+    } = getSupabaseCmsReadiness(health)
     const unavailable = [
       !health?.admin ? 'Sign in with the registered Supabase portfolio administrator account.' : '',
       !databaseReady ? health?.database?.message || 'Supabase Postgres is unavailable.' : '',
-      !storageReady ? health?.storage?.message || 'Supabase Storage is not configured for public and private portfolio assets.' : '',
     ].filter(Boolean)
+    const label = !ready
+      ? undefined
+      : !storageReady
+        ? 'Supabase connected · Storage unavailable'
+        : !publishReady
+          ? 'Supabase connected · publish review required'
+          : undefined
     updateApiStatus({
-      state: ready ? 'supabase' : 'serverError',
+      state: ready ? 'supabase' : health?.admin === false ? 'auth' : 'serverError',
       ready,
       storageReady,
-      storageMessage: health?.storage?.message || '',
+      publishReady,
+      storageMessage: health?.storage?.availabilityMessage
+        || (!storageReady ? 'Supabase Storage cannot list the required asset buckets.' : ''),
+      publishMessage: health?.storage?.publicationMessage || '',
       checking: false,
+      label,
       message: ready
-        ? 'Supabase is connected. Drafts and published content are stored in Postgres; published updates are reflected through live portfolio subscriptions.'
+        ? 'Supabase Content API is connected. Content can be saved as drafts; publishing is checked separately.'
         : unavailable.join(' '),
       checkedAt: new Date().toISOString(),
     })
@@ -132,9 +150,11 @@ export async function checkCmsApiHealth() {
       state: error.state === 'auth' ? 'auth' : 'serverError',
       ready: false,
       storageReady: false,
+      publishReady: false,
       checking: false,
       message: error.message,
       storageMessage: error.message,
+      publishMessage: error.message,
       checkedAt: new Date().toISOString(),
     })
     return false

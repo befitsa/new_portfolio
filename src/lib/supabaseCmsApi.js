@@ -37,6 +37,18 @@ export class SupabaseCmsError extends Error {
   }
 }
 
+export function getSupabaseCmsReadiness(health) {
+  const databaseReady = health?.database?.ready === true
+  const storageReady = health?.storage?.accessible === true
+
+  return {
+    databaseReady,
+    ready: health?.ok === true && health?.admin === true && databaseReady,
+    storageReady,
+    publishReady: health?.storage?.ready === true,
+  }
+}
+
 export function sanitizeSupabaseError(error) {
   const code = error?.code || ''
 
@@ -583,17 +595,19 @@ function createCmsApi(client) {
         }),
       )
 
-      const storageMessage = checks.find(Boolean)
-        || value?.storage?.message
-        || ''
+      const availabilityMessage = checks.find(Boolean) || ''
+      const publicationMessage = value?.storage?.message || ''
+      const accessible = !availabilityMessage
 
       return {
         ...value,
         storage: {
           ...value?.storage,
-          ready: value?.storage?.ready === true
-            && !checks.some(Boolean),
-          message: storageMessage,
+          accessible,
+          ready: value?.storage?.ready === true && accessible,
+          availabilityMessage,
+          publicationMessage,
+          message: availabilityMessage || publicationMessage,
         },
       }
     },
