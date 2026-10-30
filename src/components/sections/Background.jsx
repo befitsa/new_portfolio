@@ -18,15 +18,26 @@ function Timeline({ items }) {
 
   useLayoutEffect(() => {
     if (reduced) return undefined
+
     const ctx = gsap.context(() => {
+      const media = gsap.matchMedia()
       gsap.fromTo(
         '[data-line]',
         { scaleY: 0 },
         { scaleY: 1, ease: 'none', transformOrigin: 'top', scrollTrigger: { trigger: root.current, start: 'top 70%', end: 'bottom 60%', scrub: true } },
       )
-      gsap.utils.toArray('[data-entry]').forEach((entry) => {
-        gsap.from(entry, { x: -28, opacity: 0, duration: 0.9, ease: 'power3.out', scrollTrigger: { trigger: entry, start: 'top 88%', once: true } })
+      const entries = gsap.utils.toArray('[data-entry]')
+      media.add('(min-width: 640px)', () => {
+        entries.forEach((entry) => {
+          gsap.from(entry, { x: -24, opacity: 0, duration: 0.75, ease: 'power3.out', scrollTrigger: { trigger: entry, start: 'top 88%', once: true } })
+        })
       })
+      media.add('(max-width: 639px)', () => {
+        entries.forEach((entry) => {
+          gsap.from(entry, { x: -8, opacity: 0, duration: 0.48, ease: 'power2.out', scrollTrigger: { trigger: entry, start: 'top 92%', once: true } })
+        })
+      })
+      return () => media.revert()
     }, root)
     return () => ctx.revert()
   }, [reduced, items])

@@ -1,6 +1,6 @@
 // src/hooks/useSectionTransitions.js
-// Desktop sections use the full stacked-card transition; tablets use a subtle
-// transform reveal, while mobile and reduced-motion users keep native scrolling.
+// The transition scales down from desktop stacked cards to a small mobile
+// transform reveal; reduced-motion users keep native scrolling.
 import { useLayoutEffect } from 'react'
 import { gsap } from '../utils/gsap'
 import { useReducedMotion } from './useReducedMotion'
@@ -15,7 +15,7 @@ export function useSectionTransitions() {
       const media = gsap.matchMedia()
       const sections = () => gsap.utils.toArray('[data-section]')
 
-      media.add('(min-width: 1024px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 1024px)', () => {
         sections().forEach((section, i, all) => {
           if (i === 0) return
           const prev = all[i - 1]
@@ -40,7 +40,7 @@ export function useSectionTransitions() {
         })
       })
 
-      media.add('(min-width: 640px) and (max-width: 1023px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 640px) and (max-width: 1023px)', () => {
         sections().slice(1).forEach((section) => {
           gsap.fromTo(
             section,
@@ -54,6 +54,26 @@ export function useSectionTransitions() {
                 start: 'top 96%',
                 end: 'top 55%',
                 scrub: 0.5,
+              },
+            },
+          )
+        })
+      })
+
+      media.add('(max-width: 639px)', () => {
+        sections().slice(1).forEach((section) => {
+          gsap.fromTo(
+            section,
+            { y: 6, opacity: 0.985 },
+            {
+              y: 0,
+              opacity: 1,
+              ease: 'none',
+              scrollTrigger: {
+                trigger: section,
+                start: 'top 98%',
+                end: 'top 72%',
+                scrub: 0.35,
               },
             },
           )

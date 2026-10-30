@@ -15,7 +15,8 @@ import MarkdownContent from '../common/MarkdownContent.jsx'
 import BrandLink from '../common/BrandLink.jsx'
 import { projectDetailsPath } from '../../data/projects'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
-import { gsap, ScrollTrigger } from '../../utils/gsap'
+import { useScrollTriggerRefresh } from '../../hooks/useScrollTriggerRefresh'
+import { gsap } from '../../utils/gsap'
 
 const sections = [
   { id: 'overview', label: 'Overview' },
@@ -168,6 +169,8 @@ export default function ProjectDetailsPage({ project }) {
   const [coverImageFailed, setCoverImageFailed] = useState(false)
   const reduced = useReducedMotion()
 
+  useScrollTriggerRefresh()
+
   useLayoutEffect(() => {
     const root = contentRef.current
     if (!root || reduced) return undefined
@@ -192,10 +195,10 @@ export default function ProjectDetailsPage({ project }) {
         })
       }
 
-      media.add('(min-width: 640px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 640px)', () => {
         animateContent(16, 0.7)
       })
-      media.add('(max-width: 639px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(max-width: 639px)', () => {
         animateContent(8, 0.5)
       })
       return () => media.revert()
@@ -203,37 +206,6 @@ export default function ProjectDetailsPage({ project }) {
 
     return () => ctx.revert()
   }, [project.slug, reduced])
-
-  useEffect(() => {
-    const root = contentRef.current
-    if (!root) return undefined
-    let active = true
-    let frame = 0
-    const refresh = () => {
-      if (!active) return
-      window.cancelAnimationFrame(frame)
-      frame = window.requestAnimationFrame(() => {
-        if (active) ScrollTrigger.refresh()
-      })
-    }
-    const images = [...root.querySelectorAll('img')]
-    images.forEach((image) => {
-      image.addEventListener('load', refresh)
-      image.addEventListener('error', refresh)
-    })
-    document.fonts?.ready.then(refresh)
-    window.addEventListener('load', refresh)
-    refresh()
-    return () => {
-      active = false
-      window.cancelAnimationFrame(frame)
-      images.forEach((image) => {
-        image.removeEventListener('load', refresh)
-        image.removeEventListener('error', refresh)
-      })
-      window.removeEventListener('load', refresh)
-    }
-  }, [project.slug])
 
   useEffect(() => setCoverImageFailed(false), [project.image])
   const galleryImages = useMemo(() => {

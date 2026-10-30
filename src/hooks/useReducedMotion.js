@@ -7,13 +7,18 @@ const QUERY = '(prefers-reduced-motion: reduce)'
 // parallax, smooth scrolling, marquee movement and 3D animation.
 export function useReducedMotion() {
   const [reduced, setReduced] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(QUERY).matches,
+    () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(QUERY)?.matches),
   )
   useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined
     const mq = window.matchMedia(QUERY)
     const onChange = () => setReduced(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
+    if (mq.addEventListener) {
+      mq.addEventListener('change', onChange)
+      return () => mq.removeEventListener('change', onChange)
+    }
+    mq.addListener(onChange)
+    return () => mq.removeListener(onChange)
   }, [])
   return reduced
 }

@@ -1,8 +1,8 @@
 // src/App.jsx
 // Only assembles the page. All content lives in src/data, all UI in src/components.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ScrollTrigger } from './utils/gsap'
 import { useSectionTransitions } from './hooks/useSectionTransitions'
+import { useScrollTriggerRefresh } from './hooks/useScrollTriggerRefresh'
 import MarqueeBand from './components/common/MarqueeBand'
 import { profile as defaultProfile, sectionIds } from './data/profile'
 import { useActiveSection } from './hooks/useActiveSection'
@@ -31,13 +31,7 @@ function PortfolioHome() {
   const handleIntroChange = useCallback((active) => setIntroActive(active), [])
   useSectionTransitions() // GSAP: sections slide over each other
 
-  // Fonts and images change layout heights; re-measure so every trigger fires in the right place.
-  useEffect(() => {
-    const refresh = () => ScrollTrigger.refresh()
-    document.fonts?.ready.then(refresh)
-    window.addEventListener('load', refresh)
-    return () => window.removeEventListener('load', refresh)
-  }, [])
+  useScrollTriggerRefresh()
 
   // If someone opens a link like /#projects, scroll there once the layout is ready.
   useEffect(() => {

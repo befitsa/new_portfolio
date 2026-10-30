@@ -46,7 +46,7 @@ export default function Projects() {
 
     const ctx = gsap.context(() => {
       const media = gsap.matchMedia()
-      media.add('(min-width: 640px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 640px)', () => {
         gsap.from(root.current.querySelectorAll('[data-expanded-project]'), {
           y: 20,
           opacity: 0,
@@ -55,7 +55,7 @@ export default function Projects() {
           ease: 'power3.out',
         })
       })
-      media.add('(max-width: 639px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(max-width: 639px)', () => {
         gsap.from(root.current.querySelectorAll('[data-expanded-project]'), {
           y: 8,
           opacity: 0,

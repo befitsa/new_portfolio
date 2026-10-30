@@ -27,7 +27,7 @@ export default function Services() {
 
     const ctx = gsap.context(() => {
       const media = gsap.matchMedia()
-      media.add('(min-width: 1024px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 1024px)', () => {
         const cardElements = cards.current.filter(Boolean)
         if (cardElements.length < 2) return
 
@@ -75,6 +75,22 @@ export default function Services() {
             { y: 0, opacity: 1, duration: 0.5, stagger: 0.1, ease: 'power2.out' },
             beat + 0.28,
           )
+        })
+      })
+      media.add('(max-width: 1023px)', () => {
+        cards.current.filter(Boolean).forEach((card, index) => {
+          gsap.from(card, {
+            y: 12,
+            opacity: 0,
+            duration: 0.55,
+            delay: Math.min(index * 0.04, 0.12),
+            ease: 'power2.out',
+            scrollTrigger: {
+              trigger: card,
+              start: 'top 90%',
+              once: true,
+            },
+          })
         })
       })
       return () => media.revert()

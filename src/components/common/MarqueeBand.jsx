@@ -1,7 +1,7 @@
 // src/components/common/MarqueeBand.jsx
 // Giant scrolling type between sections (the bold "tour poster" look).
-// It drifts on its own, speeds up and skews with your scroll speed,
-// and flips direction when you scroll back up.
+// On larger screens it drifts and responds to scroll speed; on mobile it
+// uses a short, low-distance scroll-linked reveal.
 import { useLayoutEffect, useRef } from 'react'
 import { gsap, ScrollTrigger } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
@@ -17,7 +17,7 @@ export default function MarqueeBand({ words, outline = false, reverse = false, c
 
     const ctx = gsap.context(() => {
       const media = gsap.matchMedia()
-      media.add('(min-width: 768px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 768px)', () => {
         const tween = gsap.to(track.current, { xPercent: -50, duration: 40, ease: 'none', repeat: -1, paused: true })
         tween.totalTime(2000)
         tween.timeScale(base)
@@ -46,6 +46,22 @@ export default function MarqueeBand({ words, outline = false, reverse = false, c
           },
         })
         return () => clearTimeout(settle)
+      })
+      media.add('(max-width: 767px)', () => {
+        gsap.fromTo(
+          track.current,
+          { xPercent: 0 },
+          {
+            xPercent: reverse ? 4 : -4,
+            ease: 'none',
+            scrollTrigger: {
+              trigger: band.current,
+              start: 'top 96%',
+              end: 'bottom 60%',
+              scrub: 0.4,
+            },
+          },
+        )
       })
       return () => media.revert()
     }, band)

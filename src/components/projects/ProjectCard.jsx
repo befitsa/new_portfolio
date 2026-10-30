@@ -60,7 +60,7 @@ export default function ProjectCard({ project }) {
     if (reduced) return undefined
     const ctx = gsap.context(() => {
       const media = gsap.matchMedia()
-      media.add('(min-width: 1024px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 1024px)', () => {
         const trigger = { trigger: root.current, start: 'top 88%', once: true }
         gsap.fromTo(
           frame.current,
@@ -71,14 +71,46 @@ export default function ProjectCard({ project }) {
           y: 24, opacity: 0, duration: 0.7, ease: 'power3.out', stagger: 0.06, delay: 0.18, scrollTrigger: trigger,
         })
       })
-      media.add('(max-width: 1023px) and (prefers-reduced-motion: no-preference)', () => {
+      media.add('(min-width: 640px) and (max-width: 1023px)', () => {
+        gsap.fromTo(
+          frame.current,
+          { clipPath: 'inset(5% 5% 5% 5% round 1.5rem)', scale: 1.02 },
+          {
+            clipPath: 'inset(0% 0% 0% 0% round 1.5rem)',
+            scale: 1,
+            duration: 0.75,
+            ease: 'power3.out',
+            scrollTrigger: { trigger: root.current, start: 'top 90%', once: true },
+          },
+        )
         gsap.from(root.current.querySelectorAll('[data-fade]'), {
-          y: 12,
+          y: 16,
           opacity: 0,
-          duration: 0.55,
+          duration: 0.6,
           ease: 'power2.out',
-          stagger: 0.04,
-          scrollTrigger: { trigger: root.current, start: 'top 92%', once: true },
+          stagger: 0.05,
+          scrollTrigger: { trigger: root.current, start: 'top 90%', once: true },
+        })
+      })
+      media.add('(max-width: 639px)', () => {
+        gsap.fromTo(
+          frame.current,
+          { clipPath: 'inset(3% 3% 3% 3% round 1rem)', scale: 1.01 },
+          {
+            clipPath: 'inset(0% 0% 0% 0% round 1rem)',
+            scale: 1,
+            duration: 0.55,
+            ease: 'power2.out',
+            scrollTrigger: { trigger: root.current, start: 'top 94%', once: true },
+          },
+        )
+        gsap.from(root.current.querySelectorAll('[data-fade]'), {
+          y: 8,
+          opacity: 0,
+          duration: 0.45,
+          ease: 'power2.out',
+          stagger: 0.035,
+          scrollTrigger: { trigger: root.current, start: 'top 94%', once: true },
         })
       })
       return () => media.revert()
