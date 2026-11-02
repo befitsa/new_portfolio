@@ -143,7 +143,6 @@ test('local content service initializes, migrates, edits, publishes, and removes
         logo: { url: 'https://cdn.example.com/github.svg', storagePath: '' },
       },
     },
-    socialLinksConfigured: true,
     customSocialLinks: [{
       id: 'custom-facebook',
       platform: 'Facebook',
@@ -163,7 +162,6 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.deepEqual(savedSettings.socialLinkDisplayOrders, { github: 3, linkedin: 1, instagram: 2, telegram: 4 })
   assert.equal(savedSettings.socialLinkDetails.github.platform, 'GitHub Profile')
   assert.equal(savedSettings.socialLinkDetails.github.logo.url, 'https://cdn.example.com/github.svg')
-  assert.equal(savedSettings.socialLinksConfigured, true)
   assert.equal(savedSettings.customSocialLinks[0].displayOrder, 5)
   assert.equal(savedSettings.customSocialLinks[0].enabled, true)
   assert.equal(savedSettings.customSocialLinks[1].enabled, false)
@@ -189,14 +187,12 @@ test('local content service initializes, migrates, edits, publishes, and removes
     socialLinks: Object.fromEntries(Object.entries(publicSettings.socialLinks).filter(([id]) => id !== 'github')),
     socialLinkDetails: Object.fromEntries(Object.entries(publicSettings.socialLinkDetails).filter(([id]) => id !== 'github')),
     socialLinkDisplayOrders: Object.fromEntries(Object.entries(publicSettings.socialLinkDisplayOrders).filter(([id]) => id !== 'github')),
-    removedSocialLinkIds: ['github'],
     customSocialLinks: publicSettings.customSocialLinks.filter(({ id }) => id !== 'custom-facebook'),
   }, publicSettings.revision)
   assert.equal((await service.getSettings('published')).socialLinks.github, 'https://github.com/fitsum')
   await service.publishSettings(withoutGithub.revision)
   const settingsAfterDelete = await service.getSettings('published')
   assert.equal(Object.hasOwn(settingsAfterDelete.socialLinks, 'github'), false)
-  assert.deepEqual(settingsAfterDelete.removedSocialLinkIds, ['github'])
   assert.equal(settingsAfterDelete.customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
   assert.equal(toProfileSettings(settingsAfterDelete, profile).socials.some(({ id }) => id === 'github'), false)
   const clearedSettings = await service.saveSettings({
@@ -205,14 +201,11 @@ test('local content service initializes, migrates, edits, publishes, and removes
     socialLinkDetails: {},
     socialLinkDisplayOrders: {},
     customSocialLinks: [],
-    removedSocialLinkIds: ['github', 'linkedin', 'instagram', 'telegram'],
-    socialLinksConfigured: true,
     seo: { metaTitle: 'Preserved SEO title', metaDescription: 'Preserved SEO description' },
   }, settingsAfterDelete.revision)
   const savedEmptySettings = await service.getSettings('drafts')
   assert.deepEqual(Object.keys(savedEmptySettings.socialLinks), ['email'])
   assert.deepEqual(savedEmptySettings.customSocialLinks, [])
-  assert.equal(savedEmptySettings.socialLinksConfigured, true)
   assert.equal((await service.getSettings('published')).socialLinks.github, undefined)
   await service.publishSettings(clearedSettings.revision)
   const publishedEmptySettings = await service.getSettings('published')

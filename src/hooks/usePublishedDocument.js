@@ -51,7 +51,7 @@ export function usePublishedSiteSettings() {
           if (active) setState({ data, loading: false, error: null, managed: import.meta.env.DEV })
         },
         (error) => {
-          if (active) setState({ data: null, loading: false, error, managed: import.meta.env.DEV })
+          if (active) setState((current) => ({ ...current, loading: false, error }))
         },
       )
     } catch (error) {

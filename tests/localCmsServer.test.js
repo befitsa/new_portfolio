@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createLocalCmsStore } from '../dev/localCmsServer.js'
+import { profile } from '../src/data/profile.js'
+import { toProfileSettings } from '../src/lib/db/presentation.js'
 
 const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2kAAAAASUVORK5CYII=', 'base64')
 
@@ -69,14 +71,63 @@ test('local JSON CMS persists CRUD, publication, drafts, settings, and deletes a
     assert.equal((await store.publishedDocument('experiences', experience.id)), null)
 
     const settings = await store.getSettings()
-    const savedSettings = await store.saveSettings({ ...settings, name: 'Local Filesystem Profile' }, settings.revision)
+    const socialSettings = {
+      ...settings,
+      name: 'Local Filesystem Profile',
+      socialLinks: {
+        email: 'mailto:contact@example.com',
+        github: 'https://github.com/fitsum',
+        linkedin: 'https://linkedin.com/in/fitsum',
+        instagram: 'https://instagram.com/fitsum',
+        telegram: 'https://t.me/fitsum',
+      },
+      socialLinkDisplayOrders: { github: 4, linkedin: 2, instagram: 1, telegram: 3 },
+      socialLinkDetails: {
+        github: { platform: 'GitHub', enabled: true, logo: null },
+        linkedin: { platform: 'LinkedIn', enabled: true, logo: null },
+        instagram: { platform: 'Instagram', enabled: true, logo: null },
+        telegram: { platform: 'Telegram', enabled: true, logo: null },
+      },
+      customSocialLinks: [{
+        id: 'custom-dribbble',
+        platform: 'Dribbble',
+        url: 'https://dribbble.com/fitsum',
+        logo: { url: 'https://cdn.example.com/dribbble.png', storagePath: '' },
+        displayOrder: 5,
+      }],
+      seo: { metaTitle: 'Portfolio SEO title', metaDescription: 'Portfolio SEO description' },
+    }
+    const savedSettings = await store.saveSettings(socialSettings, settings.revision)
     assert.equal((await store.publishedSettings()).name, settings.name)
     await store.publishSettings(savedSettings.revision)
-    assert.equal((await store.publishedSettings()).name, 'Local Filesystem Profile')
+    const publishedSocialSettings = await store.publishedSettings()
+    assert.equal(publishedSocialSettings.name, 'Local Filesystem Profile')
+    assert.deepEqual(toProfileSettings(publishedSocialSettings, profile).socials.map(({ id }) => id), [
+      'email', 'instagram', 'linkedin', 'telegram', 'github', 'custom-dribbble',
+    ])
 
     store = createLocalCmsStore(directory)
     assert.equal((await store.get('projects', updated.id, 'published')).title, 'Edited disk project')
-    assert.equal((await store.getSettings('published')).name, 'Local Filesystem Profile')
+    const reloadedSettings = await store.getSettings('published')
+    assert.equal(reloadedSettings.name, 'Local Filesystem Profile')
+    assert.equal(toProfileSettings(reloadedSettings, profile).socials.find(({ id }) => id === 'custom-dribbble').url, 'https://dribbble.com/fitsum')
+
+    const emptySettings = await store.saveSettings({
+      ...reloadedSettings,
+      socialLinks: { email: reloadedSettings.socialLinks.email },
+      socialLinkDetails: {},
+      socialLinkDisplayOrders: {},
+      customSocialLinks: [],
+    }, reloadedSettings.revision)
+    assert.equal((await store.publishedSettings()).customSocialLinks.length, 1)
+    await store.publishSettings(emptySettings.revision)
+
+    store = createLocalCmsStore(directory)
+    const reloadedEmptySettings = await store.getSettings('published')
+    assert.deepEqual(reloadedEmptySettings.socialLinks, { email: 'mailto:contact@example.com' })
+    assert.deepEqual(reloadedEmptySettings.customSocialLinks, [])
+    assert.deepEqual(toProfileSettings(reloadedEmptySettings, profile).socials.map(({ id }) => id), ['email'])
+    assert.deepEqual(reloadedEmptySettings.seo, { metaTitle: 'Portfolio SEO title', metaDescription: 'Portfolio SEO description' })
 
     await store.deleteItem('education', education.id)
     assert.equal(await store.publishedDocument('education', education.id), null)

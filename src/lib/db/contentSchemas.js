@@ -312,8 +312,6 @@ export const siteSettingsSchema = z.object({
     z.string().trim().min(1).max(40),
     socialLinkDetailSchema,
   ).default({}),
-  removedSocialLinkIds: z.array(z.string().trim().min(1).max(40)).default([]),
-  socialLinksConfigured: z.boolean().default(false),
   customSocialLinks: z.array(customSocialLinkSchema).default([]).superRefine((links, context) => {
     const ids = new Set()
     links.forEach((link, index) => {

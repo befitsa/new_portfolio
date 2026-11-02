@@ -256,7 +256,6 @@ test('social settings support legacy links, safe custom links, and durable uploa
       },
     }],
     socialLinkDisplayOrders: { github: 1, instagram: 2, linkedin: 3, telegram: 4 },
-    removedSocialLinkIds: ['legacy-twitter'],
     socialLinkDetails: {
       github: {
         platform: 'GitHub Profile',
@@ -276,7 +275,6 @@ test('social settings support legacy links, safe custom links, and durable uploa
   assert.equal(settings.socialLinkDetails.github.platform, 'GitHub Profile')
   assert.equal(settings.socialLinkDetails.github.logo.storagePath, 'portfolio-private/drafts/admin/github.svg')
   assert.equal(settings.socialLinkDetails.linkedin.enabled, false)
-  assert.deepEqual(settings.removedSocialLinkIds, ['legacy-twitter'])
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',
     socialLinkDisplayOrders: { github: 0 },

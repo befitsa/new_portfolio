@@ -27,12 +27,11 @@ function SocialLogo({ url, Icon, label }) {
     : <Icon className="size-[1.1rem]" aria-hidden="true" aria-label={`${label} icon`} />
 }
 
-export default function SocialLinks({ orientation = 'horizontal', size = 'md', className = '', excludeEmail = false, includeCustom = false }) {
+export default function SocialLinks({ orientation = 'horizontal', size = 'md', className = '', excludeEmail = false }) {
   const profile = usePortfolioProfile()
   const links = profile.socials.filter((social) => (
     social.url
     && (!excludeEmail || social.id !== 'email')
-    && (includeCustom || !social.custom)
     && (/^https?:\/\//i.test(social.url) || (social.id === 'email' && /^mailto:/i.test(social.url)))
   )).map((social, index) => ({ social, index }))
     .sort((left, right) => (

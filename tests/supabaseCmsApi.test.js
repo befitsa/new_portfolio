@@ -628,6 +628,63 @@ test('settings publishing promotes built-in and custom social logos before expos
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
 })
 
+test('Supabase settings save and publish round-trip an explicitly empty social configuration', async () => {
+  let draft
+  let published
+  let revision = 0
+  const client = mockClient(async (name, args) => {
+    if (name === 'cms_save_settings') {
+      revision += 1
+      draft = {
+        ...args.p_payload,
+        id: 'settings',
+        status: 'draft',
+        revision,
+        publishedRevision: revision - 1,
+        basePublishedRevision: revision - 1,
+      }
+      return { data: draft, error: null }
+    }
+    if (name === 'cms_get_settings') {
+      return { data: args.p_view === 'published' ? published : draft, error: null }
+    }
+    if (name === 'cms_publish_settings_with_assets') {
+      published = {
+        ...args.p_payload,
+        id: 'settings',
+        status: 'published',
+        revision,
+        publishedRevision: revision,
+      }
+      return { data: published, error: null }
+    }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const api = createSupabaseCmsApi(client)
+  const saved = await api.saveSettings({
+    name: 'Fitsum',
+    title: 'Developer',
+    socialLinks: { email: 'mailto:contact@example.com' },
+    socialLinkDetails: {},
+    socialLinkDisplayOrders: {},
+    customSocialLinks: [],
+    seo: { metaTitle: 'Preserved title', metaDescription: 'Preserved description' },
+  }, 0)
+  const reloadedDraft = await api.getSettings('drafts')
+
+  assert.deepEqual(reloadedDraft.socialLinks, { email: 'mailto:contact@example.com' })
+  assert.deepEqual(reloadedDraft.socialLinkDetails, {})
+  assert.deepEqual(reloadedDraft.socialLinkDisplayOrders, {})
+  assert.deepEqual(reloadedDraft.customSocialLinks, [])
+  assert.deepEqual(reloadedDraft.seo, { metaTitle: 'Preserved title', metaDescription: 'Preserved description' })
+
+  await api.publishSettings(saved.revision)
+  const reloadedPublished = await api.getSettings('published')
+  assert.deepEqual(reloadedPublished.socialLinks, { email: 'mailto:contact@example.com' })
+  assert.deepEqual(reloadedPublished.customSocialLinks, [])
+  assert.deepEqual(reloadedPublished.seo, { metaTitle: 'Preserved title', metaDescription: 'Preserved description' })
+})
+
 test('settings publishing withdraws the public projection when custom-logo copy fails', async () => {
   const sourcePath = `${PRIVATE_BUCKET}/drafts/admin/social/failing-logo.png`
   const calls = []

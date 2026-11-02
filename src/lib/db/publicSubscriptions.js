@@ -91,7 +91,9 @@ function subscribeToRecords(type, onValue, onError, id = null) {
 function subscribeToSettings(onValue, onError) {
   if (!supabase || !isSupabaseConfigured) throw new Error('Supabase is not configured for the public portfolio.')
   let active = true
+  let latestLoad = 0
   const load = async () => {
+    const loadId = ++latestLoad
     try {
       const { data, error } = await supabase
         .from('portfolio_cms_public_settings')
@@ -100,9 +102,9 @@ function subscribeToSettings(onValue, onError) {
         .maybeSingle()
       if (error) throw error
       const value = data?.published_payload || null
-      if (active) onValue(value?.visibility === false ? null : value)
+      if (active && loadId === latestLoad) onValue(value?.visibility === false ? null : value)
     } catch (error) {
-      if (active) onError(error)
+      if (active && loadId === latestLoad) onError(error)
     }
   }
 

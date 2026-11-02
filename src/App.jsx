@@ -79,11 +79,15 @@ function PortfolioHome() {
 }
 
 export default function App() {
-  const { data: settings } = usePublishedSiteSettings()
+  const { data: settings, error: settingsError } = usePublishedSiteSettings()
   const effectiveProfile = useMemo(
     () => toProfileSettings(settings, defaultProfile),
     [settings],
   )
+
+  useEffect(() => {
+    if (settingsError) console.error('Published portfolio settings could not be loaded.', settingsError)
+  }, [settingsError])
 
   useEffect(() => {
     const title = effectiveProfile.seo?.metaTitle || `${effectiveProfile.name} — ${effectiveProfile.title}`
