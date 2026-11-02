@@ -1380,6 +1380,11 @@ function createCmsApi(client) {
           usedIn: existing?.usedIn || [],
           visibility: true,
           order: existing?.order ?? Date.now(),
+          isSkill: existing?.isSkill || false,
+          isSkillCatalog: existing?.isSkillCatalog || false,
+          name: existing?.name || '',
+          category: existing?.category || '',
+          pendingDelete: existing?.pendingDelete || false,
         }
 
         const saved = await uploadRecord(

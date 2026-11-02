@@ -83,11 +83,24 @@ export const schemas = {
     isActive: z.boolean().default(false), visibility: z.boolean().default(true), order: z.number().int().nonnegative().default(0),
   }),
   media: z.object({
-    url, storagePath: z.string().trim().min(1).max(1024), type: z.enum(['image', 'pdf', 'other']),
-    sizeBytes: z.number().int().positive().max(12 * 1024 * 1024), usedIn: z.array(z.string().trim().min(1).max(240)).max(100).default([]),
+    url: z.union([z.literal(''), url]).default(''), storagePath: z.string().trim().max(1024).default(''), type: z.enum(['image', 'pdf', 'other']),
+    sizeBytes: z.number().int().nonnegative().max(12 * 1024 * 1024), usedIn: z.array(z.string().trim().min(1).max(240)).max(100).default([]),
     visibility: z.boolean().default(true), order: z.number().int().nonnegative().default(0),
     fileName: text(255).default(''), mimeType: text(100).default(''), width: z.number().int().positive().optional(), height: z.number().int().positive().optional(),
     sourceUrl: optionalUrl.default(''), alt: text(300).default(''),
+    isSkill: z.boolean().default(false), isSkillCatalog: z.boolean().default(false),
+    name: text(120).default(''), category: text(80).default(''), pendingDelete: z.boolean().default(false),
+  }).superRefine((media, context) => {
+    if (media.isSkill && media.isSkillCatalog) context.addIssue({ code: 'custom', path: ['isSkillCatalog'], message: 'A skill cannot also be a skills catalog marker.' })
+    if (media.pendingDelete && !media.isSkill) context.addIssue({ code: 'custom', path: ['pendingDelete'], message: 'Only skills can be marked for removal.' })
+    if (media.isSkill && !media.name) context.addIssue({ code: 'custom', path: ['name'], message: 'Skill name is required.' })
+    if (media.isSkill || media.isSkillCatalog) {
+      if (media.type !== 'image') context.addIssue({ code: 'custom', path: ['type'], message: 'Skills catalog records must be images.' })
+      if (media.storagePath && (!media.url || media.sizeBytes === 0)) context.addIssue({ code: 'custom', path: ['storagePath'], message: 'Uploaded skill logos require a URL and positive file size.' })
+      if (!media.storagePath && media.sizeBytes > 0) context.addIssue({ code: 'custom', path: ['sizeBytes'], message: 'A file size requires a managed storage path.' })
+      return
+    }
+    if (!media.url || !media.storagePath || media.sizeBytes === 0) context.addIssue({ code: 'custom', path: ['storagePath'], message: 'Media requires a URL, storage path, and positive file size.' })
   }),
 }
 

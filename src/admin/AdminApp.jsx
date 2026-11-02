@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  ArrowUpRight, Bell, BriefcaseBusiness, FileText, FolderKanban,
+  ArrowUpRight, Bell, BriefcaseBusiness, FileText, FolderKanban, Wrench,
   LayoutDashboard, Library, Menu, Search, Settings, ShieldCheck, UserRound,
 } from 'lucide-react'
 import { profile } from '../data/profile.js'
@@ -11,7 +11,7 @@ import { cmsHref, cmsRoutePath } from './cmsPaths.js'
 import AdminLogin, { adminHomePath, adminLoginPath, safeAdminReturnPath } from './AdminLogin.jsx'
 import BrandLink from '../components/common/BrandLink.jsx'
 import {
-  CmsBackgroundPage, CmsDashboardPage, CmsMediaPage, CmsProjectEditorPage,
+  CmsBackgroundPage, CmsDashboardPage, CmsMediaPage, CmsProjectEditorPage, CmsSkillsPage,
   CmsProjectsPage, CmsResumePage, CmsSettingsPage, CmsStorageAuditPage,
 } from './CmsPages.jsx'
 
@@ -19,6 +19,7 @@ const navigation = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Background', href: '/background', icon: BriefcaseBusiness },
   { label: 'Projects', href: '/projects', icon: FolderKanban },
+  { label: 'Skills & Tools', href: '/skills', icon: Wrench },
   { label: 'Resume', href: '/resume', icon: FileText },
   { label: 'Media Library', href: '/media', icon: Library },
   { label: 'Storage review', href: '/storage-review', icon: ShieldCheck },
@@ -73,6 +74,7 @@ function resolvePage(path) {
   if (path === '/') return <CmsDashboardPage />
   if (path === '/background') return <CmsBackgroundPage />
   if (path === '/projects') return <CmsProjectsPage />
+  if (path === '/skills') return <CmsSkillsPage />
   if (path === '/projects/new') return <CmsProjectEditorPage id="new" />
   const projectMatch = path.match(/^\/projects\/([^/]+)$/)
   if (projectMatch) return <CmsProjectEditorPage id={decodeURIComponent(projectMatch[1])} />

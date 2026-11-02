@@ -228,3 +228,39 @@ test('resume, media, and settings schemas reject invalid external data', () => {
     socialLinks: { github: 'mailto:Fitsum@example.com' },
   }).success, false)
 })
+
+test('media schema supports validated skill records without weakening media requirements', () => {
+  const skill = {
+    type: 'image',
+    isSkill: true,
+    name: 'React',
+    category: 'Frontend',
+    url: 'https://cdn.example.com/react.svg',
+    storagePath: '',
+    sizeBytes: 0,
+  }
+  assert.equal(mediaSchema.safeParse(skill).success, true)
+  assert.equal(mediaSchema.safeParse({ ...skill, url: 'javascript:alert(1)' }).success, false)
+  assert.equal(mediaSchema.safeParse({ ...skill, name: '' }).success, false)
+  assert.equal(mediaSchema.safeParse({
+    type: 'image',
+    isSkill: true,
+    name: 'React',
+    url: '',
+    storagePath: '',
+    sizeBytes: 0,
+  }).success, true)
+  assert.equal(mediaSchema.safeParse({
+    type: 'image',
+    isSkillCatalog: true,
+    url: '',
+    storagePath: '',
+    sizeBytes: 0,
+  }).success, true)
+  assert.equal(mediaSchema.safeParse({
+    url: 'https://cdn.example.com/image.png',
+    storagePath: '',
+    type: 'image',
+    sizeBytes: 0,
+  }).success, false)
+})

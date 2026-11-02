@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { categories as localCategories } from '../data/projects.js'
 import { profile } from '../data/profile.js'
+import { skills as fallbackSkills } from '../data/skills.js'
 import MarkdownContent from '../components/common/MarkdownContent.jsx'
 import { adminApi, checkCmsApiHealth, isLocalCmsMode, useCmsApiStatus } from '../lib/adminApi.js'
 import { cmsHref } from './cmsPaths.js'
@@ -849,6 +850,320 @@ export function CmsResumePage() {
   </>
 }
 
+function emptySkillRecord() {
+  return {
+    id: '',
+    clientId: `skill-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name: '',
+    category: '',
+    url: '',
+    storagePath: '',
+    type: 'image',
+    sizeBytes: 0,
+    fileName: '',
+    mimeType: '',
+    alt: '',
+    usedIn: [],
+    visibility: true,
+    order: 0,
+    isSkill: true,
+    isSkillCatalog: false,
+    pendingDelete: false,
+    status: 'draft',
+    revision: 0,
+  }
+}
+
+function skillContent(item, order, pendingDelete = false) {
+  return {
+    url: item.url || '',
+    storagePath: item.storagePath || '',
+    type: 'image',
+    sizeBytes: Number(item.sizeBytes) || 0,
+    fileName: item.fileName || '',
+    mimeType: item.mimeType || '',
+    ...(item.width ? { width: item.width } : {}),
+    ...(item.height ? { height: item.height } : {}),
+    sourceUrl: item.sourceUrl || '',
+    alt: item.name.trim(),
+    usedIn: item.usedIn || [],
+    visibility: !pendingDelete,
+    order,
+    isSkill: true,
+    isSkillCatalog: false,
+    name: item.name.trim(),
+    category: item.category.trim(),
+    pendingDelete,
+  }
+}
+
+function emptyCatalogRecord() {
+  return {
+    url: '',
+    storagePath: '',
+    type: 'image',
+    sizeBytes: 0,
+    fileName: '',
+    mimeType: '',
+    sourceUrl: '',
+    alt: 'Skills & Tools catalog',
+    usedIn: [],
+    visibility: true,
+    order: 0,
+    isSkill: false,
+    isSkillCatalog: true,
+    name: '',
+    category: '',
+    pendingDelete: false,
+  }
+}
+
+export function CmsSkillsPage() {
+  const { drafts, published, loading, error, refresh } = useCmsCollection('media')
+  const mutation = useMutation()
+  const apiStatus = useCmsApiStatus()
+  const ready = apiStatus.ready
+  const localMode = apiStatus.state === 'local'
+  const [items, setItems] = useState([])
+  const [progress, setProgress] = useState(0)
+  const [brokenLogos, setBrokenLogos] = useState(() => new Set())
+  const [dirty, setDirty] = useState(false)
+  const records = useMemo(
+    () => [...new Map([...published, ...drafts].map((item) => [item.id, item])).values()],
+    [drafts, published],
+  )
+  const catalog = records.find((item) => item.isSkillCatalog)
+
+  useEffect(() => {
+    if (loading) return
+    const managedSkills = records
+      .filter((item) => item.isSkill && ['draft', 'published'].includes(item.status))
+      .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
+      .map((item) => ({ ...item, clientId: item.id }))
+    if (managedSkills.length || catalog) {
+      setItems(managedSkills)
+      setDirty(false)
+      return
+    }
+    setItems(fallbackSkills.map((skill, order) => ({
+      ...emptySkillRecord(),
+      name: skill.name,
+      order,
+    })))
+    setDirty(false)
+  }, [catalog, loading, records])
+
+  const changeItem = (clientId, update) => {
+    setDirty(true)
+    setItems((current) => current.map((item) => (
+      item.clientId === clientId ? { ...item, ...update } : item
+    )))
+  }
+
+  const addItem = () => {
+    setDirty(true)
+    setItems((current) => [...current, { ...emptySkillRecord(), order: current.length }])
+  }
+
+  const removeItem = (item) => {
+    if (!window.confirm(`Remove ${item.name || 'this skill or tool'} from Skills & Tools? The public change will take effect when published.`)) return
+    if (!item.id) {
+      setDirty(true)
+      setItems((current) => current.filter((entry) => entry.clientId !== item.clientId))
+      return
+    }
+    changeItem(item.clientId, { pendingDelete: true })
+  }
+
+  const reorder = (index, direction) => {
+    const destination = index + direction
+    if (destination < 0 || destination >= items.length) return
+    setDirty(true)
+    setItems((current) => {
+      const next = [...current]
+      ;[next[index], next[destination]] = [next[destination], next[index]]
+      return next.map((item, order) => ({ ...item, order }))
+    })
+  }
+
+  const uploadLogo = async (item, file) => {
+    if (!file) return
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio storage before uploading logos.') })
+      return
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
+      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP logo larger than 0 bytes and no larger than 12 MB.') })
+      return
+    }
+    setProgress(1)
+    const saved = await mutation.run(
+      () => adminApi.upload(file, { kind: 'image', alt: item.name, replaceMediaId: item.id || '', onProgress: setProgress }),
+      localMode ? 'Logo saved to local storage.' : 'Logo uploaded as a private draft.',
+    )
+    setProgress(0)
+    if (!saved) return
+    setDirty(true)
+    changeItem(item.clientId, {
+      ...saved,
+      clientId: item.clientId,
+      name: item.name,
+      category: item.category,
+      isSkill: true,
+      isSkillCatalog: false,
+      pendingDelete: false,
+    })
+    setBrokenLogos((current) => {
+      const next = new Set(current)
+      next.delete(item.clientId)
+      return next
+    })
+  }
+
+  const save = async (publishChanges) => {
+    const names = items.filter((item) => !item.pendingDelete).map((item) => item.name.trim())
+    if (names.some((name) => !name)) {
+      await mutation.run(() => { throw new Error('Enter a name for every skill or tool before saving.') })
+      return
+    }
+    const uniqueNames = new Set(names.map((name) => name.toLocaleLowerCase()))
+    if (uniqueNames.size !== names.length) {
+      await mutation.run(() => { throw new Error('Each skill or tool must have a unique name.') })
+      return
+    }
+    for (const item of items) {
+      if (item.pendingDelete || !item.url || item.storagePath) continue
+      let logoUrl
+      try {
+        logoUrl = new URL(item.url)
+      } catch {
+        await mutation.run(() => { throw new Error(`Enter a valid logo URL for ${item.name}.`) })
+        return
+      }
+      if (!['http:', 'https:'].includes(logoUrl.protocol) || logoUrl.username || logoUrl.password) {
+        await mutation.run(() => { throw new Error(`Logo URL for ${item.name} must use HTTP or HTTPS and must not contain credentials.`) })
+        return
+      }
+    }
+
+    const result = await mutation.run(async () => {
+      const savedItems = []
+      for (const [order, item] of items.entries()) {
+        const content = skillContent(item, order, item.pendingDelete)
+        const saved = item.id
+          ? await adminApi.save('media', item.id, content, item.revision)
+          : await adminApi.create('media', content)
+        savedItems.push({ ...item, ...saved, clientId: item.clientId })
+      }
+
+      const savedCatalog = catalog
+        ? await adminApi.save('media', catalog.id, emptyCatalogRecord(), catalog.revision)
+        : await adminApi.create('media', emptyCatalogRecord())
+
+      if (publishChanges) {
+        for (const item of savedItems) {
+          await adminApi.publish('media', item.id, item.revision)
+        }
+        await adminApi.publish('media', savedCatalog.id, savedCatalog.revision)
+        for (const item of savedItems.filter((entry) => entry.pendingDelete)) {
+          await adminApi.deleteItem('media', item.id)
+        }
+      }
+
+      if (!await refresh()) throw new Error('Changes were saved, but the skills list could not be refreshed.')
+      setDirty(false)
+      return true
+    }, publishChanges
+      ? localMode ? 'Skills & Tools updated in the local preview.' : 'Skills & Tools published to the public portfolio.'
+      : localMode ? 'Skills & Tools saved as local drafts.' : 'Skills & Tools saved as drafts.')
+
+    if (result && publishChanges) {
+      if (!localMode) await checkCmsApiHealth()
+    }
+  }
+
+  return <>
+    <PageHeader
+      eyebrow="PORTFOLIO CONTENT · PUBLISHED SKILLS"
+      title="Skills & Tools"
+      description={localMode
+        ? 'Manage the skills showcase and its logos in the local portfolio preview.'
+        : 'Edit the logos and names shown in the public Skills & Tools section. Uploaded images remain private until you publish.'}
+      actions={<Button onClick={addItem} disabled={!ready || mutation.busy}><Plus size={15} /> Add skill or tool</Button>}
+    />
+    {!ready && <CmsConnectionNotice status={apiStatus} />}
+    {error && <ContentError error={error} retry={refresh} />}
+    {mutation.error && <Notice kind="error">{mutation.error}</Notice>}
+    {mutation.success && <Notice kind="success">{mutation.success}</Notice>}
+    <progress className="cms-upload-progress" max="100" value={progress} hidden={!progress} />
+    <section className="cms-editor-card cms-skills-editor">
+      <div className="cms-panel-heading">
+        <div><h2>Portfolio skills</h2><p>{items.length} {items.length === 1 ? 'entry' : 'entries'} · Reorder with the arrows, then save or publish your changes.</p></div>
+        <StatusBadge status={dirty ? 'draft' : catalog?.status || 'draft'} />
+      </div>
+      {loading ? <LoadingPanel /> : items.length ? <div className="cms-skill-list">
+        {items.map((item, index) => <article className={`cms-skill-row${item.pendingDelete ? ' is-pending-delete' : ''}`} key={item.clientId}>
+          <div className="cms-skill-order" aria-label={`Position ${index + 1}`}>{String(index + 1).padStart(2, '0')}</div>
+          <div className="cms-skill-preview">
+            {item.url && !brokenLogos.has(item.clientId)
+              ? <img src={item.url} alt="" onError={() => setBrokenLogos((current) => new Set(current).add(item.clientId))} />
+              : <span aria-hidden="true">{item.name.trim().charAt(0).toUpperCase() || '?'}</span>}
+          </div>
+          <div className="cms-skill-fields">
+            {item.pendingDelete
+              ? <><strong>{item.name}</strong><Notice kind="warning">Removal is saved as a draft; publish to remove it from the public portfolio.</Notice></>
+              : <>
+                <div className="cms-skill-inputs">
+                  <TextInput label="Name" value={item.name} onChange={(name) => changeItem(item.clientId, { name })} maxLength={120} required disabled={!ready || mutation.busy} placeholder="e.g. React" />
+                  <TextInput label="Category (optional)" value={item.category} onChange={(category) => changeItem(item.clientId, { category })} maxLength={80} disabled={!ready || mutation.busy} placeholder="e.g. Frontend" />
+                </div>
+                <TextInput
+                  label="Logo URL (optional)"
+                  type="url"
+                  value={item.storagePath ? '' : item.url}
+                  disabled={!ready || mutation.busy}
+                  onChange={(url) => {
+                    if (url === item.url && !item.storagePath) return
+                    changeItem(item.clientId, { url, storagePath: '', sizeBytes: 0, fileName: '', mimeType: '', width: undefined, height: undefined })
+                    setBrokenLogos((current) => { const next = new Set(current); next.delete(item.clientId); return next })
+                  }}
+                  placeholder="https://example.com/logo.svg"
+                />
+                <div className="cms-skill-upload-row">
+                  <label className="cms-upload-control">
+                    <Upload size={14} /><span>{item.storagePath ? 'Replace uploaded logo' : 'Upload logo'}</span>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => {
+                      uploadLogo(item, event.target.files?.[0])
+                      event.target.value = ''
+                    }} />
+                  </label>
+                  {(item.url || item.storagePath) && <Button className="cms-action-delete" disabled={!ready || mutation.busy} onClick={() => {
+                    changeItem(item.clientId, { url: '', storagePath: '', sizeBytes: 0, fileName: '', mimeType: '', width: undefined, height: undefined })
+                    setBrokenLogos((current) => { const next = new Set(current); next.delete(item.clientId); return next })
+                  }}><Trash2 size={13} /> Remove logo</Button>}
+                  <small>JPG, PNG, WebP · max 12 MB. URL logos must use HTTP or HTTPS.</small>
+                </div>
+              </>}
+          </div>
+          <div className="cms-skill-actions">
+            <Button title="Move up" disabled={!ready || mutation.busy || item.pendingDelete || index === 0} onClick={() => reorder(index, -1)}><ArrowUp size={14} /></Button>
+            <Button title="Move down" disabled={!ready || mutation.busy || item.pendingDelete || index === items.length - 1} onClick={() => reorder(index, 1)}><ArrowDown size={14} /></Button>
+            {item.pendingDelete
+              ? <Button disabled={!ready || mutation.busy} onClick={() => changeItem(item.clientId, { pendingDelete: false })}>Undo</Button>
+              : <Button className="cms-action-delete" disabled={!ready || mutation.busy} title={`Remove ${item.name || 'skill'}`} onClick={() => removeItem(item)}><Trash2 size={14} /></Button>}
+          </div>
+        </article>)}
+      </div> : <EmptyState title="No skills or tools yet" text="Add a skill or tool to build the public showcase." action={<Button onClick={addItem}><Plus size={14} /> Add first skill</Button>} />}
+    </section>
+    <div className="cms-skills-save-actions">
+      <Button disabled={!ready || mutation.busy || loading} onClick={() => save(false)}><Save size={14} /> Save draft</Button>
+      <Button variant="primary" disabled={!ready || mutation.busy || loading} onClick={() => {
+        if (window.confirm(localMode ? 'Publish these changes to the local public preview?' : 'Publish these skills and tools to the public portfolio?')) save(true)
+      }}><Check size={14} /> Save & publish</Button>
+    </div>
+  </>
+}
+
 export function CmsMediaPage() {
   const { drafts, published, loading, error, refresh } = useCmsCollection('media')
   const mutation = useMutation()
@@ -859,7 +1174,7 @@ export function CmsMediaPage() {
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
   const localMode = apiStatus.state === 'local'
-  const items = useMemo(() => [...new Map([...published, ...drafts].map((item) => [item.id, item])).values()].filter((item) => ['draft', 'published'].includes(item.status)).filter((item) => `${item.fileName} ${item.alt} ${item.sourceUrl}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => Number(b.order || 0) - Number(a.order || 0)), [drafts, published, query])
+  const items = useMemo(() => [...new Map([...published, ...drafts].map((item) => [item.id, item])).values()].filter((item) => ['draft', 'published'].includes(item.status) && !item.isSkill && !item.isSkillCatalog).filter((item) => `${item.fileName} ${item.alt} ${item.sourceUrl}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => Number(b.order || 0) - Number(a.order || 0)), [drafts, published, query])
   const upload = async (file) => {
     if (!file) return
     if (!localMode && apiStatus.storageReady === false) {

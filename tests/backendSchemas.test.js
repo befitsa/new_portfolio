@@ -39,3 +39,31 @@ test('CMS API resume records support an inline preview URL separately from the d
   })
   assert.equal(resume.previewUrl, 'https://storage.example/resume.pdf?inline=1')
 })
+
+test('backend accepts managed skill metadata and rejects incomplete regular media', () => {
+  const skill = parsePayload('media', {
+    type: 'image',
+    isSkill: true,
+    name: 'JavaScript',
+    category: 'Frontend',
+    url: 'https://cdn.example.com/javascript.svg',
+    storagePath: '',
+    sizeBytes: 0,
+  })
+  assert.equal(skill.name, 'JavaScript')
+  assert.equal(skill.category, 'Frontend')
+  assert.throws(() => parsePayload('media', {
+    type: 'image',
+    isSkill: true,
+    name: '',
+    url: '',
+    storagePath: '',
+    sizeBytes: 0,
+  }))
+  assert.throws(() => parsePayload('media', {
+    type: 'image',
+    url: 'https://cdn.example.com/image.png',
+    storagePath: '',
+    sizeBytes: 0,
+  }))
+})

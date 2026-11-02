@@ -113,6 +113,45 @@ test('local image upload and replacement persist bytes and update published proj
   })
 })
 
+test('local skills and tools persist through draft, publish, and logo replacement', async () => {
+  await withStore(async (directory) => {
+    const store = createLocalCmsStore(directory)
+    const catalog = await store.create('media', {
+      type: 'image',
+      isSkillCatalog: true,
+      url: '',
+      storagePath: '',
+      sizeBytes: 0,
+    })
+    const skill = await store.create('media', {
+      type: 'image',
+      isSkill: true,
+      name: 'JavaScript',
+      category: 'Frontend',
+      url: 'https://cdn.example.com/javascript.svg',
+      storagePath: '',
+      sizeBytes: 0,
+      order: 0,
+    })
+    assert.equal((await store.publishedRecords('media')).some((item) => item.isSkill), false)
+    await store.publish('media', skill.id, skill.revision)
+    await store.publish('media', catalog.id, catalog.revision)
+    assert.equal((await store.publishedDocument('media', skill.id)).name, 'JavaScript')
+
+    const replacement = await store.upload({
+      bytes: imageBytes,
+      fileName: 'javascript.png',
+      mimeType: 'image/png',
+      kind: 'image',
+      replaceMediaId: skill.id,
+    })
+    assert.equal(replacement.isSkill, true)
+    assert.equal(replacement.name, 'JavaScript')
+    assert.equal(replacement.category, 'Frontend')
+    assert.equal(replacement.url.startsWith('/__local-cms/uploads/'), true)
+  })
+})
+
 test('local education and experience documents persist through draft and publish lifecycles', async () => {
   await withStore(async (directory) => {
     const store = createLocalCmsStore(directory)

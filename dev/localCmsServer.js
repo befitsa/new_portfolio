@@ -237,6 +237,11 @@ export function createLocalCmsStore(dataDirectory) {
           usedIn: [],
           visibility: true,
           order: old?.order ?? current.published.media.length,
+          isSkill: old?.isSkill || false,
+          isSkillCatalog: old?.isSkillCatalog || false,
+          name: old?.name || '',
+          category: old?.category || '',
+          pendingDelete: old?.pendingDelete || false,
         }
         const record = { ...content, id: old?.id || `media-${randomUUID()}`, status: 'published', revision, publishedRevision: revision, createdAt: old?.createdAt || now, updatedAt: now, publishedAt: now }
         if (previousPath) {
