@@ -2,14 +2,36 @@
 // The only file that talks to a backend. The page never pretends a message was
 // sent unless your endpoint answered with a success status.
 
-const ENDPOINT = import.meta.env.VITE_CONTACT_API_URL || '/api/contact'
+export const CONTACT_ENDPOINT = '/.netlify/functions/contact'
+
+function responseError(payload, status) {
+  switch (payload?.code) {
+    case 'CONTACT_VALIDATION_FAILED':
+    case 'INVALID_JSON':
+    case 'UNSUPPORTED_CONTENT_TYPE':
+    case 'REQUEST_TOO_LARGE':
+      return payload.error
+    case 'CONTACT_CONFIGURATION_INCOMPLETE':
+      return 'Email delivery is not configured correctly on the server. Please try again later.'
+    case 'EMAIL_PROVIDER_REJECTED':
+      return `The email provider rejected the message (HTTP ${payload.providerStatus || status}). Please try again later or email me directly.`
+    case 'EMAIL_PROVIDER_UNAVAILABLE':
+      return 'The email provider could not be reached. Please try again later or email me directly.'
+    case 'CONTACT_RATE_LIMITED':
+      return payload.error
+    default:
+      return typeof payload?.error === 'string'
+        ? payload.error
+        : `The contact service returned an unexpected response (HTTP ${status}). Please try again later or email me directly.`
+  }
+}
 
 // Returns one of:
 //   { status: 'sent' }           endpoint confirmed provider acceptance
 //   { status: 'error', message } validation, delivery, or network failed
 export async function sendContactMessage(values) {
   try {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(CONTACT_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
@@ -25,9 +47,7 @@ export async function sendContactMessage(values) {
     if (!res.ok || payload?.accepted !== true) {
       return {
         status: 'error',
-        message: typeof payload?.error === 'string'
-          ? payload.error
-          : 'The email service could not accept your message. Please try again later.',
+        message: responseError(payload, res.status),
       }
     }
     return { status: 'sent' }

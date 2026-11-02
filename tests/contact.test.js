@@ -22,11 +22,16 @@ function makeRequest(body, { origin = 'https://portfolio.example', method = 'POS
 
 function setup(overrides = {}) {
   const sent = []
-  const logger = { error() {} }
+  const logs = []
+  const logger = {
+    info: (...args) => logs.push({ level: 'info', args }),
+    error: (...args) => logs.push({ level: 'error', args }),
+  }
   const handler = createContactHandler({
     env: {
       RESEND_API_KEY: 'test-secret-not-for-client',
       CONTACT_FROM_EMAIL: 'Portfolio <onboarding@resend.dev>',
+      CONTACT_TO_EMAIL: 'befitsa123@gmail.com',
       ...overrides.env,
     },
     rateLimit: async () => true,
@@ -41,16 +46,18 @@ function setup(overrides = {}) {
     },
     ...overrides,
   })
-  return { handler, sent }
+  return { handler, sent, logs }
 }
 
 test('contact endpoint sends a validated message with recipient, reply-to, subject, and timestamp', async () => {
-  const { handler, sent } = setup()
+  const { handler, sent, logs } = setup()
   const response = await handler(makeRequest(validMessage), { ip: '192.0.2.10' })
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { accepted: true })
   assert.equal(sent.length, 1)
   assert.equal(sent[0].url, 'https://api.resend.com/emails')
+  assert.equal(sent[0].options.method, 'POST')
+  assert.equal(sent[0].options.headers['Content-Type'], 'application/json')
   assert.equal(sent[0].options.headers.Authorization, 'Bearer test-secret-not-for-client')
   const payload = JSON.parse(sent[0].options.body)
   assert.deepEqual(payload.to, ['befitsa123@gmail.com'])
@@ -60,6 +67,11 @@ test('contact endpoint sends a validated message with recipient, reply-to, subje
   assert.match(payload.text, /Email: amina@example\.com/)
   assert.match(payload.text, /Submitted: 2026-11-02T08:30:00\.000Z/)
   assert.match(payload.text, /I would like to discuss a new portfolio website\./)
+  assert.ok(logs.some((entry) => entry.args[0] === 'Contact function invoked.' && entry.args[1].method === 'POST'))
+  assert.ok(logs.some((entry) => entry.args[0] === 'Contact email configuration presence.' && entry.args[1].hasResendApiKey))
+  assert.ok(logs.some((entry) => entry.args[0] === 'Sending contact message to Resend.'))
+  assert.ok(logs.some((entry) => entry.args[0] === 'Resend responded to contact message.' && entry.args[1].status === 200))
+  assert.equal(JSON.stringify(logs).includes('test-secret-not-for-client'), false)
 })
 
 test('contact endpoint rejects missing, invalid, and oversized fields without calling Resend', async () => {
@@ -79,12 +91,22 @@ test('contact endpoint rejects missing, invalid, and oversized fields without ca
 })
 
 test('provider rejection returns failure and does not claim delivery', async () => {
-  const { handler } = setup({
-    fetchImpl: async () => new Response('provider unavailable', { status: 503 }),
+  const { handler, logs } = setup({
+    fetchImpl: async () => new Response(JSON.stringify({
+      name: 'validation_error',
+      message: 'Invalid recipient: amina@example.com',
+    }), { status: 403 }),
   })
   const response = await handler(makeRequest(validMessage), { ip: '192.0.2.12' })
   assert.equal(response.status, 502)
-  assert.equal((await response.json()).accepted, undefined)
+  const body = await response.json()
+  assert.equal(body.code, 'EMAIL_PROVIDER_REJECTED')
+  assert.equal(body.providerStatus, 403)
+  assert.equal(body.accepted, undefined)
+  const providerLog = logs.find((entry) => entry.args[0] === 'Resend rejected a contact email.')
+  assert.equal(providerLog.args[1].provider.name, 'validation_error')
+  assert.equal(providerLog.args[1].provider.message, 'Invalid recipient: [email]')
+  assert.equal(JSON.stringify(logs).includes('amina@example.com'), false)
 })
 
 test('a provider response without an acceptance ID is not treated as success', async () => {
@@ -93,7 +115,50 @@ test('a provider response without an acceptance ID is not treated as success', a
   })
   const response = await handler(makeRequest(validMessage), { ip: '192.0.2.17' })
   assert.equal(response.status, 502)
-  assert.equal((await response.json()).accepted, undefined)
+  assert.equal((await response.json()).code, 'EMAIL_PROVIDER_UNCONFIRMED')
+})
+
+test('provider network failure returns a distinct error and logs no credentials', async () => {
+  const { handler, logs } = setup({
+    fetchImpl: async () => { throw new TypeError('network unavailable') },
+  })
+  const response = await handler(makeRequest(validMessage), { ip: '192.0.2.20' })
+  assert.equal(response.status, 502)
+  assert.equal((await response.json()).code, 'EMAIL_PROVIDER_UNAVAILABLE')
+  assert.equal(JSON.stringify(logs).includes('test-secret-not-for-client'), false)
+})
+
+test('provider diagnostics redact addresses and bearer/API-key values', async () => {
+  const { handler, logs } = setup({
+    fetchImpl: async () => new Response(JSON.stringify({
+      name: 'validation_error',
+      message: 'Rejected amina@example.com with Bearer test-secret-not-for-client and re_live_secretvalue123456',
+    }), { status: 400 }),
+  })
+  await handler(makeRequest(validMessage), { ip: '192.0.2.22' })
+  const logText = JSON.stringify(logs)
+  assert.equal(logText.includes('amina@example.com'), false)
+  assert.equal(logText.includes('test-secret-not-for-client'), false)
+  assert.equal(logText.includes('re_live_secretvalue123456'), false)
+  assert.ok(logText.includes('[email]'))
+  assert.ok(logText.includes('[redacted]'))
+})
+
+test('each required server variable is checked without exposing its value', async () => {
+  for (const missing of ['RESEND_API_KEY', 'CONTACT_FROM_EMAIL', 'CONTACT_TO_EMAIL']) {
+    const env = {
+      RESEND_API_KEY: 'test-secret-not-for-client',
+      CONTACT_FROM_EMAIL: 'onboarding@resend.dev',
+      CONTACT_TO_EMAIL: 'befitsa123@gmail.com',
+      [missing]: '',
+    }
+    const { handler, sent, logs } = setup({ env })
+    const response = await handler(makeRequest(validMessage), { ip: '192.0.2.21' })
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).code, 'CONTACT_CONFIGURATION_INCOMPLETE')
+    assert.equal(sent.length, 0)
+    assert.equal(JSON.stringify(logs).includes('test-secret-not-for-client'), false)
+  }
 })
 
 test('rate limit blocks excess submissions before calling Resend', async () => {

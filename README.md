@@ -42,11 +42,11 @@ The active Supabase CMS requires these browser configuration variables:
 - `VITE_SUPABASE_URL` — URL of the Supabase project intended for this Netlify site.
 - `VITE_SUPABASE_PUBLISHABLE_KEY` — that project's publishable (formerly anon) key.
 
-`VITE_PUBLIC_PORTFOLIO_URL` supplies the public-site link shown in the admin dashboard. `VITE_CONTACT_API_URL` optionally overrides the same-origin contact endpoint. `VITE_ADMIN_SUBDOMAIN` is only used by local/development routing. Values prefixed `VITE_` are embedded in browser code: use only public project configuration and never put service-role keys, database passwords, access tokens, or other secrets in them. A URL/key mismatch or missing variable requires correcting the Netlify site/environment build settings and rebuilding; do not post key values in tickets or chat.
+`VITE_PUBLIC_PORTFOLIO_URL` supplies the public-site link shown in the admin dashboard. `VITE_ADMIN_SUBDOMAIN` is only used in local/development routing. Values prefixed `VITE_` are embedded in browser code: use only public project configuration and never put service-role keys, database passwords, access tokens, or other secrets in them. A URL/key mismatch or missing variable requires correcting the Netlify site/environment build settings and rebuilding; do not post key values in tickets or chat.
 
 ### Contact email delivery
 
-The contact form submits to the Netlify Function at `/api/contact`. The function sends plain-text email through Resend; the recipient defaults to `befitsa123@gmail.com`, and the visitor's validated address is used as `reply_to`. Netlify Blobs stores a per-client rate counter (five messages per hour). Configure these variables in the Netlify site's server-side environment settings:
+The contact form submits directly to the Netlify Function at `/.netlify/functions/contact`. `/api/contact` is also explicitly rewritten to that function before the single-page-app fallback. The function sends plain-text email through Resend; the recipient is read from `CONTACT_TO_EMAIL`, and the visitor's validated address is used as `reply_to`. Netlify Blobs stores a per-client rate counter (five messages per hour). Configure these variables in the Netlify site's server-side environment settings:
 
 - `RESEND_API_KEY` — Resend API key. Keep it server-side; never prefix it with `VITE_`.
 - `CONTACT_FROM_EMAIL` — a sender address verified in Resend, or Resend's supported testing sender `onboarding@resend.dev` until a sending domain is verified.
