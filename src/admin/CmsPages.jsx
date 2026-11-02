@@ -40,6 +40,7 @@ const EMPTY_SETTINGS = {
   socialLinkDisplayOrders: DEFAULT_SOCIAL_ORDER,
   socialLinkDetails: DEFAULT_SOCIAL_DETAILS,
   removedSocialLinkIds: [],
+  socialLinksConfigured: false,
   customSocialLinks: [], featuredProjectIds: [],
   seo: { metaTitle: '', metaDescription: '' },
 }
@@ -1335,15 +1336,18 @@ export function CmsSettingsPage() {
       const value = draft || live
       if (value) {
         setRecord(value)
-        const removedSocialLinkIds = Array.isArray(value.removedSocialLinkIds) ? value.removedSocialLinkIds : []
+        const savedSocialLinks = value.socialLinks && typeof value.socialLinks === 'object'
+          ? value.socialLinks
+          : {}
+        const removedSocialLinkIds = (Array.isArray(value.removedSocialLinkIds) ? value.removedSocialLinkIds : [])
+          .filter((id) => !Object.hasOwn(savedSocialLinks, id))
         const removedSocialLinks = new Set(removedSocialLinkIds)
         const defaultSocialLinks = Object.fromEntries(
           Object.entries(EMPTY_SETTINGS.socialLinks).filter(([id]) => id === 'email' || !removedSocialLinks.has(id)),
         )
-        const socialLinks = {
-          ...defaultSocialLinks,
-          ...(value.socialLinks || {}),
-        }
+        const socialLinks = value.socialLinksConfigured === true
+          ? { ...savedSocialLinks }
+          : { ...defaultSocialLinks, ...savedSocialLinks }
         for (const id of removedSocialLinks) delete socialLinks[id]
         if (!Object.hasOwn(socialLinks, 'email') && Object.hasOwn(EMPTY_SETTINGS.socialLinks, 'email')) {
           socialLinks.email = EMPTY_SETTINGS.socialLinks.email
@@ -1369,6 +1373,7 @@ export function CmsSettingsPage() {
           ...EMPTY_SETTINGS,
           ...cleanRecord(value),
           socialLinks,
+          socialLinksConfigured: value.socialLinksConfigured === true,
           removedSocialLinkIds,
           socialLinkDetails,
           ...normalizedSocialOrder,
@@ -1462,7 +1467,7 @@ export function CmsSettingsPage() {
     if (publish && !window.confirm(`Review portfolio settings publish\n\n${form.name}\n${form.title}\n${form.location}\n${form.bio}\n\nPublish these profile and SEO settings?`)) return
     let content
     try {
-      content = siteSettingsSchema.parse(form)
+      content = siteSettingsSchema.parse({ ...form, socialLinksConfigured: true })
       if (!localMode) {
         content.socialLinkDetails = Object.fromEntries(
           Object.entries(content.socialLinkDetails).map(([id, details]) => [

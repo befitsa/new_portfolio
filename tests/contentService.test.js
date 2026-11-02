@@ -143,6 +143,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
         logo: { url: 'https://cdn.example.com/github.svg', storagePath: '' },
       },
     },
+    socialLinksConfigured: true,
     customSocialLinks: [{
       id: 'custom-facebook',
       platform: 'Facebook',
@@ -162,6 +163,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.deepEqual(savedSettings.socialLinkDisplayOrders, { github: 3, linkedin: 1, instagram: 2, telegram: 4 })
   assert.equal(savedSettings.socialLinkDetails.github.platform, 'GitHub Profile')
   assert.equal(savedSettings.socialLinkDetails.github.logo.url, 'https://cdn.example.com/github.svg')
+  assert.equal(savedSettings.socialLinksConfigured, true)
   assert.equal(savedSettings.customSocialLinks[0].displayOrder, 5)
   assert.equal(savedSettings.customSocialLinks[0].enabled, true)
   assert.equal(savedSettings.customSocialLinks[1].enabled, false)
@@ -197,6 +199,26 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.deepEqual(settingsAfterDelete.removedSocialLinkIds, ['github'])
   assert.equal(settingsAfterDelete.customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
   assert.equal(toProfileSettings(settingsAfterDelete, profile).socials.some(({ id }) => id === 'github'), false)
+  const clearedSettings = await service.saveSettings({
+    ...settingsAfterDelete,
+    socialLinks: { email: settingsAfterDelete.socialLinks.email },
+    socialLinkDetails: {},
+    socialLinkDisplayOrders: {},
+    customSocialLinks: [],
+    removedSocialLinkIds: ['github', 'linkedin', 'instagram', 'telegram'],
+    socialLinksConfigured: true,
+    seo: { metaTitle: 'Preserved SEO title', metaDescription: 'Preserved SEO description' },
+  }, settingsAfterDelete.revision)
+  const savedEmptySettings = await service.getSettings('drafts')
+  assert.deepEqual(Object.keys(savedEmptySettings.socialLinks), ['email'])
+  assert.deepEqual(savedEmptySettings.customSocialLinks, [])
+  assert.equal(savedEmptySettings.socialLinksConfigured, true)
+  assert.equal((await service.getSettings('published')).socialLinks.github, undefined)
+  await service.publishSettings(clearedSettings.revision)
+  const publishedEmptySettings = await service.getSettings('published')
+  assert.deepEqual(Object.keys(publishedEmptySettings.socialLinks), ['email'])
+  assert.deepEqual(toProfileSettings(publishedEmptySettings, profile).socials.map(({ id }) => id), ['email'])
+  assert.deepEqual(publishedEmptySettings.seo, { metaTitle: 'Preserved SEO title', metaDescription: 'Preserved SEO description' })
 
   const media = await service.importImage('https://example.com/portfolio-cover.webp', 'Cover')
   const referencedProject = await service.create('projects', project({
