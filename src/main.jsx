@@ -14,6 +14,10 @@ class AppErrorBoundary extends Component {
     return { hasError: true }
   }
 
+  componentDidCatch(error, info) {
+    console.error('The portfolio application failed to render.', error, info.componentStack)
+  }
+
   render() {
     if (this.state.hasError) {
       return (

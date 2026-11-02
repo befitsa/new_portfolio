@@ -459,11 +459,11 @@ export default function Hero({
                 <TypewriterGreeting />
               </motion.div>
 
-              {/* Slightly smaller name, using Inktera */}
+              {/* Slightly smaller name, using the display font */}
               <h1
                 ref={heroNameRef}
                 data-hero-name
-                className="invisible mt-3 w-full font-inktera text-[clamp(2.5rem,6.2vw,5.6rem)] leading-[0.92] font-bold tracking-[-0.045em] text-ink"
+                className="invisible mt-3 w-full font-display text-[clamp(2.5rem,6.2vw,5.6rem)] leading-[0.92] font-bold tracking-[-0.045em] text-ink"
               >
                 {profile.firstName} {profile.lastName}
               </h1>
@@ -566,7 +566,7 @@ export default function Hero({
             <h2
               ref={titleRef}
               aria-label={`${profile.firstName} ${profile.lastName}`}
-              className="w-full max-w-[calc(100vw-2rem)] font-inktera text-[clamp(2.6rem,11.5vw,11.5rem)] leading-[0.85] font-semibold tracking-[-0.06em] text-center text-white md:text-[clamp(3.2rem,11.5vw,11.5rem)]"
+              className="w-full max-w-[calc(100vw-2rem)] font-display text-[clamp(2.6rem,11.5vw,11.5rem)] leading-[0.85] font-semibold tracking-[-0.06em] text-center text-white md:text-[clamp(3.2rem,11.5vw,11.5rem)]"
             >
               <span className="intro-name-first">
                 {profile.firstName.toUpperCase()}

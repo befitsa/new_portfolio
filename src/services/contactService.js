@@ -2,26 +2,37 @@
 // The only file that talks to a backend. The page never pretends a message was
 // sent unless your endpoint answered with a success status.
 
-const ENDPOINT = import.meta.env.VITE_CONTACT_API_URL
-
-export const isContactConfigured = Boolean(ENDPOINT)
+const ENDPOINT = import.meta.env.VITE_CONTACT_API_URL || '/api/contact'
 
 // Returns one of:
-//   { status: 'sent' }           endpoint accepted the message
-//   { status: 'unconfigured' }   no VITE_CONTACT_API_URL set — nothing was sent
-//   { status: 'error', message } endpoint or network failed
+//   { status: 'sent' }           endpoint confirmed provider acceptance
+//   { status: 'error', message } validation, delivery, or network failed
 export async function sendContactMessage(values) {
-  if (!ENDPOINT) return { status: 'unconfigured' }
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(values),
+      body: JSON.stringify({
+        name: values.name.trim(),
+        email: values.email.trim(),
+        subject: values.subject.trim(),
+        message: values.message.trim(),
+        website: values.website || '',
+      }),
     })
-    if (!res.ok) return { status: 'error', message: `The server answered with ${res.status}.` }
+    let payload
+    try { payload = await res.json() } catch { payload = null }
+    if (!res.ok || payload?.accepted !== true) {
+      return {
+        status: 'error',
+        message: typeof payload?.error === 'string'
+          ? payload.error
+          : 'The email service could not accept your message. Please try again later.',
+      }
+    }
     return { status: 'sent' }
   } catch {
-    return { status: 'error', message: 'Could not reach the server. Check your connection.' }
+    return { status: 'error', message: 'Could not reach the message service. Check your connection and try again.' }
   }
 }
 

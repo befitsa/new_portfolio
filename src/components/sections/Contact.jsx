@@ -37,7 +37,7 @@ function Field({ id, label, error, children }) {
 // Spinning loader that fits the Button's `icon` slot.
 const Spinner = ({ className = '', ...rest }) => <LoaderCircle className={`${className} animate-spin`} {...rest} />
 
-function ContactForm() {
+function ContactForm({ contactEmail }) {
   const formRef = useRef(null)
   const reduced = useReducedMotion()
   const {
@@ -45,7 +45,7 @@ function ContactForm() {
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm({ mode: 'onTouched', defaultValues: { name: '', email: '', subject: '', message: '' } })
+  } = useForm({ mode: 'onTouched', defaultValues: { name: '', email: '', subject: '', message: '', website: '' } })
   const [result, setResult] = useState(null)
 
   useLayoutEffect(() => {
@@ -68,7 +68,13 @@ function ContactForm() {
 
   const onSubmit = async (values) => {
     setResult(null)
-    const outcome = await sendContactMessage(values)
+    const outcome = await sendContactMessage({
+      ...values,
+      name: values.name.trim(),
+      email: values.email.trim(),
+      subject: values.subject.trim(),
+      message: values.message.trim(),
+    })
     setResult({ ...outcome, values })
     if (outcome.status === 'sent') reset()
   }
@@ -82,24 +88,29 @@ function ContactForm() {
   return (
     <form ref={formRef} onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
       <Field id="name" label="Your name" error={errors.name?.message}>
-        <input id="name" type="text" autoComplete="name" placeholder="Name" className={inputClass} {...a11y('name')}
-          {...register('name', { required: 'Please enter your name.', minLength: { value: 2, message: 'Your name should be at least 2 characters.' } })} />
+        <input id="name" type="text" autoComplete="name" maxLength={120} placeholder="Name" className={inputClass} {...a11y('name')}
+          {...register('name', { setValueAs: (value) => value.trim(), required: 'Please enter your name.', minLength: { value: 2, message: 'Your name should be at least 2 characters.' }, maxLength: { value: 120, message: 'Your name must be 120 characters or fewer.' } })} />
       </Field>
 
       <Field id="email" label="Your email" error={errors.email?.message}>
-        <input id="email" type="email" autoComplete="email" placeholder="Your email address" className={inputClass} {...a11y('email')}
-          {...register('email', { required: 'Please enter your email address.', pattern: { value: EMAIL_PATTERN, message: 'Enter a valid email, like name@example.com.' } })} />
+        <input id="email" type="email" autoComplete="email" maxLength={254} placeholder="Your email address" className={inputClass} {...a11y('email')}
+          {...register('email', { setValueAs: (value) => value.trim(), required: 'Please enter your email address.', maxLength: { value: 254, message: 'Your email must be 254 characters or fewer.' }, pattern: { value: EMAIL_PATTERN, message: 'Enter a valid email, like name@example.com.' } })} />
       </Field>
 
       <Field id="subject" label="Subject" error={errors.subject?.message}>
-        <input id="subject" type="text" placeholder="What would you like to talk about?" className={inputClass} {...a11y('subject')}
-          {...register('subject', { required: 'Please add a subject.', minLength: { value: 3, message: 'The subject should be at least 3 characters.' } })} />
+        <input id="subject" type="text" maxLength={160} placeholder="What would you like to talk about?" className={inputClass} {...a11y('subject')}
+          {...register('subject', { setValueAs: (value) => value.trim(), required: 'Please add a subject.', minLength: { value: 3, message: 'The subject should be at least 3 characters.' }, maxLength: { value: 160, message: 'The subject must be 160 characters or fewer.' } })} />
       </Field>
 
       <Field id="message" label="Your message" error={errors.message?.message}>
-        <textarea id="message" rows={5} placeholder="Tell me a little about your project..." className={`${inputClass} resize-y`} {...a11y('message')}
-          {...register('message', { required: 'Please write a message.', minLength: { value: 10, message: 'Please write at least 10 characters.' } })} />
+        <textarea id="message" rows={5} maxLength={5000} placeholder="Tell me a little about your project..." className={`${inputClass} resize-y`} {...a11y('message')}
+          {...register('message', { setValueAs: (value) => value.trim(), required: 'Please write a message.', minLength: { value: 10, message: 'Please write at least 10 characters.' }, maxLength: { value: 5000, message: 'Your message must be 5,000 characters or fewer.' } })} />
       </Field>
+
+      <div className="absolute -left-[10000px] h-px w-px overflow-hidden" aria-hidden="true">
+        <label htmlFor="website">Leave this field empty</label>
+        <input id="website" type="text" tabIndex={-1} autoComplete="off" {...register('website')} />
+      </div>
 
       {/* disabled while sending = no double submissions */}
       <Button data-contact-submit type="submit" size="lg" variant="dark" icon={isSubmitting ? Spinner : Send} disabled={isSubmitting} className="mx-auto w-full max-w-sm bg-[#465c65] text-white shadow-[0_8px_22px_rgba(45,65,73,0.2)] transition-[background-color,color,border-color,transform,box-shadow] hover:-translate-y-0.5 hover:bg-[#344850] hover:text-white hover:shadow-[0_12px_26px_rgba(45,65,73,0.24)] focus-visible:ring-2 focus-visible:ring-[#465c65]">
@@ -116,19 +127,11 @@ function ContactForm() {
             role={result.status === 'sent' ? 'status' : 'alert'}
             className={`rounded-lg p-4 text-sm leading-relaxed ${result.status === 'sent' ? 'bg-white/75 text-ink' : 'bg-red-50 text-red-900'}`}
           >
-            {result.status === 'sent' && <p>Thank you — your message was delivered. I’ll be in touch soon.</p>}
-            {result.status === 'unconfigured' && (
-              <>
-                <p>This form isn’t connected to an email service yet, so <strong>nothing was sent</strong>. You can still reach me directly:</p>
-                <Button href={buildMailto(profile.email, result.values)} variant="secondary" size="sm" className="mt-3">
-                  Open my email app
-                </Button>
-              </>
-            )}
+            {result.status === 'sent' && <p>Your message has been sent successfully. Thank you for reaching out!</p>}
             {result.status === 'error' && (
               <>
                 <p><strong>Your message was not sent.</strong> {result.message} Please try again or email me directly.</p>
-                <Button href={buildMailto(profile.email, result.values)} variant="secondary" size="sm" className="mt-3">
+                <Button href={buildMailto(contactEmail, result.values)} variant="secondary" size="sm" className="mt-3">
                   Open my email app
                 </Button>
               </>
@@ -190,7 +193,7 @@ export default function Contact() {
               <p className="text-xs font-semibold tracking-[0.22em] text-[#8b6a32] uppercase">Direct channel</p>
               <h3 className="mt-4 font-display text-3xl font-semibold text-ink">Send a message</h3>
               <p className="mt-3 mb-8 text-ink/65">Share a little about your idea and I’ll be in touch.</p>
-              <ContactForm />
+              <ContactForm contactEmail={profile.email} />
             </div>
           </Reveal>
 

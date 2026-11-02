@@ -42,7 +42,18 @@ The active Supabase CMS requires these browser configuration variables:
 - `VITE_SUPABASE_URL` — URL of the Supabase project intended for this Netlify site.
 - `VITE_SUPABASE_PUBLISHABLE_KEY` — that project's publishable (formerly anon) key.
 
-`VITE_PUBLIC_PORTFOLIO_URL` supplies the public-site link shown in the admin dashboard. `VITE_CONTACT_API_URL` is optional and only configures the contact endpoint. `VITE_ADMIN_SUBDOMAIN` is only used by local/development routing. Values prefixed `VITE_` are embedded in browser code: use only public project configuration and never put service-role keys, database passwords, access tokens, or other secrets in them. A URL/key mismatch or missing variable requires correcting the Netlify site/environment build settings and rebuilding; do not post key values in tickets or chat.
+`VITE_PUBLIC_PORTFOLIO_URL` supplies the public-site link shown in the admin dashboard. `VITE_CONTACT_API_URL` optionally overrides the same-origin contact endpoint. `VITE_ADMIN_SUBDOMAIN` is only used by local/development routing. Values prefixed `VITE_` are embedded in browser code: use only public project configuration and never put service-role keys, database passwords, access tokens, or other secrets in them. A URL/key mismatch or missing variable requires correcting the Netlify site/environment build settings and rebuilding; do not post key values in tickets or chat.
+
+### Contact email delivery
+
+The contact form submits to the Netlify Function at `/api/contact`. The function sends plain-text email through Resend; the recipient defaults to `befitsa123@gmail.com`, and the visitor's validated address is used as `reply_to`. Netlify Blobs stores a per-client rate counter (five messages per hour). Configure these variables in the Netlify site's server-side environment settings:
+
+- `RESEND_API_KEY` — Resend API key. Keep it server-side; never prefix it with `VITE_`.
+- `CONTACT_FROM_EMAIL` — a sender address verified in Resend, or Resend's supported testing sender `onboarding@resend.dev` until a sending domain is verified.
+- `CONTACT_TO_EMAIL` — recipient, set to `befitsa123@gmail.com` (this is also the code default).
+- `CONTACT_ALLOWED_ORIGINS` — optional comma-separated exact origins for a contact endpoint hosted on a different origin. Same-origin Netlify requests are allowed automatically.
+
+The Resend testing sender may restrict recipients to verified addresses on the Resend account. Verify a custom sending domain in Resend before using a sender at that domain. Local Vite development does not run Netlify Functions; use Netlify Dev with the same server-side variables to exercise delivery locally. A successful form response means Resend accepted the message, not that it reached the recipient's inbox. Verify delivery through Resend's message logs and the recipient mailbox after deployment.
 
 After updating Netlify variables, verify the site context (production vs deploy preview) and rebuild the site so Vite embeds the intended values. The repository cannot verify Netlify settings or which Supabase project a deployed bundle targets. Firebase environment variables and `VITE_CMS_API_URL` described by older setup notes are not used by the current Supabase CMS provider.
 
