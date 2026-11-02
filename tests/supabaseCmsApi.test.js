@@ -564,6 +564,107 @@ test('education publishing promotes credential images through the existing gate'
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
 })
 
+test('settings publishing promotes custom social logos before exposing their public references', async () => {
+  const sourcePath = `${PRIVATE_BUCKET}/drafts/admin/social/facebook.png`
+  let publishedPayload
+  const calls = []
+  const client = mockClient(async (name, args) => {
+    calls.push(name)
+    if (name === 'cms_get_settings') {
+      return {
+        data: {
+          id: 'settings',
+          name: 'Fitsum',
+          title: 'Developer',
+          bio: '',
+          about: '',
+          location: '',
+          socialLinks: { github: 'https://github.com/fitsum' },
+          customSocialLinks: [{
+            id: 'custom-facebook',
+            platform: 'Facebook',
+            url: 'https://facebook.com/fitsum',
+            logo: { url: '', storagePath: sourcePath, fileName: 'facebook.png', mimeType: 'image/png' },
+          }],
+          featuredProjectIds: [],
+          seo: {},
+          visibility: true,
+          status: 'draft',
+          revision: 3,
+          publishedRevision: 2,
+          basePublishedRevision: 2,
+        },
+        error: null,
+      }
+    }
+    if (name === 'cms_health') return { data: { storage: { ready: true } }, error: null }
+    if (name === 'cms_publish_settings_with_assets') {
+      publishedPayload = args.p_payload
+      return { data: { id: 'settings', ...args.p_payload, status: 'published' }, error: null }
+    }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const api = createSupabaseCmsApi(client)
+
+  await api.publishSettings(3)
+
+  const logo = publishedPayload.customSocialLinks[0].logo
+  assert.equal(logo.storagePath, `${PUBLIC_BUCKET}/published/drafts/admin/social/facebook.png`)
+  assert.equal(logo.url, 'https://public.example/published/drafts/admin/social/facebook.png')
+  assert.equal(calls.includes('cms_publish_settings_with_assets'), true)
+  assert.equal(calls.includes('cms_publish_settings'), false)
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === PRIVATE_BUCKET))
+  assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
+})
+
+test('settings publishing withdraws the public projection when custom-logo copy fails', async () => {
+  const sourcePath = `${PRIVATE_BUCKET}/drafts/admin/social/failing-logo.png`
+  const calls = []
+  const client = mockClient(async (name) => {
+    calls.push(name)
+    if (name === 'cms_get_settings') {
+      return {
+        data: {
+          id: 'settings',
+          name: 'Fitsum',
+          socialLinks: {},
+          customSocialLinks: [{
+            id: 'custom-facebook',
+            platform: 'Facebook',
+            url: 'https://facebook.com/fitsum',
+            logo: { url: '', storagePath: sourcePath, fileName: 'failing-logo.png', mimeType: 'image/png' },
+          }],
+          visibility: true,
+          status: 'draft',
+          revision: 2,
+          publishedRevision: 1,
+          basePublishedRevision: 1,
+        },
+        error: null,
+      }
+    }
+    if (name === 'cms_health') return { data: { storage: { ready: true } }, error: null }
+    if (name === 'cms_publish_settings_with_assets') return { data: { id: 'settings', status: 'published' }, error: null }
+    if (name === 'cms_unpublish_settings') return { data: { status: 'unpublished' }, error: null }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  const storageFrom = client.storage.from.bind(client.storage)
+  client.storage.from = (bucket) => {
+    const storage = storageFrom(bucket)
+    if (bucket === PRIVATE_BUCKET) {
+      storage.download = async () => ({ data: null, error: { message: 'source upload is missing' } })
+    }
+    return storage
+  }
+  const api = createSupabaseCmsApi(client)
+
+  await assert.rejects(
+    api.publishSettings(2),
+    (error) => error instanceof SupabaseCmsError && error.state === 'upload' && /rolled back/.test(error.message),
+  )
+  assert.equal(calls.includes('cms_unpublish_settings'), true)
+})
+
 test('legacy bucket IDs remain distinct and the exact dotted ID is parsed', async () => {
   const bucketIds = ['portfolio-media.', 'portfolio-media', 'portfolio_media']
   assert.deepEqual(LEGACY_STORAGE_BUCKETS, bucketIds)
@@ -1160,6 +1261,22 @@ test('database publish RPCs enforce admin, storage readiness, asset eligibility,
   assert.match(migration, /public\.is_portfolio_admin\(\)/)
   assert.match(migration, /revoke all on function public\.cms_publication_block_reason\(\) from public, anon, authenticated/)
   assert.match(migration, /revoke all on function public\.cms_legacy_bucket_safe\(text, boolean\) from public, anon, authenticated/)
+})
+
+test('social settings asset publication migration keeps the Storage audit and private-path guards', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/20261030120000_social_settings_asset_publication.sql', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(migration, /create or replace function public\.cms_publish_settings_with_assets/)
+  assert.match(migration, /cms_require_portfolio_admin\(\)/)
+  assert.match(migration, /cms_publication_block_reason\(\)/)
+  assert.match(migration, /v_current\.revision <> p_expected_revision/)
+  assert.match(migration, /published_payload = v_payload/)
+  assert.match(migration, /cms_jsonb_uses_storage_bucket\(v_payload, 'portfolio-private'\)/)
+  assert.match(migration, /cms_jsonb_has_unknown_storage_bucket\(v_payload\)/)
+  assert.match(migration, /grant execute on function public\.cms_publish_settings_with_assets\(integer, jsonb\) to authenticated/)
 })
 
 test('public lifecycle validation covers publish, unpublish, delete, stale parity, and audit invalidation', async () => {

@@ -1,15 +1,25 @@
 // src/components/common/SocialLinks.jsx
-// Renders only the links that have a real URL in src/data/profile.js.
 import { Mail, Globe } from 'lucide-react'
-import { FaGithub, FaLinkedinIn } from 'react-icons/fa6'
+import { FaGithub, FaInstagram, FaLinkedinIn, FaTelegram } from 'react-icons/fa6'
 import { usePortfolioProfile } from '../../context/PortfolioProfileContext.jsx'
 
 // Lucide dropped brand logos, so GitHub/LinkedIn come from react-icons.
-const icons = { github: FaGithub, linkedin: FaLinkedinIn, email: Mail }
+const icons = {
+  github: FaGithub,
+  linkedin: FaLinkedinIn,
+  instagram: FaInstagram,
+  telegram: FaTelegram,
+  email: Mail,
+}
 
-export default function SocialLinks({ orientation = 'horizontal', size = 'md', className = '' }) {
+export default function SocialLinks({ orientation = 'horizontal', size = 'md', className = '', excludeEmail = false, includeCustom = false }) {
   const profile = usePortfolioProfile()
-  const links = profile.socials.filter((s) => s.url)
+  const links = profile.socials.filter((social) => (
+    social.url
+    && (!excludeEmail || social.id !== 'email')
+    && (includeCustom || !social.custom)
+    && (/^https?:\/\//i.test(social.url) || (social.id === 'email' && /^mailto:/i.test(social.url)))
+  ))
   if (links.length === 0) return null
 
   const box = size === 'sm' ? 'size-9' : 'size-10 md:size-11'
@@ -19,9 +29,9 @@ export default function SocialLinks({ orientation = 'horizontal', size = 'md', c
       className={`flex gap-3 ${orientation === 'vertical' ? 'flex-col' : 'flex-row flex-wrap'} ${className}`}
       aria-label="Social links"
     >
-      {links.map(({ id, label, url }) => {
+      {links.map(({ id, label, url, logo }) => {
         const Icon = icons[id] || Globe
-        const external = /^https?:\/\//.test(url)
+        const external = /^https?:\/\//i.test(url)
         return (
           <li key={id}>
             <a
@@ -31,7 +41,23 @@ export default function SocialLinks({ orientation = 'horizontal', size = 'md', c
               {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               className={`grid ${box} place-items-center rounded-full border border-forest/15 bg-paper text-forest shadow-sm transition duration-300 hover:-translate-y-0.5 hover:bg-forest hover:text-ivory hover:ring-forest`}
             >
-              <Icon className="size-[1.1rem]" aria-hidden="true" />
+              {logo?.url ? (
+                <>
+                  <img
+                    className="size-[1.15rem] object-contain"
+                    src={logo.url}
+                    alt=""
+                    aria-hidden="true"
+                    onError={(event) => {
+                      event.currentTarget.hidden = true
+                      event.currentTarget.nextElementSibling?.classList.remove('hidden')
+                    }}
+                  />
+                  <Icon className="hidden size-[1.1rem]" aria-hidden="true" />
+                </>
+              ) : (
+                <Icon className="size-[1.1rem]" aria-hidden="true" />
+              )}
             </a>
           </li>
         )

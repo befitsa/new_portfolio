@@ -40,8 +40,7 @@ export default function Footer() {
   return (
     <footer ref={footerRef} className="border-t border-forest/15 bg-cream/72 pt-16 pb-10">
       <div className="mx-auto flex max-w-[90rem] flex-col gap-8 px-5 md:gap-10 md:px-10">
-        <div data-footer-reveal className="flex items-center justify-between gap-4">
-          <SocialLinks size="sm" />
+        <div data-footer-reveal className="flex justify-end">
           <button
             type="button"
             onClick={scrollToTop}
@@ -50,6 +49,15 @@ export default function Footer() {
             Back to Top
             <ArrowUp className="size-4 transition-transform duration-300 group-hover:-translate-y-0.5" aria-hidden="true" />
           </button>
+        </div>
+
+        <div data-footer-reveal className="flex justify-center">
+          <SocialLinks
+            size="md"
+            excludeEmail
+            includeCustom
+            className="w-full max-w-[42rem] justify-center gap-2 sm:gap-3"
+          />
         </div>
 
         <nav data-footer-reveal aria-label="Footer" className="flex justify-center">
@@ -68,8 +76,8 @@ export default function Footer() {
           </ul>
         </nav>
 
-        <div data-footer-reveal className="flex justify-center xl:justify-start">
-          <div className="flex w-full max-w-96 flex-col items-start gap-3">
+        <div data-footer-reveal className="flex justify-center">
+          <div className="flex w-full max-w-96 flex-wrap items-center justify-center gap-3">
             <BrandLink
               href="#home"
               onClick={(event) => { event.preventDefault(); scrollToTop() }}
@@ -77,13 +85,7 @@ export default function Footer() {
               logoSize={48}
               className="text-forest"
             />
-            <p className="text-sm text-forest/65">{profile.title}</p>
-            <a
-              href={`mailto:${profile.email}`}
-              className="w-full break-words text-base text-forest underline decoration-gold/60 underline-offset-4 [overflow-wrap:anywhere] transition-colors hover:text-forest/70 hover:decoration-mint sm:text-lg"
-            >
-              {profile.email}
-            </a>
+            <p className="whitespace-nowrap text-sm text-forest/65">{profile.title}</p>
           </div>
         </div>
       </div>
@@ -94,7 +96,7 @@ export default function Footer() {
           as="p"
           mode="chars"
           text="FITSUM MESFIN"
-          className="font-display text-[clamp(1.8rem,9vw,12rem)] leading-[0.95] font-semibold tracking-tighter whitespace-nowrap text-forest/85 uppercase"
+          className="font-display text-center text-[clamp(1.8rem,9vw,12rem)] leading-[0.95] font-semibold tracking-tighter whitespace-nowrap text-forest/85 uppercase"
         />
       </div>
 

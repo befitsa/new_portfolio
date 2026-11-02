@@ -1184,9 +1184,66 @@ function createCmsApi(client) {
     },
 
     async publishSettings(expectedRevision) {
-      const value = await assertRpc(client, 'cms_publish_settings', {
-        p_expected_revision: expectedRevision,
+      const draft = await api.getSettings('drafts')
+
+      if (!draft) {
+        throw new SupabaseCmsError(
+          'not_found',
+          'Save the portfolio settings draft before publishing.',
+        )
+      }
+
+      const revision = Number.isInteger(expectedRevision)
+        ? expectedRevision
+        : draft.revision
+      const prepared = await preparePublishedAssets(withoutSystemFields(draft))
+
+      if (
+        prepared.sources.length
+        || collectStoragePaths(draft, PUBLIC_BUCKET).length
+      ) {
+        const health = await assertRpc(client, 'cms_health', {})
+
+        if (health?.storage?.ready !== true) {
+          throw new SupabaseCmsError(
+            'upload',
+            health?.storage?.message
+              || 'Published asset storage has not been verified and enabled.',
+          )
+        }
+      }
+
+      const payload = siteSettingsSchema.parse(prepared.value)
+      const value = await assertRpc(client, 'cms_publish_settings_with_assets', {
+        p_expected_revision: revision,
+        p_payload: payload,
       })
+
+      try {
+        await copyPublishedAssets(prepared.sources)
+      } catch (error) {
+        let rollbackError
+
+        try {
+          await assertRpc(client, 'cms_unpublish_settings', {})
+        } catch (caughtRollbackError) {
+          rollbackError = caughtRollbackError
+        }
+
+        if (rollbackError) {
+          throw new SupabaseCmsError(
+            'serverError',
+            `Portfolio settings were published but a logo could not be copied, and the published settings could not be withdrawn: ${rollbackError.message}.`,
+            rollbackError,
+          )
+        }
+
+        throw new SupabaseCmsError(
+          'upload',
+          `Settings publication was rolled back because a logo could not be copied. The original uploads remain private. ${error.message}`,
+          error,
+        )
+      }
 
       return recordFromRpc(value, 'settings', 'published')
     },

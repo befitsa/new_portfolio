@@ -22,15 +22,49 @@ const EMPTY_PROJECT = {
 const EMPTY_EXPERIENCE = { role: '', company: '', logoInitials: '', startDate: '', endDate: '', isCurrent: false, location: '', employmentType: '', description: '', skills: [], recommendationLetter: null, recommendationLetterUrl: '', visibility: true, order: 0 }
 const EDUCATION_DEGREES = ['Certificate', 'Diploma', 'BSc Degree', 'MSc Degree', 'Doctorate (PhD)', 'Other']
 const EMPTY_EDUCATION = { degree: '', customDegree: '', institution: '', startYear: new Date().getFullYear(), endYear: null, notes: '', credentialUrl: '', credentialImage: null, visibility: true, order: 0 }
+const DEFAULT_SOCIAL_LINKS = { ...Object.fromEntries(profile.socials.map(({ id, url }) => [id, url])), instagram: '', telegram: '' }
+const DEFAULT_SOCIAL_ORDER = Object.fromEntries(
+  Object.keys(DEFAULT_SOCIAL_LINKS)
+    .filter((id) => id !== 'email')
+    .map((id, index) => [id, index + 1]),
+)
 const EMPTY_SETTINGS = {
   name: profile.name, title: profile.title, bio: profile.intro, about: profile.about, location: 'Addis Ababa, Ethiopia',
-  socialLinks: Object.fromEntries(profile.socials.map(({ id, url }) => [id, url])), featuredProjectIds: [],
+  socialLinks: DEFAULT_SOCIAL_LINKS,
+  socialLinkDisplayOrders: DEFAULT_SOCIAL_ORDER,
+  customSocialLinks: [], featuredProjectIds: [],
   seo: { metaTitle: '', metaDescription: '' },
 }
 const SYSTEM_FIELDS = new Set(['id', 'status', 'revision', 'publishedRevision', 'basePublishedRevision', 'createdAt', 'updatedAt', 'publishedAt', 'publishedBy', 'updatedBy', 'siteVersion', 'lastPublishedAt'])
 const cleanRecord = (record = {}) => Object.fromEntries(Object.entries(record).filter(([key]) => !SYSTEM_FIELDS.has(key)))
 const dateValue = (value) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''
 const datePretty = (value) => value ? new Date(value).toLocaleDateString() : 'Not saved yet'
+const isPositiveOrder = (value) => Number.isInteger(value) && value > 0
+
+function normalizeSocialDisplayOrders(socialLinks, customSocialLinks, savedOrders = {}) {
+  const socialLinkDisplayOrders = {}
+  let fallbackOrder = 1
+  for (const id of Object.keys(socialLinks || {})) {
+    if (id === 'email') continue
+    socialLinkDisplayOrders[id] = isPositiveOrder(savedOrders[id])
+      ? savedOrders[id]
+      : fallbackOrder
+    fallbackOrder += 1
+  }
+  const custom = customSocialLinks.map((link) => ({
+    ...link,
+    displayOrder: isPositiveOrder(link.displayOrder) ? link.displayOrder : fallbackOrder++,
+  }))
+  return { socialLinkDisplayOrders, customSocialLinks: custom }
+}
+
+function nextSocialDisplayOrder(form) {
+  const orders = [
+    ...Object.values(form.socialLinkDisplayOrders || {}),
+    ...(form.customSocialLinks || []).map((link) => link.displayOrder),
+  ].filter(isPositiveOrder)
+  return Math.max(0, ...orders) + 1
+}
 
 function toLines(values = []) { return values.join('\n') }
 function fromLines(value) { return value.split('\n').map((line) => line.trim()).filter(Boolean) }
@@ -79,7 +113,7 @@ function PageHeader({ eyebrow, title, description, actions, showStorageNotice = 
 function Button({ children, variant = 'secondary', disabled, onClick, type = 'button', href, title, className = '', ...props }) {
   const classes = `cms-button cms-button-${variant} ${className}`.trim()
   if (href) return <a className={classes} href={cmsHref(href)} title={title} {...props}>{children}</a>
-  return <button className={classes} type={type} disabled={disabled} onClick={onClick} title={title}>{children}</button>
+  return <button className={classes} type={type} disabled={disabled} onClick={onClick} title={title} {...props}>{children}</button>
 }
 
 function Notice({ kind = 'info', children, action }) {
@@ -1249,10 +1283,13 @@ export function CmsSettingsPage() {
   const [record, setRecord] = useState(null)
   const [form, setForm] = useState(EMPTY_SETTINGS)
   const [projectOptions, setProjectOptions] = useState([])
+  const [logoProgress, setLogoProgress] = useState(0)
+  const [uploadingSocialId, setUploadingSocialId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
+  const localMode = apiStatus.state === 'local'
   const load = useCallback(async () => {
     if (!ready) {
       setLoading(apiStatus.checking)
@@ -1264,15 +1301,83 @@ export function CmsSettingsPage() {
       const [draft, live, projects] = await Promise.all([adminApi.getSettings('drafts'), adminApi.getSettings('published'), adminApi.list('projects', 'published')])
       setProjectOptions(projects.filter((item) => item.status === 'published' && item.visibility))
       const value = draft || live
-      if (value) { setRecord(value); setForm({ ...EMPTY_SETTINGS, ...cleanRecord(value), socialLinks: { ...EMPTY_SETTINGS.socialLinks, ...(value.socialLinks || {}) }, seo: { ...EMPTY_SETTINGS.seo, ...(value.seo || {}) } }) }
+      if (value) {
+        setRecord(value)
+        const socialLinks = { ...EMPTY_SETTINGS.socialLinks, ...(value.socialLinks || {}) }
+        const normalizedSocialOrder = normalizeSocialDisplayOrders(
+          socialLinks,
+          Array.isArray(value.customSocialLinks) ? value.customSocialLinks : [],
+          value.socialLinkDisplayOrders,
+        )
+        setForm({
+          ...EMPTY_SETTINGS,
+          ...cleanRecord(value),
+          socialLinks,
+          ...normalizedSocialOrder,
+          seo: { ...EMPTY_SETTINGS.seo, ...(value.seo || {}) },
+        })
+      }
     } catch (cause) { setError(cause.message) } finally { setLoading(false) }
   }, [apiStatus.checking, ready])
   useEffect(() => { load() }, [load])
   const field = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+  const updateCustomSocialLink = (id, update) => setForm((current) => ({
+    ...current,
+    customSocialLinks: current.customSocialLinks.map((link) => (
+      link.id === id ? { ...link, ...update } : link
+    )),
+  }))
+  const addCustomSocialLink = () => setForm((current) => ({
+    ...current,
+    customSocialLinks: [
+      ...current.customSocialLinks,
+      {
+        id: `custom-social-${crypto.randomUUID()}`,
+        platform: '',
+        url: '',
+        logo: null,
+        displayOrder: nextSocialDisplayOrder(current),
+      },
+    ],
+  }))
+  const uploadSocialLogo = async (id, file) => {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
+      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP logo larger than 0 bytes and no larger than 12 MB.') })
+      return
+    }
+    if (!localMode && apiStatus.storageReady === false) {
+      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Managed image storage is unavailable. Check portfolio-private and portfolio-published.') })
+      return
+    }
+    setUploadingSocialId(id)
+    setLogoProgress(1)
+    try {
+      const asset = await mutation.run(
+        () => adminApi.uploadPrivateAsset(file, { onProgress: setLogoProgress }),
+        localMode ? 'Social logo saved to local disk.' : 'Social logo uploaded privately. It will become public only when these settings are published.',
+      )
+      if (asset) updateCustomSocialLink(id, { logo: asset })
+    } finally {
+      setLogoProgress(0)
+      setUploadingSocialId('')
+    }
+  }
   const save = async (publish = false) => {
     if (publish && !window.confirm(`Review portfolio settings publish\n\n${form.name}\n${form.title}\n${form.location}\n${form.bio}\n\nPublish these profile and SEO settings?`)) return
     let content
-    try { content = siteSettingsSchema.parse(form) } catch (cause) { mutation.run(() => { throw new Error(cause.issues?.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · ') || cause.message) }); return }
+    try {
+      content = siteSettingsSchema.parse(form)
+      if (!localMode) {
+        content.customSocialLinks = content.customSocialLinks.map((link) => ({
+          ...link,
+          logo: link.logo?.storagePath ? { ...link.logo, url: '' } : link.logo,
+        }))
+      }
+    } catch (cause) {
+      mutation.run(() => { throw new Error(cause.issues?.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · ') || cause.message) })
+      return
+    }
     const result = await mutation.run(async () => {
       const saved = await adminApi.saveSettings(content, record?.revision ?? 0)
       setRecord(saved)
@@ -1281,8 +1386,188 @@ export function CmsSettingsPage() {
     }, publish ? 'Portfolio settings published.' : 'Settings draft saved.')
     if (result) load()
   }
-  return <><PageHeader eyebrow="PORTFOLIO CONFIGURATION" title="Settings" description="Manage profile details, About copy, and SEO settings used by the public portfolio." actions={<Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={15} /> Publish settings</Button>} />
-    {!ready && <CmsConnectionNotice status={apiStatus} />}{error && <ContentError error={error} retry={load} />}{mutation.error && <Notice kind="error">{mutation.error}</Notice>}{mutation.success && <Notice kind="success">{mutation.success}</Notice>}{loading ? <LoadingPanel /> : <form className="cms-settings-grid" onSubmit={(event) => { event.preventDefault(); save(false) }}><section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">01</span><div><h2>Public profile</h2><p>Profile details used in the existing portfolio components.</p></div></div><TextInput label="Portfolio name" value={form.name} onChange={(value) => field('name', value)} maxLength={120} required /><TextInput label="Professional title" value={form.title} onChange={(value) => field('title', value)} maxLength={160} /><TextArea label="Biography" value={form.bio} onChange={(value) => field('bio', value)} rows={4} maxLength={6000} /><TextArea label="About section" value={form.about} onChange={(value) => field('about', value)} rows={6} maxLength={3000} /><TextInput label="Location" value={form.location} onChange={(value) => field('location', value)} maxLength={120} /></section><section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">02</span><div><h2>Social links & SEO</h2><p>Only public profile metadata belongs here.</p></div></div><TextInput label="GitHub URL" type="url" value={form.socialLinks.github} onChange={(value) => setForm((current) => ({ ...current, socialLinks: { ...current.socialLinks, github: value } }))} /><TextInput label="LinkedIn URL" type="url" value={form.socialLinks.linkedin} onChange={(value) => setForm((current) => ({ ...current, socialLinks: { ...current.socialLinks, linkedin: value } }))} /><TextInput label="Email address or mailto link" value={form.socialLinks.email?.replace(/^mailto:/, '')} onChange={(value) => setForm((current) => ({ ...current, socialLinks: { ...current.socialLinks, email: value ? `mailto:${value.replace(/^mailto:/, '')}` : '' } }))} /><div className="cms-featured-picker"><strong>Featured projects</strong><p>Selected projects appear first in the public showcase.</p>{projectOptions.length ? projectOptions.map((item) => <label key={item.id}><input type="checkbox" checked={form.featuredProjectIds.includes(item.id)} onChange={(event) => setForm((current) => ({ ...current, featuredProjectIds: event.target.checked ? [...new Set([...current.featuredProjectIds, item.id])] : current.featuredProjectIds.filter((id) => id !== item.id) }))} /><span>{item.title}</span></label>) : <small>Publish at least one project to choose featured work.</small>}</div><TextInput label="SEO page title" value={form.seo.metaTitle} onChange={(value) => setForm((current) => ({ ...current, seo: { ...current.seo, metaTitle: value } }))} maxLength={70} /><TextArea label="SEO description" value={form.seo.metaDescription} onChange={(value) => setForm((current) => ({ ...current, seo: { ...current.seo, metaDescription: value } }))} rows={4} maxLength={180} /><div className="cms-editor-actions"><span>{record ? `Draft revision v${record.revision}` : 'No saved settings'}</span><Button type="submit" disabled={!ready || mutation.busy}><Save size={14} /> Save draft</Button><Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={14} /> Save & publish</Button></div></section></form>}
+  const setSocialLink = (key, value) => setForm((current) => ({
+    ...current,
+    socialLinks: { ...current.socialLinks, [key]: value },
+  }))
+  const setSocialDisplayOrder = (key, value) => setForm((current) => ({
+    ...current,
+    socialLinkDisplayOrders: {
+      ...current.socialLinkDisplayOrders,
+      [key]: value === '' ? '' : Number(value),
+    },
+  }))
+
+  const socialPlatformField = (id, label) => (
+    <div className="cms-social-platform-fields" key={id}>
+      <TextInput
+        label={`${label} URL`}
+        type="url"
+        value={form.socialLinks[id]}
+        onChange={(value) => setSocialLink(id, value)}
+      />
+      <TextInput
+        label="Display Order"
+        type="number"
+        min={1}
+        step={1}
+        inputMode="numeric"
+        value={form.socialLinkDisplayOrders[id]}
+        onChange={(value) => setSocialDisplayOrder(id, value)}
+      />
+    </div>
+  )
+
+  return <>
+    <PageHeader
+      eyebrow="PORTFOLIO CONFIGURATION"
+      title="Settings"
+      description="Manage profile details, About copy, and SEO settings used by the public portfolio."
+      actions={<Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={15} /> Publish settings</Button>}
+    />
+    {!ready && <CmsConnectionNotice status={apiStatus} />}
+    {error && <ContentError error={error} retry={load} />}
+    {mutation.error && <Notice kind="error">{mutation.error}</Notice>}
+    {mutation.success && <Notice kind="success">{mutation.success}</Notice>}
+    {loading ? <LoadingPanel /> : (
+      <form className="cms-settings-grid" onSubmit={(event) => { event.preventDefault(); save(false) }}>
+        <section className="cms-editor-card">
+          <div className="cms-section-heading">
+            <span className="cms-step-number">01</span>
+            <div><h2>Public profile</h2><p>Profile details used in the existing portfolio components.</p></div>
+          </div>
+          <TextInput label="Portfolio name" value={form.name} onChange={(value) => field('name', value)} maxLength={120} required />
+          <TextInput label="Professional title" value={form.title} onChange={(value) => field('title', value)} maxLength={160} />
+          <TextArea label="Biography" value={form.bio} onChange={(value) => field('bio', value)} rows={4} maxLength={6000} />
+          <TextArea label="About section" value={form.about} onChange={(value) => field('about', value)} rows={6} maxLength={3000} />
+          <TextInput label="Location" value={form.location} onChange={(value) => field('location', value)} maxLength={120} />
+        </section>
+        <section className="cms-editor-card">
+          <div className="cms-section-heading">
+            <span className="cms-step-number">02</span>
+            <div><h2>Social links & SEO</h2><p>Only published profile metadata appears on the public portfolio.</p></div>
+          </div>
+          {[
+            ['github', 'GitHub'],
+            ['linkedin', 'LinkedIn'],
+            ['instagram', 'Instagram'],
+            ['telegram', 'Telegram'],
+          ].map(([id, label]) => socialPlatformField(id, label))}
+          <TextInput
+            label="Email address or mailto link"
+            value={form.socialLinks.email?.replace(/^mailto:/, '')}
+            onChange={(value) => setSocialLink('email', value ? `mailto:${value.replace(/^mailto:/, '')}` : '')}
+          />
+
+          <section className="cms-social-editor" aria-label="Custom social media">
+            <div className="cms-social-editor-heading">
+              <div><h3>Custom social media</h3><p>Add as many platforms as you need.</p></div>
+              <Button disabled={!ready || mutation.busy} onClick={addCustomSocialLink}><Plus size={14} /> Add Social Media</Button>
+            </div>
+            {form.customSocialLinks.map((link) => (
+              <article className="cms-social-entry" key={link.id}>
+                <TextInput
+                  label="Platform Name"
+                  value={link.platform}
+                  onChange={(value) => updateCustomSocialLink(link.id, { platform: value })}
+                  maxLength={60}
+                  required
+                />
+                <TextInput
+                  label="Profile URL"
+                  type="url"
+                  value={link.url}
+                  onChange={(value) => updateCustomSocialLink(link.id, { url: value })}
+                  maxLength={500}
+                  placeholder="https://www.facebook.com/username"
+                  required
+                />
+                <TextInput
+                  label="Display Order"
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={link.displayOrder}
+                  onChange={(value) => updateCustomSocialLink(link.id, {
+                    displayOrder: value === '' ? '' : Number(value),
+                  })}
+                  required
+                />
+                <div className="cms-social-logo-row">
+                  <div className="cms-social-logo-preview">
+                    {link.logo?.url ? <img src={link.logo.url} alt={`${link.platform || 'Social media'} logo preview`} /> : <ImageIcon size={20} aria-hidden="true" />}
+                  </div>
+                  <div className="cms-social-logo-controls">
+                    <label className="cms-upload-control">
+                      <Upload size={15} />
+                      <span>{uploadingSocialId === link.id ? `Uploading ${logoProgress}%` : link.logo?.storagePath ? 'Replace logo' : 'Upload logo'}</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                        disabled={!ready || mutation.busy}
+                        onChange={(event) => {
+                          uploadSocialLogo(link.id, event.target.files?.[0])
+                          event.target.value = ''
+                        }}
+                        aria-label={`Upload ${link.platform || 'social media'} logo`}
+                      />
+                    </label>
+                    {link.logo?.storagePath && (
+                      <Button disabled={mutation.busy} onClick={() => updateCustomSocialLink(link.id, { logo: null })}>
+                        <Trash2 size={14} /> Remove logo
+                      </Button>
+                    )}
+                    <span>JPEG, PNG, WebP · max 12 MB</span>
+                  </div>
+                  <Button
+                    className="cms-action-delete"
+                    disabled={mutation.busy}
+                    onClick={() => setForm((current) => ({
+                      ...current,
+                      customSocialLinks: current.customSocialLinks.filter((entry) => entry.id !== link.id),
+                    }))}
+                    aria-label={`Remove ${link.platform || 'custom social media'} entry`}
+                  >
+                    <Trash2 size={14} /> Remove
+                  </Button>
+                </div>
+              </article>
+            ))}
+            {form.customSocialLinks.length === 0 && <p className="cms-social-empty">No custom social platforms added.</p>}
+            {!localMode && <small>Uploaded logos stay private in drafts and are promoted to public storage only when settings are published. Public asset changes may require a fresh Storage review.</small>}
+          </section>
+
+          <div className="cms-featured-picker">
+            <strong>Featured projects</strong>
+            <p>Selected projects appear first in the public showcase.</p>
+            {projectOptions.length ? projectOptions.map((item) => (
+              <label key={item.id}>
+                <input
+                  type="checkbox"
+                  checked={form.featuredProjectIds.includes(item.id)}
+                  onChange={(event) => setForm((current) => ({
+                    ...current,
+                    featuredProjectIds: event.target.checked
+                      ? [...new Set([...current.featuredProjectIds, item.id])]
+                      : current.featuredProjectIds.filter((id) => id !== item.id),
+                  }))}
+                />
+                <span>{item.title}</span>
+              </label>
+            )) : <small>Publish at least one project to choose featured work.</small>}
+          </div>
+          <TextInput label="SEO page title" value={form.seo.metaTitle} onChange={(value) => setForm((current) => ({ ...current, seo: { ...current.seo, metaTitle: value } }))} maxLength={70} />
+          <TextArea label="SEO description" value={form.seo.metaDescription} onChange={(value) => setForm((current) => ({ ...current, seo: { ...current.seo, metaDescription: value } }))} rows={4} maxLength={180} />
+          {logoProgress > 0 && <div className="cms-upload-status" role="status"><progress className="cms-upload-progress" max="100" value={logoProgress} /><span>Uploading social logo · {logoProgress}%</span></div>}
+          <div className="cms-editor-actions">
+            <span>{record ? `Draft revision v${record.revision}` : 'No saved settings'}</span>
+            <Button type="submit" disabled={!ready || mutation.busy}><Save size={14} /> Save draft</Button>
+            <Button variant="brown" disabled={!ready || mutation.busy} onClick={() => save(true)}><CloudUpload size={14} /> Save & publish</Button>
+          </div>
+        </section>
+      </form>
+    )}
   </>
 }
 

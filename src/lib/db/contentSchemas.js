@@ -8,6 +8,14 @@ const httpUrlSchema = z.string().url().refine((value) => {
     return false
   }
 }, 'URL must use HTTP or HTTPS.')
+const socialProfileUrlSchema = z.string().trim().url().refine((value) => {
+  try {
+    const protocol = new URL(value).protocol
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
+}, 'Profile URL must use HTTP or HTTPS.')
 const optionalUrl = z.union([z.literal(''), httpUrlSchema])
 const localFileUrl = z.string().refine((value) => /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value) && !value.split('/').includes('..'), 'Local file URL must be a safe development upload path.')
 const storedFileUrl = z.union([httpUrlSchema, localFileUrl])
@@ -51,6 +59,13 @@ const optionalPrivateImage = z.object({
   url: z.union([z.literal(''), httpUrlSchema, localFileUrl]).default(''),
   storagePath: z.string().trim().max(1024).default(''),
 }).nullable().default(null)
+const customSocialLinkSchema = z.object({
+  id: z.string().trim().min(1).max(128),
+  platform: z.string().trim().min(1).max(60),
+  url: socialProfileUrlSchema,
+  logo: optionalPrivateImage,
+  displayOrder: z.number().int().positive().optional(),
+})
 
 export function normalizeTechnologyStack(value) {
   const entries = Array.isArray(value)
@@ -283,7 +298,21 @@ export const siteSettingsSchema = z.object({
       }
     }
   }),
+  socialLinkDisplayOrders: z.record(
+    z.string().trim().min(1).max(40),
+    z.number().int().positive(),
+  ).default({}),
+  customSocialLinks: z.array(customSocialLinkSchema).default([]).superRefine((links, context) => {
+    const ids = new Set()
+    links.forEach((link, index) => {
+      if (ids.has(link.id)) {
+        context.addIssue({ code: 'custom', path: [index, 'id'], message: 'Custom social media entries must have unique IDs.' })
+      }
+      ids.add(link.id)
+    })
+  }),
   featuredProjectIds: z.array(z.string().trim().min(1).max(128)).max(20).default([]),
+  visibility: z.boolean().default(true),
   seo: z.object({
     metaTitle: optionalText(70).default(''),
     metaDescription: optionalText(180).default(''),

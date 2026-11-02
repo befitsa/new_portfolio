@@ -97,11 +97,59 @@ export function toProfileSettings(settings, fallback) {
 
   const name = settings.name?.trim() || fallback.name
   const nameParts = name.split(/\s+/)
-  const socials = Object.entries(settings.socialLinks || {}).map(([id, url]) => ({
-    id,
-    label: id === 'github' ? 'GitHub' : id === 'linkedin' ? 'LinkedIn' : id[0].toUpperCase() + id.slice(1),
-    url,
-  }))
+  const platformLabels = { github: 'GitHub', linkedin: 'LinkedIn', instagram: 'Instagram', telegram: 'Telegram' }
+  const safeUrl = (value, allowMailto = false) => {
+    if (typeof value !== 'string' || !value.trim()) return false
+    if (allowMailto && /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(value)) return true
+    try {
+      const url = new URL(value)
+      return url.protocol === 'http:' || url.protocol === 'https:'
+    } catch { return false }
+  }
+  const safeLogoUrl = (value) => (
+    safeUrl(value)
+    || (typeof value === 'string'
+      && /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value)
+      && !value.split('/').includes('..'))
+  )
+  const socials = Object.entries(settings.socialLinks || {})
+    .filter(([id, url]) => safeUrl(url, id === 'email'))
+    .map(([id, url], index) => ({
+      id,
+      label: platformLabels[id] || id[0].toUpperCase() + id.slice(1),
+      url,
+      displayOrder: isValidSocialDisplayOrder(settings.socialLinkDisplayOrders?.[id])
+        ? settings.socialLinkDisplayOrders[id]
+        : index + 1,
+    }))
+  for (const link of settings.customSocialLinks || []) {
+    if (
+      !link
+      || typeof link.id !== 'string'
+      || !link.id.trim()
+      || typeof link.platform !== 'string'
+      || !link.platform.trim()
+      || socials.some((social) => social.id === link.id)
+      || !safeUrl(link.url)
+    ) continue
+    socials.push({
+      id: link.id,
+      label: link.platform.trim(),
+      url: link.url,
+      logo: safeLogoUrl(link.logo?.url) ? { url: link.logo.url } : null,
+      displayOrder: isValidSocialDisplayOrder(link.displayOrder)
+        ? link.displayOrder
+        : socials.length + 1,
+      custom: true,
+    })
+  }
+  const orderedSocials = socials
+    .map((social, index) => ({ social, index }))
+    .sort((left, right) => (
+      left.social.displayOrder - right.social.displayOrder
+      || left.index - right.index
+    ))
+    .map(({ social }) => social)
 
   return {
     ...fallback,
@@ -116,8 +164,12 @@ export function toProfileSettings(settings, fallback) {
     email: settings.socialLinks?.email
       ? settings.socialLinks.email.replace(/^mailto:/i, '').split('?')[0]
       : fallback.email,
-    socials,
+    socials: orderedSocials,
     seo: settings.seo || {},
     featuredProjectIds: Array.isArray(settings.featuredProjectIds) ? settings.featuredProjectIds : [],
   }
+}
+
+function isValidSocialDisplayOrder(value) {
+  return Number.isInteger(value) && value > 0
 }

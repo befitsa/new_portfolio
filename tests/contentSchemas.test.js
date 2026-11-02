@@ -9,7 +9,7 @@ import {
   resumeSchema,
   siteSettingsSchema,
 } from '../src/lib/db/contentSchemas.js'
-import { toPublicEducation, toPublicExperience, toPublicProject } from '../src/lib/db/presentation.js'
+import { toProfileSettings, toPublicEducation, toPublicExperience, toPublicProject } from '../src/lib/db/presentation.js'
 import { skillBadgeColor, skillBadgeColors } from '../src/lib/db/skillBadges.js'
 
 test('project schema applies safe defaults and limits synopsis length', () => {
@@ -227,6 +227,111 @@ test('resume, media, and settings schemas reject invalid external data', () => {
     name: 'Fitsum',
     socialLinks: { github: 'mailto:Fitsum@example.com' },
   }).success, false)
+})
+
+test('social settings support legacy links, safe custom links, and durable uploaded logos', () => {
+  const legacy = siteSettingsSchema.parse({
+    name: 'Fitsum',
+    socialLinks: { github: 'https://github.com/fitsum', linkedin: 'https://linkedin.com/in/fitsum' },
+  })
+  assert.deepEqual(legacy.customSocialLinks, [])
+  assert.equal(legacy.visibility, true)
+
+  const settings = siteSettingsSchema.parse({
+    name: 'Fitsum',
+    socialLinks: {
+      github: 'https://github.com/fitsum',
+      instagram: 'https://instagram.com/fitsum',
+      telegram: 'https://t.me/fitsum',
+    },
+    customSocialLinks: [{
+      id: 'custom-facebook',
+      platform: ' Facebook ',
+      url: 'https://facebook.com/fitsum',
+      displayOrder: 5,
+      logo: {
+        url: 'https://signed.example/logo.webp',
+        storagePath: 'portfolio-private/drafts/admin/logo.webp',
+      },
+    }],
+    socialLinkDisplayOrders: { github: 1, instagram: 2, linkedin: 3, telegram: 4 },
+  })
+  assert.equal(settings.customSocialLinks[0].platform, 'Facebook')
+  assert.equal(settings.customSocialLinks[0].displayOrder, 5)
+  assert.equal(settings.customSocialLinks[0].logo.storagePath, 'portfolio-private/drafts/admin/logo.webp')
+  assert.equal(siteSettingsSchema.safeParse({
+    name: 'Fitsum',
+    socialLinkDisplayOrders: { github: 0 },
+  }).success, false)
+  assert.equal(siteSettingsSchema.safeParse({
+    name: 'Fitsum',
+    customSocialLinks: [{ id: 'custom-x', platform: 'X', url: 'https://x.com/one', displayOrder: 1.5 }],
+  }).success, false)
+  assert.equal(siteSettingsSchema.safeParse({
+    name: 'Fitsum',
+    customSocialLinks: [{ id: 'custom-x', platform: 'X', url: 'javascript:alert(1)' }],
+  }).success, false)
+  assert.equal(siteSettingsSchema.safeParse({
+    name: 'Fitsum',
+    customSocialLinks: [
+      { id: 'custom-x', platform: 'X', url: 'https://x.com/one' },
+      { id: 'custom-x', platform: 'X', url: 'https://x.com/two' },
+    ],
+  }).success, false)
+
+  const profile = toProfileSettings({
+    ...settings,
+    customSocialLinks: [
+      ...settings.customSocialLinks,
+      { id: 'custom-unsafe', platform: 'Unsafe', url: 'javascript:alert(1)' },
+    ],
+  }, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
+  assert.equal(profile.socials.some(({ id }) => id === 'instagram'), true)
+  assert.equal(profile.socials.some(({ id }) => id === 'telegram'), true)
+  assert.equal(profile.socials.find(({ id }) => id === 'custom-facebook').logo.url, 'https://signed.example/logo.webp')
+  assert.equal(profile.socials.some(({ id }) => id === 'custom-unsafe'), false)
+})
+
+test('public social settings sort all platforms by saved display order with stable legacy fallbacks', () => {
+  const customSocialLinks = [
+    { id: 'custom-facebook', platform: 'Facebook', url: 'https://facebook.com/fitsum', displayOrder: 2 },
+    { id: 'custom-youtube', platform: 'YouTube', url: 'https://youtube.com/@fitsum', displayOrder: 2 },
+  ]
+  const sourceSettings = {
+    name: 'Fitsum',
+    socialLinks: {
+      github: 'https://github.com/fitsum',
+      linkedin: 'https://linkedin.com/in/fitsum',
+      instagram: 'https://instagram.com/fitsum',
+      telegram: 'https://t.me/fitsum',
+    },
+    socialLinkDisplayOrders: { github: 3, linkedin: 1, instagram: 2, telegram: 8 },
+    customSocialLinks,
+  }
+  const before = structuredClone(sourceSettings)
+  const projected = toProfileSettings(sourceSettings, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
+
+  assert.deepEqual(projected.socials.map(({ id }) => id), [
+    'linkedin',
+    'instagram',
+    'custom-facebook',
+    'custom-youtube',
+    'github',
+    'telegram',
+  ])
+  assert.deepEqual(sourceSettings, before)
+
+  const legacy = toProfileSettings({
+    name: 'Legacy',
+    socialLinks: {
+      github: 'https://github.com/fitsum',
+      instagram: 'https://instagram.com/fitsum',
+    },
+    customSocialLinks: [
+      { id: 'custom-facebook', platform: 'Facebook', url: 'https://facebook.com/fitsum' },
+    ],
+  }, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
+  assert.deepEqual(legacy.socials.map(({ id }) => id), ['github', 'instagram', 'custom-facebook'])
 })
 
 test('media schema supports validated skill records without weakening media requirements', () => {

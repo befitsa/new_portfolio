@@ -124,11 +124,43 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.equal((await service.get('experiences', experience.id, 'published')).company, 'Local Studio')
 
   const settings = await service.getSettings()
-  const updatedSettings = await service.saveSettings({ ...settings, name: 'Fitsum Local Test', about: 'An updated public About section.' }, settings.revision)
+  const updatedSettings = await service.saveSettings({
+    ...settings,
+    name: 'Fitsum Local Test',
+    about: 'An updated public About section.',
+    socialLinks: {
+      ...settings.socialLinks,
+      github: 'https://github.com/fitsum',
+      linkedin: 'https://linkedin.com/in/fitsum',
+      instagram: 'https://instagram.com/fitsum',
+      telegram: 'https://t.me/fitsum',
+    },
+    socialLinkDisplayOrders: { github: 3, linkedin: 1, instagram: 2, telegram: 4 },
+    customSocialLinks: [{
+      id: 'custom-facebook',
+      platform: 'Facebook',
+      url: 'https://facebook.com/fitsum',
+      logo: { url: 'https://cdn.example.com/facebook.png', storagePath: '' },
+      displayOrder: 5,
+    }],
+  }, settings.revision)
+  const savedSettings = await service.getSettings('drafts')
+  assert.deepEqual(savedSettings.socialLinkDisplayOrders, { github: 3, linkedin: 1, instagram: 2, telegram: 4 })
+  assert.equal(savedSettings.customSocialLinks[0].displayOrder, 5)
+  assert.equal((await service.getSettings('published')).customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
   await service.publishSettings(updatedSettings.revision)
   const publicSettings = await service.getSettings('published')
   assert.equal(publicSettings.name, 'Fitsum Local Test')
   assert.equal(toProfileSettings(publicSettings, profile).about, 'An updated public About section.')
+  assert.equal(toProfileSettings(publicSettings, profile).socials.some(({ id }) => id === 'instagram'), true)
+  assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'custom-facebook').logo.url, 'https://cdn.example.com/facebook.png')
+  assert.deepEqual(toProfileSettings(publicSettings, profile).socials.filter(({ id }) => id !== 'email').map(({ id }) => id), [
+    'linkedin',
+    'instagram',
+    'github',
+    'telegram',
+    'custom-facebook',
+  ])
 
   const media = await service.importImage('https://example.com/portfolio-cover.webp', 'Cover')
   const referencedProject = await service.create('projects', project({
