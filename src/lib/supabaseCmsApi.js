@@ -103,6 +103,14 @@ function withoutSystemFields(value) {
   )
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 function safeFileName(value) {
   const base = String(value || 'upload')
     .normalize('NFKC')
@@ -1248,7 +1256,32 @@ function createCmsApi(client) {
         )
       }
 
-      return recordFromRpc(value, 'settings', 'published')
+      const published = recordFromRpc(value, 'settings', 'published')
+      const { data: projection, error: projectionError } = await client
+        .from('portfolio_cms_public_settings')
+        .select('published_payload')
+        .eq('id', 'main')
+        .maybeSingle()
+
+      if (projectionError) throw sanitizeSupabaseError(projectionError)
+      if (!projection?.published_payload) {
+        throw new SupabaseCmsError(
+          'serverError',
+          'Settings were published, but the public settings projection is not readable. Check the visibility and public Storage review gates.',
+        )
+      }
+
+      if (
+        projection.published_payload.visibility !== true
+        || stableJson(projection.published_payload) !== stableJson(withoutSystemFields(published))
+      ) {
+        throw new SupabaseCmsError(
+          'serverError',
+          'Settings were published, but the public settings projection does not match the published settings. Check the projection trigger and public-read policy.',
+        )
+      }
+
+      return published
     },
 
     async unpublishSettings() {

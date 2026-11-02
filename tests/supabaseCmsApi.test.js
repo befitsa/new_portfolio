@@ -29,6 +29,8 @@ function mockClient(rpc, {
   signingErrors = new Map(),
 } = {}) {
   const storageCalls = []
+  const projectionCalls = []
+  let publishedSettings = null
   const storage = {
     from(bucket) {
       return {
@@ -68,12 +70,45 @@ function mockClient(rpc, {
   return {
     storage,
     storageCalls,
+    projectionCalls,
     auth: {
       getUser: async () => ({ data: { user: { id: userId } }, error: null }),
     },
-    rpc: async (name, args) => name === 'cms_is_admin'
-      ? { data: isAdmin, error: null }
-      : rpc(name, args),
+    from(table) {
+      const query = {
+        select(columns) {
+          projectionCalls.push(['select', table, columns])
+          return query
+        },
+        eq(column, value) {
+          projectionCalls.push(['eq', table, column, value])
+          return query
+        },
+        async maybeSingle() {
+          projectionCalls.push(['maybeSingle', table])
+          return {
+            data: table === 'portfolio_cms_public_settings' && publishedSettings
+              ? { published_payload: publishedSettings }
+              : null,
+            error: null,
+          }
+        },
+      }
+      return query
+    },
+    rpc: async (name, args) => {
+      if (name === 'cms_is_admin') return { data: isAdmin, error: null }
+      const result = await rpc(name, args)
+      if (name === 'cms_publish_settings_with_assets' && !result.error) {
+        publishedSettings = result.data
+          ? Object.fromEntries(Object.entries(result.data).filter(([key]) => ![
+            'id', 'status', 'revision', 'publishedRevision', 'basePublishedRevision',
+            'createdAt', 'updatedAt', 'publishedAt', 'publishedBy', 'updatedBy',
+          ].includes(key)))
+          : null
+      }
+      return result
+    },
   }
 }
 
@@ -622,8 +657,14 @@ test('settings publishing promotes built-in and custom social logos before expos
   assert.equal(logo.url, 'https://public.example/published/drafts/admin/social/facebook.png')
   assert.equal(builtInLogo.storagePath, `${PUBLIC_BUCKET}/published/drafts/admin/social/github.png`)
   assert.equal(builtInLogo.url, 'https://public.example/published/drafts/admin/social/github.png')
+  assert.equal(publishedPayload.visibility, true)
   assert.equal(calls.includes('cms_publish_settings_with_assets'), true)
   assert.equal(calls.includes('cms_publish_settings'), false)
+  assert.deepEqual(client.projectionCalls.slice(-3), [
+    ['select', 'portfolio_cms_public_settings', 'published_payload'],
+    ['eq', 'portfolio_cms_public_settings', 'id', 'main'],
+    ['maybeSingle', 'portfolio_cms_public_settings'],
+  ])
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === PRIVATE_BUCKET))
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
 })
@@ -686,6 +727,53 @@ test('Supabase settings save and publish round-trip an explicitly empty social c
   assert.deepEqual(reloadedPublished.customSocialLinks, [])
   assert.deepEqual(reloadedPublished.seo, { metaTitle: 'Preserved title', metaDescription: 'Preserved description' })
   assert.equal(reloadedPublished.visibility, true)
+  assert.deepEqual(client.projectionCalls.slice(-3), [
+    ['select', 'portfolio_cms_public_settings', 'published_payload'],
+    ['eq', 'portfolio_cms_public_settings', 'id', 'main'],
+    ['maybeSingle', 'portfolio_cms_public_settings'],
+  ])
+})
+
+test('settings publish fails visibly when the public settings projection cannot be read', async () => {
+  const draft = {
+    id: 'settings',
+    status: 'draft',
+    revision: 1,
+    publishedRevision: 0,
+    basePublishedRevision: 0,
+    name: 'Fitsum',
+    socialLinks: { email: 'mailto:contact@example.com' },
+    socialLinkDetails: {},
+    socialLinkDisplayOrders: {},
+    customSocialLinks: [],
+    visibility: false,
+  }
+  const client = mockClient(async (name) => {
+    if (name === 'cms_get_settings') return { data: draft, error: null }
+    if (name === 'cms_publish_settings_with_assets') {
+      return {
+        data: { ...draft, status: 'published', visibility: true, publishedRevision: 1 },
+        error: null,
+      }
+    }
+    throw new Error(`Unexpected RPC: ${name}`)
+  })
+  client.from = (table) => ({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => ({
+          data: null,
+          error: null,
+        }),
+      }),
+    }),
+  })
+  const api = createSupabaseCmsApi(client)
+
+  await assert.rejects(
+    api.publishSettings(1),
+    /public settings projection is not readable/,
+  )
 })
 
 test('settings publishing withdraws the public projection when custom-logo copy fails', async () => {

@@ -1314,6 +1314,7 @@ export function CmsSettingsPage() {
   const loadRequest = useRef(0)
   const [record, setRecord] = useState(null)
   const [form, setForm] = useState(EMPTY_SETTINGS)
+  const [operationStatus, setOperationStatus] = useState('')
   const [projectOptions, setProjectOptions] = useState([])
   const [logoProgress, setLogoProgress] = useState(0)
   const [uploadingSocialId, setUploadingSocialId] = useState('')
@@ -1461,6 +1462,7 @@ export function CmsSettingsPage() {
   }
   const save = async (publish = false) => {
     if (publish && !window.confirm(`Review portfolio settings publish\n\n${form.name}\n${form.title}\n${form.location}\n${form.bio}\n\nPublish these profile and SEO settings?`)) return
+    setOperationStatus('saving')
     let content
     try {
       content = siteSettingsSchema.parse(form)
@@ -1480,16 +1482,27 @@ export function CmsSettingsPage() {
         }))
       }
     } catch (cause) {
+      setOperationStatus('save-failed')
       mutation.run(() => { throw new Error(cause.issues?.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · ') || cause.message) })
       return
     }
+    let draftSaved = false
     const result = await mutation.run(async () => {
       const saved = await adminApi.saveSettings(content, record?.revision ?? 0)
+      draftSaved = true
       setRecord(saved)
-      if (publish) await adminApi.publishSettings(saved.revision)
+      if (publish) {
+        setOperationStatus('publishing')
+        await adminApi.publishSettings(saved.revision)
+      }
       return saved
     }, publish ? 'Portfolio settings published.' : 'Settings draft saved.')
-    if (result) load()
+    if (result) {
+      setOperationStatus(publish ? 'published' : 'saved')
+      load()
+    } else {
+      setOperationStatus(draftSaved && publish ? 'publish-failed' : 'save-failed')
+    }
   }
   const setSocialLink = (key, value) => setForm((current) => ({
     ...current,
@@ -1603,6 +1616,22 @@ export function CmsSettingsPage() {
     {error && <ContentError error={error} retry={load} />}
     {mutation.error && <Notice kind="error">{mutation.error}</Notice>}
     {mutation.success && <Notice kind="success">{mutation.success}</Notice>}
+    {operationStatus && <Notice kind={
+      ['saved', 'published'].includes(operationStatus)
+        ? 'success'
+        : ['save-failed', 'publish-failed'].includes(operationStatus)
+          ? 'error'
+          : 'warning'
+    }>
+      {{
+        saving: 'Saving settings draft…',
+        saved: 'Settings saved successfully as a draft. The public portfolio is unchanged.',
+        publishing: 'Draft saved. Publishing settings and verifying the public projection…',
+        published: 'Settings published and the public projection was verified.',
+        'publish-failed': 'The draft was saved, but publication failed. Review the error above.',
+        'save-failed': 'Settings save failed; publication was not attempted.',
+      }[operationStatus]}
+    </Notice>}
     {loading ? <LoadingPanel /> : (
       <form className="cms-settings-grid" onSubmit={(event) => { event.preventDefault(); save(false) }}>
         <section className="cms-editor-card">
