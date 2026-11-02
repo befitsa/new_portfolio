@@ -61,6 +61,61 @@ After updating Netlify variables, verify the site context (production vs deploy 
 
 ### Database, administrator, and Storage prerequisites
 
+#### Repair a missing settings-publish RPC
+
+The frontend calls `public.cms_publish_settings_with_assets(p_expected_revision integer, p_payload jsonb)`. If PostgREST reports that function missing, first confirm the Supabase project reference matches the production site's configured project. Apply `supabase/migrations/20261102182000_repair_settings_publish_rpc.sql` to that project; it safely creates/replaces the exact RPC, repairs mismatched argument names on the same integer/JSONB signature without `CASCADE`, keeps the administrator, revision, asset, and publication-review checks, grants execution only to `authenticated` (with the function still enforcing the portfolio-admin registry), and sends `NOTIFY pgrst, 'reload schema'` after commit. Do not apply the base CMS migration as a repair.
+
+With the Supabase CLI installed, verify the project before linking and pushing:
+
+```powershell
+npx supabase projects list
+npx supabase link --project-ref <verified-production-project-ref>
+npx supabase migration list
+npx supabase db push --dry-run
+npx supabase db push
+```
+
+Confirm the dry run lists only the expected pending migration for the verified project. If the CLI is not linked/configured, open the SQL Editor for the verified production project, run the complete new migration file, and confirm the transaction succeeds. The migration itself reloads PostgREST's schema cache after commit.
+
+After applying it, verify the RPC contract and role grants without selecting secrets or whole CMS payloads:
+
+```sql
+select
+  n.nspname as schema_name,
+  p.proname as function_name,
+  pg_get_function_identity_arguments(p.oid) as identity_arguments,
+  p.proargnames as argument_names,
+  pg_get_function_result(p.oid) as result_type,
+  p.prosecdef as security_definer,
+  has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_can_execute,
+  has_function_privilege('anon', p.oid, 'EXECUTE') as anon_can_execute,
+  not exists (
+    select 1
+    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
+    where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+  ) as public_can_execute
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname = 'cms_publish_settings_with_assets';
+```
+
+Expected: identity arguments `p_expected_revision integer, p_payload jsonb`, `security_definer = true`, authenticated execution enabled, anon/public execution disabled. The function additionally calls `cms_require_portfolio_admin()` before any settings write.
+
+Check only publication visibility and link counts in the public projection:
+
+```sql
+select
+  id,
+  published_payload ->> 'visibility' as visibility,
+  jsonb_object_length(coalesce(published_payload -> 'socialLinks', '{}'::jsonb)) as built_in_link_fields,
+  jsonb_array_length(coalesce(published_payload -> 'customSocialLinks', '[]'::jsonb)) as custom_link_count
+from public.portfolio_cms_public_settings
+where id = 'main';
+```
+
+The result should have `visibility = true` and reflect the published link counts. The RPC's publication gate checks the storage/operator review state and projection integrity; a successful draft save alone does not publish. No migration is applied automatically by the frontend.
+
 Do not run the base CMS migration against a populated project as a repair shortcut. First inspect the target project's existing schema and migration state. If the CMS schema/RPCs already exist, preserve them; use only the reviewed additive workflow migration when catalog checks confirm its three audit RPCs are missing and its prerequisites are present:
 
 `supabase/migrations/20261029120000_portfolio_storage_audit_workflow.sql`

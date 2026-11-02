@@ -1422,6 +1422,34 @@ test('database publish RPCs enforce admin, storage readiness, asset eligibility,
   assert.match(migration, /revoke all on function public\.cms_legacy_bucket_safe\(text, boolean\) from public, anon, authenticated/)
 })
 
+test('repair migration installs the exact admin-only settings publish RPC and reloads PostgREST', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/20261102182000_repair_settings_publish_rpc.sql', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(migration, /create or replace function public\.cms_publish_settings_with_assets\(\s*p_expected_revision integer,\s*p_payload jsonb\s*\)/)
+  assert.match(migration, /to_regprocedure\('public\.cms_publish_settings_with_assets\(integer,jsonb\)'\)/)
+  assert.match(migration, /v_argument_names\[1\] is distinct from 'p_expected_revision'/)
+  assert.match(migration, /v_argument_names\[2\] is distinct from 'p_payload'/)
+  assert.match(migration, /drop function public\.cms_publish_settings_with_assets\(integer, jsonb\)/)
+  assert.match(migration, /security definer\s+set search_path = ''/)
+  assert.match(migration, /cms_require_portfolio_admin\(\)/)
+  assert.match(migration, /cms_publication_block_reason\(\)/)
+  assert.match(migration, /v_current\.revision <> p_expected_revision/)
+  assert.match(migration, /v_current\.base_published_revision <> v_current\.published_revision/)
+  assert.match(migration, /jsonb_set\([\s\S]*?'\{visibility\}',\s*'true'::jsonb/)
+  for (const bucket of ['portfolio-private', 'portfolio_media', 'portfolio-media', 'portfolio-media.']) {
+    assert.ok(migration.includes(`cms_jsonb_uses_storage_bucket(v_payload, '${bucket}')`))
+  }
+  assert.match(migration, /cms_jsonb_has_unknown_storage_bucket\(v_payload\)/)
+  assert.match(migration, /published_payload = v_payload/)
+  assert.match(migration, /return public\.cms_get_settings\('published'\)/)
+  assert.match(migration, /revoke all on function public\.cms_publish_settings_with_assets\(integer, jsonb\) from public, anon, authenticated/)
+  assert.match(migration, /grant execute on function public\.cms_publish_settings_with_assets\(integer, jsonb\) to authenticated/)
+  assert.match(migration, /commit;\s*notify pgrst, 'reload schema';\s*$/i)
+})
+
 test('social settings asset publication migration keeps the Storage audit and private-path guards', async () => {
   const migration = await readFile(
     new URL('../supabase/migrations/20261030120000_social_settings_asset_publication.sql', import.meta.url),
