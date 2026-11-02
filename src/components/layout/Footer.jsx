@@ -39,24 +39,21 @@ export default function Footer() {
 
   return (
     <footer ref={footerRef} className="border-t border-forest/15 bg-cream/72 pt-16 pb-10">
-      <div className="mx-auto grid max-w-[90rem] gap-12 px-5 md:px-10 lg:grid-cols-12">
-        <div data-footer-reveal className="lg:col-span-5">
-          <div className="flex items-center gap-4">
-            <BrandLink href="#home" onClick={(event) => { event.preventDefault(); scrollToTop() }} ariaLabel="Fitsum — back to top" logoSize={48} className="text-forest" />
-            <div>
-              <p className="text-sm text-forest/65">{profile.title}</p>
-            </div>
-          </div>
-          <a
-            href={`mailto:${profile.email}`}
-            className="mt-8 inline-block text-lg text-forest underline decoration-gold/60 underline-offset-4 transition-colors hover:text-forest/70 hover:decoration-mint"
+      <div className="mx-auto flex max-w-[90rem] flex-col gap-8 px-5 md:gap-10 md:px-10">
+        <div data-footer-reveal className="flex items-center justify-between gap-4">
+          <SocialLinks size="sm" />
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="group inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border border-forest/20 px-4 py-2.5 text-sm font-medium text-forest transition-colors hover:border-forest hover:text-forest sm:px-5"
           >
-            {profile.email}
-          </a>
+            Back to Top
+            <ArrowUp className="size-4 transition-transform duration-300 group-hover:-translate-y-0.5" aria-hidden="true" />
+          </button>
         </div>
 
-        <nav data-footer-reveal aria-label="Footer" className="lg:col-span-4">
-          <ul className="grid grid-cols-2 gap-x-6 gap-y-1">
+        <nav data-footer-reveal aria-label="Footer" className="flex justify-center">
+          <ul className="flex flex-wrap justify-center gap-x-6 gap-y-1 sm:gap-x-8">
             {links.map((item) => (
               <li key={item.id}>
                 <a
@@ -71,16 +68,23 @@ export default function Footer() {
           </ul>
         </nav>
 
-        <div data-footer-reveal className="flex flex-col items-start gap-6 lg:col-span-3 lg:items-end">
-          <SocialLinks size="sm" />
-          <button
-            type="button"
-            onClick={scrollToTop}
-            className="group inline-flex items-center gap-2 rounded-full border border-forest/20 px-5 py-2.5 text-sm font-medium text-forest transition-colors hover:border-forest hover:text-forest"
-          >
-            Back to Top
-            <ArrowUp className="size-4 transition-transform duration-300 group-hover:-translate-y-0.5" aria-hidden="true" />
-          </button>
+        <div data-footer-reveal className="flex justify-center xl:justify-start">
+          <div className="flex w-full max-w-96 flex-col items-start gap-3">
+            <BrandLink
+              href="#home"
+              onClick={(event) => { event.preventDefault(); scrollToTop() }}
+              ariaLabel="Fitsum — back to top"
+              logoSize={48}
+              className="text-forest"
+            />
+            <p className="text-sm text-forest/65">{profile.title}</p>
+            <a
+              href={`mailto:${profile.email}`}
+              className="w-full break-words text-base text-forest underline decoration-gold/60 underline-offset-4 [overflow-wrap:anywhere] transition-colors hover:text-forest/70 hover:decoration-mint sm:text-lg"
+            >
+              {profile.email}
+            </a>
+          </div>
         </div>
       </div>
 
@@ -94,7 +98,7 @@ export default function Footer() {
         />
       </div>
 
-      <div data-footer-reveal className="mx-auto mt-14 flex max-w-[90rem] flex-col gap-2 border-t border-forest/10 px-5 pt-6 pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] text-sm text-forest/60 md:flex-row md:justify-between md:px-10 md:pb-6">
+      <div data-footer-reveal className="mx-auto mt-14 flex max-w-[90rem] flex-col items-center gap-2 border-t border-forest/10 px-5 pt-6 pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] text-center text-sm text-forest/60 md:flex-row md:justify-between md:px-10 md:pb-6">
         <p>© {year} {profile.name}. All rights reserved.</p>
         <p>{profile.title} based in {profile.location || 'Addis Ababa, Ethiopia'}</p>
       </div>
