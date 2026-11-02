@@ -149,6 +149,13 @@ test('local content service initializes, migrates, edits, publishes, and removes
       url: 'https://facebook.com/fitsum',
       logo: { url: 'https://cdn.example.com/facebook.png', storagePath: '' },
       displayOrder: 5,
+      enabled: true,
+    }, {
+      id: 'custom-disabled',
+      platform: 'Hidden platform',
+      url: 'https://example.com/hidden',
+      displayOrder: 6,
+      enabled: false,
     }],
   }, settings.revision)
   const savedSettings = await service.getSettings('drafts')
@@ -156,6 +163,8 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.equal(savedSettings.socialLinkDetails.github.platform, 'GitHub Profile')
   assert.equal(savedSettings.socialLinkDetails.github.logo.url, 'https://cdn.example.com/github.svg')
   assert.equal(savedSettings.customSocialLinks[0].displayOrder, 5)
+  assert.equal(savedSettings.customSocialLinks[0].enabled, true)
+  assert.equal(savedSettings.customSocialLinks[1].enabled, false)
   assert.equal((await service.getSettings('published')).customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
   await service.publishSettings(updatedSettings.revision)
   const publicSettings = await service.getSettings('published')
@@ -163,6 +172,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.equal(toProfileSettings(publicSettings, profile).about, 'An updated public About section.')
   assert.equal(toProfileSettings(publicSettings, profile).socials.some(({ id }) => id === 'instagram'), true)
   assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'custom-facebook').logo.url, 'https://cdn.example.com/facebook.png')
+  assert.equal(toProfileSettings(publicSettings, profile).socials.some(({ id }) => id === 'custom-disabled'), false)
   assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'github').label, 'GitHub Profile')
   assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'github').logo.url, 'https://cdn.example.com/github.svg')
   assert.deepEqual(toProfileSettings(publicSettings, profile).socials.filter(({ id }) => id !== 'email').map(({ id }) => id), [
@@ -172,6 +182,21 @@ test('local content service initializes, migrates, edits, publishes, and removes
     'telegram',
     'custom-facebook',
   ])
+  const withoutGithub = await service.saveSettings({
+    ...publicSettings,
+    socialLinks: Object.fromEntries(Object.entries(publicSettings.socialLinks).filter(([id]) => id !== 'github')),
+    socialLinkDetails: Object.fromEntries(Object.entries(publicSettings.socialLinkDetails).filter(([id]) => id !== 'github')),
+    socialLinkDisplayOrders: Object.fromEntries(Object.entries(publicSettings.socialLinkDisplayOrders).filter(([id]) => id !== 'github')),
+    removedSocialLinkIds: ['github'],
+    customSocialLinks: publicSettings.customSocialLinks.filter(({ id }) => id !== 'custom-facebook'),
+  }, publicSettings.revision)
+  assert.equal((await service.getSettings('published')).socialLinks.github, 'https://github.com/fitsum')
+  await service.publishSettings(withoutGithub.revision)
+  const settingsAfterDelete = await service.getSettings('published')
+  assert.equal(Object.hasOwn(settingsAfterDelete.socialLinks, 'github'), false)
+  assert.deepEqual(settingsAfterDelete.removedSocialLinkIds, ['github'])
+  assert.equal(settingsAfterDelete.customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
+  assert.equal(toProfileSettings(settingsAfterDelete, profile).socials.some(({ id }) => id === 'github'), false)
 
   const media = await service.importImage('https://example.com/portfolio-cover.webp', 'Cover')
   const referencedProject = await service.create('projects', project({

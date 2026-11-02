@@ -249,12 +249,14 @@ test('social settings support legacy links, safe custom links, and durable uploa
       platform: ' Facebook ',
       url: 'https://facebook.com/fitsum',
       displayOrder: 5,
+      enabled: true,
       logo: {
         url: 'https://signed.example/logo.webp',
         storagePath: 'portfolio-private/drafts/admin/logo.webp',
       },
     }],
     socialLinkDisplayOrders: { github: 1, instagram: 2, linkedin: 3, telegram: 4 },
+    removedSocialLinkIds: ['legacy-twitter'],
     socialLinkDetails: {
       github: {
         platform: 'GitHub Profile',
@@ -269,10 +271,12 @@ test('social settings support legacy links, safe custom links, and durable uploa
   })
   assert.equal(settings.customSocialLinks[0].platform, 'Facebook')
   assert.equal(settings.customSocialLinks[0].displayOrder, 5)
+  assert.equal(settings.customSocialLinks[0].enabled, true)
   assert.equal(settings.customSocialLinks[0].logo.storagePath, 'portfolio-private/drafts/admin/logo.webp')
   assert.equal(settings.socialLinkDetails.github.platform, 'GitHub Profile')
   assert.equal(settings.socialLinkDetails.github.logo.storagePath, 'portfolio-private/drafts/admin/github.svg')
   assert.equal(settings.socialLinkDetails.linkedin.enabled, false)
+  assert.deepEqual(settings.removedSocialLinkIds, ['legacy-twitter'])
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',
     socialLinkDisplayOrders: { github: 0 },
@@ -285,6 +289,10 @@ test('social settings support legacy links, safe custom links, and durable uploa
     name: 'Fitsum',
     customSocialLinks: [{ id: 'custom-x', platform: 'X', url: 'javascript:alert(1)' }],
   }).success, false)
+  assert.equal(siteSettingsSchema.parse({
+    name: 'Fitsum',
+    customSocialLinks: [{ id: 'custom-x', platform: 'X', url: 'https://x.com/one' }],
+  }).customSocialLinks[0].enabled, true)
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',
     socialLinkDetails: { github: { platform: 'GitHub', logo: { url: 'javascript:alert(1)' } } },
@@ -302,6 +310,7 @@ test('social settings support legacy links, safe custom links, and durable uploa
     customSocialLinks: [
       ...settings.customSocialLinks,
       { id: 'custom-unsafe', platform: 'Unsafe', url: 'javascript:alert(1)' },
+      { id: 'custom-disabled', platform: 'Disabled', url: 'https://example.com/disabled', enabled: false },
     ],
   }, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
   assert.equal(profile.socials.some(({ id }) => id === 'instagram'), true)
@@ -310,6 +319,7 @@ test('social settings support legacy links, safe custom links, and durable uploa
   assert.equal(profile.socials.find(({ id }) => id === 'github').logo.url, 'https://cdn.example/github.svg')
   assert.equal(profile.socials.some(({ id }) => id === 'linkedin'), false)
   assert.equal(profile.socials.some(({ id }) => id === 'custom-unsafe'), false)
+  assert.equal(profile.socials.some(({ id }) => id === 'custom-disabled'), false)
 })
 
 test('public social settings sort all platforms by saved display order with stable legacy fallbacks', () => {

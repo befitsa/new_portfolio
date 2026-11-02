@@ -39,6 +39,7 @@ const EMPTY_SETTINGS = {
   socialLinks: DEFAULT_SOCIAL_LINKS,
   socialLinkDisplayOrders: DEFAULT_SOCIAL_ORDER,
   socialLinkDetails: DEFAULT_SOCIAL_DETAILS,
+  removedSocialLinkIds: [],
   customSocialLinks: [], featuredProjectIds: [],
   seo: { metaTitle: '', metaDescription: '' },
 }
@@ -1334,7 +1335,19 @@ export function CmsSettingsPage() {
       const value = draft || live
       if (value) {
         setRecord(value)
-        const socialLinks = { ...EMPTY_SETTINGS.socialLinks, ...(value.socialLinks || {}) }
+        const removedSocialLinkIds = Array.isArray(value.removedSocialLinkIds) ? value.removedSocialLinkIds : []
+        const removedSocialLinks = new Set(removedSocialLinkIds)
+        const defaultSocialLinks = Object.fromEntries(
+          Object.entries(EMPTY_SETTINGS.socialLinks).filter(([id]) => id === 'email' || !removedSocialLinks.has(id)),
+        )
+        const socialLinks = {
+          ...defaultSocialLinks,
+          ...(value.socialLinks || {}),
+        }
+        for (const id of removedSocialLinks) delete socialLinks[id]
+        if (!Object.hasOwn(socialLinks, 'email') && Object.hasOwn(EMPTY_SETTINGS.socialLinks, 'email')) {
+          socialLinks.email = EMPTY_SETTINGS.socialLinks.email
+        }
         const socialLinkDetails = Object.fromEntries(
           Object.keys(socialLinks)
             .filter((id) => id !== 'email')
@@ -1356,6 +1369,7 @@ export function CmsSettingsPage() {
           ...EMPTY_SETTINGS,
           ...cleanRecord(value),
           socialLinks,
+          removedSocialLinkIds,
           socialLinkDetails,
           ...normalizedSocialOrder,
           seo: { ...EMPTY_SETTINGS.seo, ...(value.seo || {}) },
@@ -1388,9 +1402,36 @@ export function CmsSettingsPage() {
         url: '',
         logo: null,
         displayOrder: nextSocialDisplayOrder(current),
+        enabled: true,
       },
     ],
   }))
+  const removeBuiltInSocialLink = (id) => {
+    if (!window.confirm(`Delete ${form.socialLinkDetails[id]?.platform || socialPlatformName(id)}? This removes the social link from settings.`)) return
+    setForm((current) => {
+      const socialLinks = { ...current.socialLinks }
+      const socialLinkDisplayOrders = { ...current.socialLinkDisplayOrders }
+      const socialLinkDetails = { ...current.socialLinkDetails }
+      delete socialLinks[id]
+      delete socialLinkDisplayOrders[id]
+      delete socialLinkDetails[id]
+      return {
+        ...current,
+        socialLinks,
+        socialLinkDisplayOrders,
+        socialLinkDetails,
+        removedSocialLinkIds: [...new Set([...(current.removedSocialLinkIds || []), id])],
+      }
+    })
+  }
+  const removeCustomSocialLink = (id) => {
+    const link = form.customSocialLinks.find((entry) => entry.id === id)
+    if (!link || !window.confirm(`Delete ${link.platform || 'this social media entry'}? This cannot be undone.`)) return
+    setForm((current) => ({
+      ...current,
+      customSocialLinks: current.customSocialLinks.filter((entry) => entry.id !== id),
+    }))
+  }
   const uploadSocialLogo = async (id, file, custom = false) => {
     if (!file) return
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
@@ -1538,6 +1579,13 @@ export function CmsSettingsPage() {
             />
             Enabled
           </label>
+          <Button
+            className="cms-action-delete"
+            disabled={mutation.busy}
+            onClick={() => removeBuiltInSocialLink(id)}
+          >
+            <Trash2 size={14} /> Delete Social Media
+          </Button>
         </div>
       </article>
     )
@@ -1570,7 +1618,7 @@ export function CmsSettingsPage() {
         <section className="cms-editor-card">
           <div className="cms-section-heading">
             <span className="cms-step-number">02</span>
-            <div><h2>Social links & SEO</h2><p>Only published profile metadata appears on the public portfolio.</p></div>
+            <div><h2>Social links & SEO</h2><p>Only published profile metadata appears publicly. Pasting a logo URL or uploading a file replaces the other logo source.</p></div>
           </div>
           {Object.keys(form.socialLinks)
             .filter((id) => id !== 'email')
@@ -1648,16 +1696,21 @@ export function CmsSettingsPage() {
                     )}
                     <span>JPG, PNG, WebP · max 12 MB. SVG is not supported by the current media provider.</span>
                   </div>
+                  <label className="cms-social-enabled">
+                    <input
+                      type="checkbox"
+                      checked={link.enabled !== false}
+                      onChange={(event) => updateCustomSocialLink(link.id, { enabled: event.target.checked })}
+                    />
+                    Enabled
+                  </label>
                   <Button
                     className="cms-action-delete"
                     disabled={mutation.busy}
-                    onClick={() => setForm((current) => ({
-                      ...current,
-                      customSocialLinks: current.customSocialLinks.filter((entry) => entry.id !== link.id),
-                    }))}
-                    aria-label={`Remove ${link.platform || 'custom social media'} entry`}
+                    onClick={() => removeCustomSocialLink(link.id)}
+                    aria-label={`Delete ${link.platform || 'custom social media'} entry`}
                   >
-                    <Trash2 size={14} /> Remove
+                    <Trash2 size={14} /> Delete Social Media
                   </Button>
                 </div>
               </article>

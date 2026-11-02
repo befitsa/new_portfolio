@@ -146,6 +146,7 @@ export function toProfileSettings(settings, fallback) {
       || link.id === 'email'
       || typeof link.platform !== 'string'
       || !link.platform.trim()
+      || link.enabled === false
       || socials.some((social) => social.id === link.id)
       || !safeUrl(link.url)
     ) continue
