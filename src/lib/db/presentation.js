@@ -1,4 +1,4 @@
-import { normalizeProjectCategory, normalizeSkills } from './contentSchemas.js'
+import { normalizeProjectCategory, normalizeSkills, normalizeTechnologyStack } from './contentSchemas.js'
 
 /** Convert the CMS project shape to the legacy public portfolio view model. */
 export function toPublicProject(record) {
@@ -21,7 +21,7 @@ export function toPublicProject(record) {
     role: record.role || '',
     timeline: record.timeline || '',
     status: 'Published',
-    tech: Array.isArray(record.techStack) ? record.techStack : [],
+    tech: normalizeTechnologyStack(record.techStack ?? record.technologies),
     image: record.heroImage?.url || '',
     preview3d: null,
     liveUrl: record.links?.live || '',

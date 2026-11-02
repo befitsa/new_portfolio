@@ -341,7 +341,7 @@ test('create sends validated draft content with initial optimistic revision', as
   assert.equal(savedArgs.p_id, null)
   assert.equal(savedArgs.p_expected_revision, 0)
   assert.equal(savedArgs.p_payload.slug, 'editorial-project')
-  assert.deepEqual(savedArgs.p_payload.techStack, ['Supabase', 'React'])
+  assert.deepEqual(savedArgs.p_payload.techStack.map(({ name }) => name), ['Supabase', 'React'])
 })
 
 test('education and experience draft saves preserve skills and optional document references', async () => {

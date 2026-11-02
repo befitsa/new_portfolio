@@ -22,6 +22,16 @@ test('CMS API canonicalizes legacy category names and validates education creden
   }))
 })
 
+test('backend CMS validation accepts structured technologies and preserves legacy values', () => {
+  const project = {
+    title: 'Technology project',
+    slug: 'technology-project',
+    techStack: [{ id: 'react', name: 'React', logo: { url: 'https://storage.example/react.svg', storagePath: 'portfolio-private/drafts/react.svg' }, description: 'UI components.' }],
+  }
+  assert.equal(parsePayload('projects', project).techStack[0].logo.storagePath, 'portfolio-private/drafts/react.svg')
+  assert.deepEqual(parsePayload('projects', { ...project, slug: 'legacy-stack', techStack: 'React, Vite' }).techStack.map(({ name }) => name), ['React', 'Vite'])
+})
+
 test('CMS API resume records support an inline preview URL separately from the download URL', () => {
   const resume = parsePayload('resumes', {
     fileUrl: 'https://storage.example/resume.pdf', previewUrl: 'https://storage.example/resume.pdf?inline=1',

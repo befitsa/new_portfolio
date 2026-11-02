@@ -9,7 +9,7 @@ import {
   resumeSchema,
   siteSettingsSchema,
 } from '../src/lib/db/contentSchemas.js'
-import { toPublicEducation, toPublicExperience } from '../src/lib/db/presentation.js'
+import { toPublicEducation, toPublicExperience, toPublicProject } from '../src/lib/db/presentation.js'
 import { skillBadgeColor, skillBadgeColors } from '../src/lib/db/skillBadges.js'
 
 test('project schema applies safe defaults and limits synopsis length', () => {
@@ -41,6 +41,44 @@ test('project categories use the public filter labels and local image paths stay
   assert.equal(project.heroImage.url, '/images/projects/example.webp')
   assert.equal(projectSchema.safeParse({ title: 'Custom category', slug: 'custom-category', category: 'SaaS & Cloud' }).success, false)
   assert.equal(projectSchema.safeParse({ title: 'Remote path', slug: 'remote-path', heroImage: { url: '//outside.example/image.webp' } }).success, false)
+})
+
+test('project technologies support structured entries and normalize legacy comma-separated values', () => {
+  const project = projectSchema.parse({
+    title: 'Technology records',
+    slug: 'technology-records',
+    techStack: [
+      { id: 'react', name: 'React', logo: { url: 'https://storage.example/react.svg', storagePath: 'portfolio-private/drafts/react.svg' }, description: 'Reusable interfaces.' },
+      { id: 'figma', name: 'Figma', description: 'Prototyping.' },
+    ],
+  })
+  assert.equal(project.techStack[0].logo.storagePath, 'portfolio-private/drafts/react.svg')
+  assert.equal(project.techStack[0].description, 'Reusable interfaces.')
+  assert.deepEqual(projectSchema.parse({
+    title: 'Legacy stack',
+    slug: 'legacy-stack',
+    techStack: 'React, JavaScript, Firebase',
+  }).techStack.map(({ name }) => name), ['React', 'JavaScript', 'Firebase'])
+  assert.deepEqual(projectSchema.parse({
+    title: 'Legacy technology field',
+    slug: 'legacy-technology-field',
+    techStack: ['React', 'Vite'],
+  }).techStack.map(({ name }) => name), ['React', 'Vite'])
+})
+
+test('public project projection keeps structured technology logos and handles legacy strings', () => {
+  const structured = toPublicProject({
+    id: 'project-1', slug: 'project-1', title: 'Project', techStack: [
+      { id: 'react', name: 'React', logo: { url: 'https://storage.example/react.svg', storagePath: 'portfolio-published/react.svg' }, description: 'UI components.' },
+    ],
+  })
+  assert.equal(structured.tech[0].logo.url, 'https://storage.example/react.svg')
+  assert.equal(structured.tech[0].description, 'UI components.')
+  const legacy = toPublicProject({
+    id: 'project-2', slug: 'project-2', title: 'Legacy', technologies: 'React, JavaScript',
+  })
+  assert.deepEqual(legacy.tech.map(({ name }) => name), ['React', 'JavaScript'])
+  assert.equal(legacy.tech[0].logo.url, '')
 })
 
 test('experience schema validates dates and current role rules', () => {

@@ -41,10 +41,52 @@ const imageAssetSchema = z.object({
   caption: optionalText(300).default(''),
   order: z.number().int().nonnegative().default(0),
 })
+const technologySchema = z.object({
+  id: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(60),
+  logo: imageAssetSchema.default({}),
+  description: optionalText(300).default(''),
+})
 const optionalPrivateImage = z.object({
   url: z.union([z.literal(''), httpUrlSchema, localFileUrl]).default(''),
   storagePath: z.string().trim().max(1024).default(''),
 }).nullable().default(null)
+
+export function normalizeTechnologyStack(value) {
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+  const usedIds = new Set()
+  return entries.flatMap((entry, index) => {
+    const rawName = typeof entry === 'string' ? entry : entry?.name ?? entry?.title ?? ''
+    const name = typeof rawName === 'string' ? rawName.trim() : ''
+    if (!name) return []
+
+    const baseId = (typeof entry === 'object' && entry?.id
+      ? String(entry.id).trim()
+      : name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100)) || `technology-${index + 1}`
+    let id = baseId
+    let suffix = 2
+    while (usedIds.has(id)) id = `${baseId}-${suffix++}`
+    usedIds.add(id)
+
+    const sourceLogo = typeof entry === 'object' ? entry?.logo : null
+    const logo = typeof sourceLogo === 'string'
+      ? { url: sourceLogo, storagePath: '' }
+      : { url: '', storagePath: '', ...(sourceLogo && typeof sourceLogo === 'object' ? sourceLogo : {}) }
+
+    return [{
+      id,
+      name,
+      logo,
+      description: typeof entry === 'object' && typeof entry?.description === 'string'
+        ? entry.description
+        : '',
+    }]
+  })
+}
 
 export function normalizeProjectCategory(value) {
   if (value === 'Mobile App' || value === 'Mobile') return 'Mobile'
@@ -76,7 +118,10 @@ export const projectSchema = z.object({
     figma: optionalUrl.default(''),
     live: optionalUrl.default(''),
   }).default({ github: '', figma: '', live: '' }),
-  techStack: z.array(z.string().trim().min(1).max(60)).max(40).default([]),
+  techStack: z.preprocess(
+    normalizeTechnologyStack,
+    z.array(technologySchema).max(40).default([]),
+  ),
   coreProblem: optionalText(6000).default(''),
   strategicObjectives: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
   leadership: optionalText(6000).default(''),

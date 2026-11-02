@@ -13,6 +13,36 @@ const asset = z.object({
   url: imageUrl.default(''), storagePath: z.string().trim().max(1024).default(''),
   caption: text(300).default(''), order: z.number().int().nonnegative().default(0),
 })
+function normalizeTechnologyStack(value) {
+  const entries = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : []
+  const usedIds = new Set()
+  return entries.flatMap((entry, index) => {
+    const rawName = typeof entry === 'string' ? entry : entry?.name ?? entry?.title ?? ''
+    const name = typeof rawName === 'string' ? rawName.trim() : ''
+    if (!name) return []
+    const baseId = (typeof entry === 'object' && entry?.id
+      ? String(entry.id).trim()
+      : name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100)) || `technology-${index + 1}`
+    let id = baseId
+    let suffix = 2
+    while (usedIds.has(id)) id = `${baseId}-${suffix++}`
+    usedIds.add(id)
+    const sourceLogo = typeof entry === 'object' ? entry?.logo : null
+    const logo = typeof sourceLogo === 'string'
+      ? { url: sourceLogo, storagePath: '' }
+      : { url: '', storagePath: '', ...(sourceLogo && typeof sourceLogo === 'object' ? sourceLogo : {}) }
+    return [{
+      id,
+      name,
+      logo,
+      description: typeof entry === 'object' && typeof entry?.description === 'string' ? entry.description : '',
+    }]
+  })
+}
+const technology = z.object({
+  id: z.string().trim().min(1).max(120), name: z.string().trim().min(1).max(60),
+  logo: asset.default({}), description: text(300).default(''),
+})
 const projectCategory = z.union([
   z.enum(['Web', 'Mobile', 'UI/UX']),
   z.enum(['Web Design', 'Mobile App']),
@@ -26,7 +56,7 @@ export const schemas = {
     featured: z.boolean().default(false), visibility: z.boolean().default(true), order: z.number().int().nonnegative().default(0),
     heroImage: asset.default({}), gallery: z.array(asset).max(30).default([]),
     links: z.object({ github: optionalUrl.default(''), figma: optionalUrl.default(''), live: optionalUrl.default('') }).default({}),
-    techStack: z.array(z.string().trim().min(1).max(60)).max(40).default([]), coreProblem: text(6000).default(''),
+    techStack: z.preprocess(normalizeTechnologyStack, z.array(technology).max(40).default([])), coreProblem: text(6000).default(''),
     strategicObjectives: z.array(z.string().trim().min(1).max(500)).max(20).default([]), leadership: text(6000).default(''),
     methodology: text(6000).default(''),
     technicalHighlights: z.array(z.object({ title: z.string().trim().min(1).max(120), description: text(2000).default(''), tags: z.array(z.string().trim().min(1).max(60)).max(20).default([]) })).max(30).default([]),

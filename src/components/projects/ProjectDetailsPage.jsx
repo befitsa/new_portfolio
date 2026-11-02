@@ -17,6 +17,10 @@ import { projectDetailsPath } from '../../data/projects'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { useScrollTriggerRefresh } from '../../hooks/useScrollTriggerRefresh'
 import { gsap } from '../../utils/gsap'
+import { normalizeTechnologyStack } from '../../lib/db/contentSchemas.js'
+
+const cardPastels = ['bg-[#edf4e9]', 'bg-[#eaf2f8]', 'bg-[#f7f0e5]', 'bg-[#e8f3ed]', 'bg-[#f2e9e2]', 'bg-[#f6efdb]']
+const excludedFeatureTitles = new Set(['responsive design', 'reusable components', 'user experience', 'scalability'])
 
 const sections = [
   { id: 'overview', label: 'Overview' },
@@ -40,6 +44,18 @@ function EvidenceNote({ children }) {
   )
 }
 
+function TechnologyLogo({ technology }) {
+  const name = displayValue(technology.name || technology.title)
+  const source = typeof technology.logo === 'string' ? technology.logo : technology.logo?.url || ''
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [source])
+
+  if (!source || failed) {
+    return <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-white/70 font-serif text-lg text-[#398b69]">{name.charAt(0).toUpperCase() || '?'}</span>
+  }
+  return <img src={source} alt={`${name} logo`} onError={() => setFailed(true)} className="size-12 shrink-0 object-contain" />
+}
+
 function ActionLink({ href, children, secondary = false }) {
   if (!href) return null
   return (
@@ -47,7 +63,7 @@ function ActionLink({ href, children, secondary = false }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-4 text-xs font-semibold transition hover:-translate-y-0.5 sm:px-5 sm:text-sm ${
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-4 text-xs font-semibold transition hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#c9a14a] sm:px-5 sm:text-sm ${
         secondary
           ? 'border border-forest/20 bg-white text-forest hover:border-forest/45'
           : 'bg-[#d96800] text-white shadow-[0_8px_18px_rgba(180,85,0,.2)] hover:bg-[#bd5900]'
@@ -269,10 +285,13 @@ export default function ProjectDetailsPage({ project }) {
     return () => observer.disconnect()
   }, [project.slug])
 
-  const features = Array.isArray(project.features) ? project.features.filter(Boolean) : []
+  const features = Array.isArray(project.features) ? project.features.filter((feature) => {
+    const title = typeof feature === 'string' ? feature : feature?.title ?? feature?.name ?? ''
+    return !excludedFeatureTitles.has(String(title).split(/\s+[—–-]\s+/)[0].trim().toLowerCase())
+  }) : []
   const outcomes = Array.isArray(project.outcomes) ? project.outcomes.filter(Boolean) : []
   const metrics = Array.isArray(project.metrics) ? project.metrics.filter(Boolean) : []
-  const technologies = Array.isArray(project.tech) ? project.tech.filter(Boolean) : []
+  const technologies = normalizeTechnologyStack(project.tech)
   const screenshots = Array.isArray(project.screenshots) ? project.screenshots.filter((image) => image?.src) : []
   const titleWords = project.title.trim().split(/\s+/)
   const titleAccent = titleWords.pop()
@@ -285,18 +304,16 @@ export default function ProjectDetailsPage({ project }) {
 
       <header className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-8">
         <BrandLink href="/" ariaLabel="Fitsum portfolio home" logoSize={34} className="min-h-11 text-xs font-semibold tracking-wide text-forest" />
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <a href="/#projects" className="hidden min-h-10 items-center gap-2 rounded-full border border-forest/15 bg-white px-4 text-xs font-semibold text-forest transition hover:border-forest/40 sm:inline-flex">
-            <ArrowLeft size={14} aria-hidden="true" /> All Projects
-          </a>
-          {project.sourceUrl && <ActionLink href={project.sourceUrl} secondary><Code2 size={14} aria-hidden="true" /> View Code</ActionLink>}
-          {project.liveUrl && <ActionLink href={project.liveUrl}><ExternalLink size={14} aria-hidden="true" /> Live Demo</ActionLink>}
-          {project.figmaUrl && <ActionLink href={project.figmaUrl} secondary><ExternalLink size={14} aria-hidden="true" /> Figma Prototype</ActionLink>}
-        </div>
+        {project.liveUrl && <ActionLink href={project.liveUrl}><ExternalLink size={14} aria-hidden="true" /> Live Demo</ActionLink>}
       </header>
 
       <main id="main" ref={contentRef}>
         <section data-case-study-reveal className="mx-auto max-w-7xl px-5 pt-7 pb-10 sm:px-8 sm:pt-11 sm:pb-12">
+          <div className="mx-auto mb-4 flex max-w-6xl justify-start">
+            <a href="/#projects" aria-label="Back to projects" title="Back to projects" className="grid size-11 shrink-0 place-items-center rounded-full bg-[#c9a14a] text-[#17251b] shadow-sm transition duration-200 hover:-translate-x-0.5 hover:bg-[#d6b15d] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#8f6e2d] active:scale-95">
+              <ArrowLeft size={19} strokeWidth={2.2} aria-hidden="true" />
+            </a>
+          </div>
           <div className="mx-auto max-w-4xl text-center">
             <p className="inline-flex items-center gap-2 rounded-full border border-[#e5cda9] bg-white/80 px-3 py-1.5 text-[9px] font-bold tracking-[.12em] text-[#a55a0a] uppercase sm:text-[10px]">
               <span className="size-1.5 rounded-full bg-[#d96800]" />
@@ -411,7 +428,7 @@ export default function ProjectDetailsPage({ project }) {
                   {features.map((feature, index) => {
                     const item = typeof feature === 'string' ? { title: feature } : feature
                     return (
-                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className="min-h-32 rounded-xl border border-forest/10 bg-white p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]">
+                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className={`min-h-32 rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]`}>
                         <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
                         {item.description && <p className="mt-2 text-[11px] leading-relaxed text-forest/65">{item.description}</p>}
                         {item.implementation && <p className="mt-2 text-[11px] leading-relaxed text-forest/65"><strong>Implementation:</strong> {item.implementation}</p>}
@@ -436,7 +453,7 @@ export default function ProjectDetailsPage({ project }) {
                   {outcomes.map((outcome, index) => {
                     const item = typeof outcome === 'string' ? { title: outcome } : outcome
                     return (
-                      <article key={`${item.title || item.name}-${index}`} className="rounded-xl border border-forest/10 bg-[#fbfdfb] p-4 sm:p-5">
+                      <article key={`${item.title || item.name}-${index}`} className={`rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 sm:p-5`}>
                         <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
                         {item.description && <p className="mt-2 text-xs leading-relaxed text-forest/65">{item.description}</p>}
                       </article>
@@ -452,7 +469,7 @@ export default function ProjectDetailsPage({ project }) {
                 {metrics.map((metric, index) => {
                   const item = typeof metric === 'string' ? { value: metric } : metric
                   return (
-                    <article key={`outcome-${item.label || item.title || index}`} className="rounded-xl border border-forest/10 bg-[#f7fbf8] p-4 text-center">
+                    <article key={`outcome-${item.label || item.title || index}`} className={`rounded-xl border border-forest/10 ${cardPastels[(index + outcomes.length) % cardPastels.length]} p-4 text-center`}>
                       {item.value && <p className="font-serif text-3xl">{item.value}</p>}
                       <p className="mt-1 text-xs font-semibold text-forest">{item.label || item.title}</p>
                       {item.description && <p className="mt-1 text-[10px] leading-relaxed text-forest/60">{item.description}</p>}
@@ -466,27 +483,27 @@ export default function ProjectDetailsPage({ project }) {
 
         <section id="tech-stack" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-[#f2f7f3] py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto max-w-6xl px-5 sm:px-8">
-            <p className="text-center text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">04 / Tools &amp; Stack</p>
-            <h2 className="mt-2 text-center font-serif text-2xl sm:text-3xl">Technologies Employed</h2>
-            <div className="mx-auto mt-6 max-w-4xl">
+            <p className="text-left text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">04 / Tools &amp; Stack</p>
+            <h2 className="mt-2 text-left font-serif text-2xl sm:text-3xl">Technologies Employed</h2>
+            <div className="mx-auto mt-6 max-w-5xl">
               {technologies.length ? (
-                <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {technologies.map((technology, index) => {
                     const item = typeof technology === 'string' ? { name: technology } : technology
                     const card = (
-                      <>
-                        <span className="grid size-8 place-items-center rounded-lg bg-[#eff8f2] font-serif text-sm text-[#398b69]">{displayValue(item.name || item.title).charAt(0)}</span>
-                        <span className="mt-3 block text-xs font-semibold">{displayValue(item.name || item.title)}</span>
-                        {item.description && <span className="mt-1 block text-[10px] leading-relaxed text-forest/60">{item.description}</span>}
+                      <div className="flex h-full min-w-0 flex-col items-center text-center">
+                        <TechnologyLogo technology={item} />
+                        <span className="mt-3 block w-full break-words text-xs font-semibold">{displayValue(item.name || item.title)}</span>
+                        {item.description && <span className="mt-1 block w-full break-words text-[10px] leading-relaxed text-forest/70">{item.description}</span>}
                         {item.url && <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-forest">Documentation <ExternalLink size={11} aria-hidden="true" /></span>}
-                      </>
+                      </div>
                     )
                     return (
                       <li key={`${displayValue(item.name || item.title)}-${index}`}>
                         {item.url ? (
-                          <a href={item.url} target="_blank" rel="noopener noreferrer" className="block h-full rounded-xl border border-forest/10 bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-mint">{card}</a>
+                          <a href={item.url} target="_blank" rel="noopener noreferrer" className={`block h-full rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)] transition hover:-translate-y-1 hover:shadow-md focus-visible:outline-2 focus-visible:outline-mint`}>{card}</a>
                         ) : (
-                          <div className="h-full rounded-xl border border-forest/10 bg-white p-4">{card}</div>
+                          <div className={`h-full rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)] transition duration-200 hover:-translate-y-1 hover:shadow-md`}>{card}</div>
                         )}
                       </li>
                     )
@@ -519,6 +536,13 @@ export default function ProjectDetailsPage({ project }) {
             )}
           </div>
         </section>
+
+        {(project.sourceUrl || project.figmaUrl) && (
+          <div className="flex flex-wrap justify-center gap-3 bg-[#f7faf7] px-5 py-7 sm:px-8">
+            {project.sourceUrl && <ActionLink href={project.sourceUrl} secondary><Code2 size={14} aria-hidden="true" /> View Code</ActionLink>}
+            {project.figmaUrl && <ActionLink href={project.figmaUrl} secondary><ExternalLink size={14} aria-hidden="true" /> Figma Prototype</ActionLink>}
+          </div>
+        )}
 
         <section data-case-study-reveal className="bg-[#eaf3ed] px-5 py-12 text-center sm:px-8 sm:py-16">
           <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">Next milestone</p>

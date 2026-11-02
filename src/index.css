@@ -3176,3 +3176,68 @@ button.cms-sync-pill:disabled {
   .cms-skill-entry > .cms-button { align-self: flex-start; }
   .background-skill-badge { font-size: 11px; }
 }
+
+.cms-technology-list {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+.cms-technology-entry {
+  min-width: 0;
+  border: 1px solid #e3ebe4;
+  border-radius: 10px;
+  background: #fbfdfb;
+  padding: 14px;
+}
+.cms-technology-entry-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: #233d2e;
+  font-size: 12px;
+}
+.cms-technology-entry-body {
+  display: grid;
+  grid-template-columns: minmax(130px, .55fr) minmax(0, 1.45fr);
+  align-items: start;
+  gap: 16px;
+}
+.cms-technology-logo {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.cms-technology-logo > img,
+.cms-technology-logo > span {
+  display: grid;
+  width: 84px;
+  height: 84px;
+  place-items: center;
+  border: 1px solid #e1e9e2;
+  border-radius: 12px;
+  background: #f1f6f1;
+  color: #69786d;
+  object-fit: contain;
+  padding: 8px;
+}
+.cms-technology-logo > span { align-content: center; gap: 5px; font-size: 9px; }
+.cms-technology-logo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.cms-technology-logo-actions .cms-upload-control,
+.cms-technology-logo-actions .cms-button { min-height: 32px; padding-inline: 8px; font-size: 9px; }
+.cms-technology-logo > .cms-upload-progress { width: 100%; }
+.cms-technology-entry .cms-field-grid { gap: 0 12px; }
+@media (max-width: 560px) {
+  .cms-technology-entry-body { grid-template-columns: 1fr; }
+  .cms-technology-logo { justify-items: start; }
+  .cms-technology-logo > img,
+  .cms-technology-logo > span { width: 72px; height: 72px; }
+  .cms-technology-logo-actions { justify-content: flex-start; }
+}
