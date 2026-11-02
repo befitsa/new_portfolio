@@ -66,6 +66,11 @@ const customSocialLinkSchema = z.object({
   logo: optionalPrivateImage,
   displayOrder: z.number().int().positive().optional(),
 })
+const socialLinkDetailSchema = z.object({
+  platform: optionalText(60).default(''),
+  enabled: z.boolean().default(true),
+  logo: optionalPrivateImage,
+})
 
 export function normalizeTechnologyStack(value) {
   const entries = Array.isArray(value)
@@ -301,6 +306,10 @@ export const siteSettingsSchema = z.object({
   socialLinkDisplayOrders: z.record(
     z.string().trim().min(1).max(40),
     z.number().int().positive(),
+  ).default({}),
+  socialLinkDetails: z.record(
+    z.string().trim().min(1).max(40),
+    socialLinkDetailSchema,
   ).default({}),
   customSocialLinks: z.array(customSocialLinkSchema).default([]).superRefine((links, context) => {
     const ids = new Set()

@@ -112,21 +112,38 @@ export function toProfileSettings(settings, fallback) {
       && /^\/__local-cms\/uploads\/[a-z0-9-]+\/[a-zA-Z0-9._-]+$/.test(value)
       && !value.split('/').includes('..'))
   )
+  const emailCandidate = settings.socialLinks?.email
+    || fallback.socials?.find((social) => social.id === 'email')?.url
+    || fallback.email
+    || ''
+  const emailUrl = /^mailto:/i.test(emailCandidate)
+    ? emailCandidate
+    : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCandidate)
+      ? `mailto:${emailCandidate}`
+      : ''
+  const emailSocial = safeUrl(emailUrl, true)
+    ? [{ id: 'email', label: 'Email', url: emailUrl }]
+    : []
   const socials = Object.entries(settings.socialLinks || {})
-    .filter(([id, url]) => safeUrl(url, id === 'email'))
-    .map(([id, url], index) => ({
+    .filter(([id, url]) => id !== 'email' && safeUrl(url) && settings.socialLinkDetails?.[id]?.enabled !== false)
+    .map(([id, url], index) => {
+      const details = settings.socialLinkDetails?.[id]
+      return ({
       id,
-      label: platformLabels[id] || id[0].toUpperCase() + id.slice(1),
+      label: details?.platform?.trim() || platformLabels[id] || id[0].toUpperCase() + id.slice(1),
       url,
+      logo: safeLogoUrl(details?.logo?.url) ? { url: details.logo.url } : null,
       displayOrder: isValidSocialDisplayOrder(settings.socialLinkDisplayOrders?.[id])
         ? settings.socialLinkDisplayOrders[id]
         : index + 1,
-    }))
+      })
+    })
   for (const link of settings.customSocialLinks || []) {
     if (
       !link
       || typeof link.id !== 'string'
       || !link.id.trim()
+      || link.id === 'email'
       || typeof link.platform !== 'string'
       || !link.platform.trim()
       || socials.some((social) => social.id === link.id)
@@ -161,10 +178,8 @@ export function toProfileSettings(settings, fallback) {
     intro: settings.bio?.trim() || fallback.intro,
     about: settings.about?.trim() || fallback.about,
     location: settings.location?.trim() || '',
-    email: settings.socialLinks?.email
-      ? settings.socialLinks.email.replace(/^mailto:/i, '').split('?')[0]
-      : fallback.email,
-    socials: orderedSocials,
+    email: emailUrl.replace(/^mailto:/i, '').split('?')[0] || fallback.email,
+    socials: [...emailSocial, ...orderedSocials],
     seo: settings.seo || {},
     featuredProjectIds: Array.isArray(settings.featuredProjectIds) ? settings.featuredProjectIds : [],
   }

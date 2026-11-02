@@ -28,10 +28,17 @@ const DEFAULT_SOCIAL_ORDER = Object.fromEntries(
     .filter((id) => id !== 'email')
     .map((id, index) => [id, index + 1]),
 )
+const DEFAULT_SOCIAL_DETAILS = {
+  github: { platform: 'GitHub', enabled: true, logo: null },
+  linkedin: { platform: 'LinkedIn', enabled: true, logo: null },
+  instagram: { platform: 'Instagram', enabled: true, logo: null },
+  telegram: { platform: 'Telegram', enabled: true, logo: null },
+}
 const EMPTY_SETTINGS = {
   name: profile.name, title: profile.title, bio: profile.intro, about: profile.about, location: 'Addis Ababa, Ethiopia',
   socialLinks: DEFAULT_SOCIAL_LINKS,
   socialLinkDisplayOrders: DEFAULT_SOCIAL_ORDER,
+  socialLinkDetails: DEFAULT_SOCIAL_DETAILS,
   customSocialLinks: [], featuredProjectIds: [],
   seo: { metaTitle: '', metaDescription: '' },
 }
@@ -40,6 +47,17 @@ const cleanRecord = (record = {}) => Object.fromEntries(Object.entries(record).f
 const dateValue = (value) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''
 const datePretty = (value) => value ? new Date(value).toLocaleDateString() : 'Not saved yet'
 const isPositiveOrder = (value) => Number.isInteger(value) && value > 0
+const socialPlatformName = (id) => DEFAULT_SOCIAL_DETAILS[id]?.platform
+  || id.replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+const isSafeSocialLogoUrl = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return /^\/(?!\/)[^\s]*$/.test(value) && !value.split('/').includes('..')
+  }
+}
 
 function normalizeSocialDisplayOrders(socialLinks, customSocialLinks, savedOrders = {}) {
   const socialLinkDisplayOrders = {}
@@ -127,6 +145,19 @@ function Field({ label, children, hint, className = '' }) {
 
 function TextInput({ label, value, onChange, type = 'text', ...props }) {
   return <Field label={label} hint={props.hint} className={props.className}><input type={type} value={value ?? ''} onChange={(event) => onChange(event.target.value)} {...Object.fromEntries(Object.entries(props).filter(([key]) => !['hint', 'className'].includes(key)))} /></Field>
+}
+
+function CmsSocialLogoPreview({ url, label }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [url])
+  const showImage = isSafeSocialLogoUrl(url) && !failed
+  return (
+    <div className="cms-social-logo-preview">
+      {showImage
+        ? <img src={url} alt={`${label || 'Social media'} logo preview`} onError={() => setFailed(true)} />
+        : <ImageIcon size={20} aria-hidden="true" />}
+    </div>
+  )
 }
 
 function TextArea({ label, value, onChange, rows = 4, ...props }) {
@@ -1304,6 +1335,18 @@ export function CmsSettingsPage() {
       if (value) {
         setRecord(value)
         const socialLinks = { ...EMPTY_SETTINGS.socialLinks, ...(value.socialLinks || {}) }
+        const socialLinkDetails = Object.fromEntries(
+          Object.keys(socialLinks)
+            .filter((id) => id !== 'email')
+            .map((id) => {
+              const saved = value.socialLinkDetails?.[id] || {}
+              return [id, {
+                platform: saved.platform ?? socialPlatformName(id),
+                enabled: saved.enabled !== false,
+                logo: saved.logo ?? null,
+              }]
+            }),
+        )
         const normalizedSocialOrder = normalizeSocialDisplayOrders(
           socialLinks,
           Array.isArray(value.customSocialLinks) ? value.customSocialLinks : [],
@@ -1313,6 +1356,7 @@ export function CmsSettingsPage() {
           ...EMPTY_SETTINGS,
           ...cleanRecord(value),
           socialLinks,
+          socialLinkDetails,
           ...normalizedSocialOrder,
           seo: { ...EMPTY_SETTINGS.seo, ...(value.seo || {}) },
         })
@@ -1327,6 +1371,13 @@ export function CmsSettingsPage() {
       link.id === id ? { ...link, ...update } : link
     )),
   }))
+  const updateSocialLinkDetails = (id, update) => setForm((current) => ({
+    ...current,
+    socialLinkDetails: {
+      ...current.socialLinkDetails,
+      [id]: { ...current.socialLinkDetails[id], ...update },
+    },
+  }))
   const addCustomSocialLink = () => setForm((current) => ({
     ...current,
     customSocialLinks: [
@@ -1340,10 +1391,10 @@ export function CmsSettingsPage() {
       },
     ],
   }))
-  const uploadSocialLogo = async (id, file) => {
+  const uploadSocialLogo = async (id, file, custom = false) => {
     if (!file) return
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
-      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP logo larger than 0 bytes and no larger than 12 MB.') })
+      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP logo larger than 0 bytes and no larger than 12 MB. SVG uploads are not supported by the current media provider.') })
       return
     }
     if (!localMode && apiStatus.storageReady === false) {
@@ -1357,7 +1408,10 @@ export function CmsSettingsPage() {
         () => adminApi.uploadPrivateAsset(file, { onProgress: setLogoProgress }),
         localMode ? 'Social logo saved to local disk.' : 'Social logo uploaded privately. It will become public only when these settings are published.',
       )
-      if (asset) updateCustomSocialLink(id, { logo: asset })
+      if (asset) {
+        if (custom) updateCustomSocialLink(id, { logo: asset })
+        else updateSocialLinkDetails(id, { logo: asset })
+      }
     } finally {
       setLogoProgress(0)
       setUploadingSocialId('')
@@ -1369,6 +1423,15 @@ export function CmsSettingsPage() {
     try {
       content = siteSettingsSchema.parse(form)
       if (!localMode) {
+        content.socialLinkDetails = Object.fromEntries(
+          Object.entries(content.socialLinkDetails).map(([id, details]) => [
+            id,
+            {
+              ...details,
+              logo: details.logo?.storagePath ? { ...details.logo, url: '' } : details.logo,
+            },
+          ]),
+        )
         content.customSocialLinks = content.customSocialLinks.map((link) => ({
           ...link,
           logo: link.logo?.storagePath ? { ...link.logo, url: '' } : link.logo,
@@ -1390,6 +1453,11 @@ export function CmsSettingsPage() {
     ...current,
     socialLinks: { ...current.socialLinks, [key]: value },
   }))
+  const setSocialLogoUrl = (id, value, custom = false) => {
+    const logo = value ? { url: value, storagePath: '' } : null
+    if (custom) updateCustomSocialLink(id, { logo })
+    else updateSocialLinkDetails(id, { logo })
+  }
   const setSocialDisplayOrder = (key, value) => setForm((current) => ({
     ...current,
     socialLinkDisplayOrders: {
@@ -1398,25 +1466,82 @@ export function CmsSettingsPage() {
     },
   }))
 
-  const socialPlatformField = (id, label) => (
-    <div className="cms-social-platform-fields" key={id}>
-      <TextInput
-        label={`${label} URL`}
-        type="url"
-        value={form.socialLinks[id]}
-        onChange={(value) => setSocialLink(id, value)}
-      />
-      <TextInput
-        label="Display Order"
-        type="number"
-        min={1}
-        step={1}
-        inputMode="numeric"
-        value={form.socialLinkDisplayOrders[id]}
-        onChange={(value) => setSocialDisplayOrder(id, value)}
-      />
-    </div>
-  )
+  const socialPlatformField = (id) => {
+    const details = form.socialLinkDetails[id] || { platform: socialPlatformName(id), enabled: true, logo: null }
+    const platform = details.platform || socialPlatformName(id)
+    const logoUrl = details.logo?.url || ''
+    return (
+      <article className="cms-social-entry" key={id}>
+        <TextInput
+          label="Platform Name"
+          value={details.platform}
+          onChange={(value) => updateSocialLinkDetails(id, { platform: value })}
+          maxLength={60}
+        />
+        <div className="cms-social-platform-fields">
+          <TextInput
+            label="Profile URL"
+            type="url"
+            value={form.socialLinks[id]}
+            onChange={(value) => setSocialLink(id, value)}
+            maxLength={500}
+            placeholder="https://"
+          />
+          <TextInput
+            label="Display Order"
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            value={form.socialLinkDisplayOrders[id]}
+            onChange={(value) => setSocialDisplayOrder(id, value)}
+            required
+          />
+        </div>
+        <TextInput
+          label="Logo URL"
+          type="url"
+          value={logoUrl}
+          onChange={(value) => setSocialLogoUrl(id, value)}
+          maxLength={2000}
+          placeholder="https://example.com/logo.svg"
+        />
+        <div className="cms-social-logo-row">
+          <CmsSocialLogoPreview url={logoUrl} label={platform} />
+          <div className="cms-social-logo-controls">
+            <label className="cms-upload-control">
+              <Upload size={15} />
+              <span>{uploadingSocialId === id ? `Uploading ${logoProgress}%` : details.logo?.storagePath ? 'Replace logo' : 'Upload logo'}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                disabled={!ready || mutation.busy}
+                onChange={(event) => {
+                  void uploadSocialLogo(id, event.target.files?.[0])
+                  event.target.value = ''
+                }}
+                aria-label={`Upload ${platform} logo`}
+              />
+            </label>
+            {details.logo && (
+              <Button disabled={mutation.busy} onClick={() => updateSocialLinkDetails(id, { logo: null })}>
+                <Trash2 size={14} /> Remove logo
+              </Button>
+            )}
+            <span>JPG, PNG, WebP · max 12 MB. SVG is not supported by the current media provider.</span>
+          </div>
+          <label className="cms-social-enabled">
+            <input
+              type="checkbox"
+              checked={details.enabled !== false}
+              onChange={(event) => updateSocialLinkDetails(id, { enabled: event.target.checked })}
+            />
+            Enabled
+          </label>
+        </div>
+      </article>
+    )
+  }
 
   return <>
     <PageHeader
@@ -1447,12 +1572,9 @@ export function CmsSettingsPage() {
             <span className="cms-step-number">02</span>
             <div><h2>Social links & SEO</h2><p>Only published profile metadata appears on the public portfolio.</p></div>
           </div>
-          {[
-            ['github', 'GitHub'],
-            ['linkedin', 'LinkedIn'],
-            ['instagram', 'Instagram'],
-            ['telegram', 'Telegram'],
-          ].map(([id, label]) => socialPlatformField(id, label))}
+          {Object.keys(form.socialLinks)
+            .filter((id) => id !== 'email')
+            .map((id) => socialPlatformField(id))}
           <TextInput
             label="Email address or mailto link"
             value={form.socialLinks.email?.replace(/^mailto:/, '')}
@@ -1483,6 +1605,14 @@ export function CmsSettingsPage() {
                   required
                 />
                 <TextInput
+                  label="Logo URL"
+                  type="url"
+                  value={link.logo?.url || ''}
+                  onChange={(value) => setSocialLogoUrl(link.id, value, true)}
+                  maxLength={2000}
+                  placeholder="https://example.com/logo.svg"
+                />
+                <TextInput
                   label="Display Order"
                   type="number"
                   min={1}
@@ -1495,9 +1625,7 @@ export function CmsSettingsPage() {
                   required
                 />
                 <div className="cms-social-logo-row">
-                  <div className="cms-social-logo-preview">
-                    {link.logo?.url ? <img src={link.logo.url} alt={`${link.platform || 'Social media'} logo preview`} /> : <ImageIcon size={20} aria-hidden="true" />}
-                  </div>
+                  <CmsSocialLogoPreview url={link.logo?.url || ''} label={link.platform} />
                   <div className="cms-social-logo-controls">
                     <label className="cms-upload-control">
                       <Upload size={15} />
@@ -1507,18 +1635,18 @@ export function CmsSettingsPage() {
                         accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
                         disabled={!ready || mutation.busy}
                         onChange={(event) => {
-                          uploadSocialLogo(link.id, event.target.files?.[0])
+                          void uploadSocialLogo(link.id, event.target.files?.[0], true)
                           event.target.value = ''
                         }}
                         aria-label={`Upload ${link.platform || 'social media'} logo`}
                       />
                     </label>
-                    {link.logo?.storagePath && (
+                    {link.logo && (
                       <Button disabled={mutation.busy} onClick={() => updateCustomSocialLink(link.id, { logo: null })}>
                         <Trash2 size={14} /> Remove logo
                       </Button>
                     )}
-                    <span>JPEG, PNG, WebP · max 12 MB</span>
+                    <span>JPG, PNG, WebP · max 12 MB. SVG is not supported by the current media provider.</span>
                   </div>
                   <Button
                     className="cms-action-delete"

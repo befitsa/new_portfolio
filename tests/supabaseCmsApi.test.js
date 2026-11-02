@@ -564,8 +564,9 @@ test('education publishing promotes credential images through the existing gate'
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
 })
 
-test('settings publishing promotes custom social logos before exposing their public references', async () => {
+test('settings publishing promotes built-in and custom social logos before exposing public references', async () => {
   const sourcePath = `${PRIVATE_BUCKET}/drafts/admin/social/facebook.png`
+  const builtInSourcePath = `${PRIVATE_BUCKET}/drafts/admin/social/github.png`
   let publishedPayload
   const calls = []
   const client = mockClient(async (name, args) => {
@@ -580,6 +581,13 @@ test('settings publishing promotes custom social logos before exposing their pub
           about: '',
           location: '',
           socialLinks: { github: 'https://github.com/fitsum' },
+          socialLinkDetails: {
+            github: {
+              platform: 'GitHub',
+              enabled: true,
+              logo: { url: '', storagePath: builtInSourcePath, fileName: 'github.png', mimeType: 'image/png' },
+            },
+          },
           customSocialLinks: [{
             id: 'custom-facebook',
             platform: 'Facebook',
@@ -609,8 +617,11 @@ test('settings publishing promotes custom social logos before exposing their pub
   await api.publishSettings(3)
 
   const logo = publishedPayload.customSocialLinks[0].logo
+  const builtInLogo = publishedPayload.socialLinkDetails.github.logo
   assert.equal(logo.storagePath, `${PUBLIC_BUCKET}/published/drafts/admin/social/facebook.png`)
   assert.equal(logo.url, 'https://public.example/published/drafts/admin/social/facebook.png')
+  assert.equal(builtInLogo.storagePath, `${PUBLIC_BUCKET}/published/drafts/admin/social/github.png`)
+  assert.equal(builtInLogo.url, 'https://public.example/published/drafts/admin/social/github.png')
   assert.equal(calls.includes('cms_publish_settings_with_assets'), true)
   assert.equal(calls.includes('cms_publish_settings'), false)
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === PRIVATE_BUCKET))

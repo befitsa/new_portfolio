@@ -136,6 +136,13 @@ test('local content service initializes, migrates, edits, publishes, and removes
       telegram: 'https://t.me/fitsum',
     },
     socialLinkDisplayOrders: { github: 3, linkedin: 1, instagram: 2, telegram: 4 },
+    socialLinkDetails: {
+      github: {
+        platform: 'GitHub Profile',
+        enabled: true,
+        logo: { url: 'https://cdn.example.com/github.svg', storagePath: '' },
+      },
+    },
     customSocialLinks: [{
       id: 'custom-facebook',
       platform: 'Facebook',
@@ -146,6 +153,8 @@ test('local content service initializes, migrates, edits, publishes, and removes
   }, settings.revision)
   const savedSettings = await service.getSettings('drafts')
   assert.deepEqual(savedSettings.socialLinkDisplayOrders, { github: 3, linkedin: 1, instagram: 2, telegram: 4 })
+  assert.equal(savedSettings.socialLinkDetails.github.platform, 'GitHub Profile')
+  assert.equal(savedSettings.socialLinkDetails.github.logo.url, 'https://cdn.example.com/github.svg')
   assert.equal(savedSettings.customSocialLinks[0].displayOrder, 5)
   assert.equal((await service.getSettings('published')).customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
   await service.publishSettings(updatedSettings.revision)
@@ -154,6 +163,8 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.equal(toProfileSettings(publicSettings, profile).about, 'An updated public About section.')
   assert.equal(toProfileSettings(publicSettings, profile).socials.some(({ id }) => id === 'instagram'), true)
   assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'custom-facebook').logo.url, 'https://cdn.example.com/facebook.png')
+  assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'github').label, 'GitHub Profile')
+  assert.equal(toProfileSettings(publicSettings, profile).socials.find(({ id }) => id === 'github').logo.url, 'https://cdn.example.com/github.svg')
   assert.deepEqual(toProfileSettings(publicSettings, profile).socials.filter(({ id }) => id !== 'email').map(({ id }) => id), [
     'linkedin',
     'instagram',

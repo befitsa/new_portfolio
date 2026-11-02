@@ -54,7 +54,6 @@ export default function Footer() {
         <div data-footer-reveal className="flex justify-center">
           <SocialLinks
             size="md"
-            excludeEmail
             includeCustom
             className="w-full max-w-[42rem] justify-center gap-2 sm:gap-3"
           />

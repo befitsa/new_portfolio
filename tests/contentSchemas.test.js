@@ -255,10 +255,24 @@ test('social settings support legacy links, safe custom links, and durable uploa
       },
     }],
     socialLinkDisplayOrders: { github: 1, instagram: 2, linkedin: 3, telegram: 4 },
+    socialLinkDetails: {
+      github: {
+        platform: 'GitHub Profile',
+        enabled: true,
+        logo: {
+          url: 'https://cdn.example/github.svg',
+          storagePath: 'portfolio-private/drafts/admin/github.svg',
+        },
+      },
+      linkedin: { platform: 'LinkedIn', enabled: false, logo: null },
+    },
   })
   assert.equal(settings.customSocialLinks[0].platform, 'Facebook')
   assert.equal(settings.customSocialLinks[0].displayOrder, 5)
   assert.equal(settings.customSocialLinks[0].logo.storagePath, 'portfolio-private/drafts/admin/logo.webp')
+  assert.equal(settings.socialLinkDetails.github.platform, 'GitHub Profile')
+  assert.equal(settings.socialLinkDetails.github.logo.storagePath, 'portfolio-private/drafts/admin/github.svg')
+  assert.equal(settings.socialLinkDetails.linkedin.enabled, false)
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',
     socialLinkDisplayOrders: { github: 0 },
@@ -270,6 +284,10 @@ test('social settings support legacy links, safe custom links, and durable uploa
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',
     customSocialLinks: [{ id: 'custom-x', platform: 'X', url: 'javascript:alert(1)' }],
+  }).success, false)
+  assert.equal(siteSettingsSchema.safeParse({
+    name: 'Fitsum',
+    socialLinkDetails: { github: { platform: 'GitHub', logo: { url: 'javascript:alert(1)' } } },
   }).success, false)
   assert.equal(siteSettingsSchema.safeParse({
     name: 'Fitsum',
@@ -289,6 +307,8 @@ test('social settings support legacy links, safe custom links, and durable uploa
   assert.equal(profile.socials.some(({ id }) => id === 'instagram'), true)
   assert.equal(profile.socials.some(({ id }) => id === 'telegram'), true)
   assert.equal(profile.socials.find(({ id }) => id === 'custom-facebook').logo.url, 'https://signed.example/logo.webp')
+  assert.equal(profile.socials.find(({ id }) => id === 'github').logo.url, 'https://cdn.example/github.svg')
+  assert.equal(profile.socials.some(({ id }) => id === 'linkedin'), false)
   assert.equal(profile.socials.some(({ id }) => id === 'custom-unsafe'), false)
 })
 
@@ -312,6 +332,7 @@ test('public social settings sort all platforms by saved display order with stab
   const projected = toProfileSettings(sourceSettings, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
 
   assert.deepEqual(projected.socials.map(({ id }) => id), [
+    'email',
     'linkedin',
     'instagram',
     'custom-facebook',
@@ -331,7 +352,28 @@ test('public social settings sort all platforms by saved display order with stab
       { id: 'custom-facebook', platform: 'Facebook', url: 'https://facebook.com/fitsum' },
     ],
   }, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
-  assert.deepEqual(legacy.socials.map(({ id }) => id), ['github', 'instagram', 'custom-facebook'])
+  assert.deepEqual(legacy.socials.map(({ id }) => id), ['email', 'github', 'instagram', 'custom-facebook'])
+})
+
+test('email remains first regardless of social display orders and built-in metadata is public', () => {
+  const projected = toProfileSettings({
+    name: 'Fitsum',
+    socialLinks: {
+      email: 'mailto:contact@example.com',
+      github: 'https://github.com/fitsum',
+      instagram: 'https://instagram.com/fitsum',
+    },
+    socialLinkDisplayOrders: { email: 1, github: 50, instagram: 1 },
+    socialLinkDetails: {
+      github: { platform: 'Code profile', enabled: true, logo: { url: 'https://cdn.example/github.svg' } },
+      instagram: { platform: 'Photo profile', enabled: true, logo: null },
+    },
+  }, { name: 'Fallback', socials: [], email: 'fallback@example.com' })
+
+  assert.deepEqual(projected.socials.map(({ id }) => id), ['email', 'instagram', 'github'])
+  assert.equal(projected.socials[0].url, 'mailto:contact@example.com')
+  assert.equal(projected.socials[1].label, 'Photo profile')
+  assert.equal(projected.socials[2].logo.url, 'https://cdn.example/github.svg')
 })
 
 test('media schema supports validated skill records without weakening media requirements', () => {
