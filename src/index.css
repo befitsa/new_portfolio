@@ -3177,6 +3177,42 @@ button.cms-sync-pill:disabled {
   .background-skill-badge { font-size: 11px; }
 }
 
+.case-study-card-track {
+  min-width: 0;
+  max-width: 100%;
+  scrollbar-color: rgb(22 74 58 / 22%) transparent;
+  scrollbar-width: thin;
+}
+.case-study-card-track::-webkit-scrollbar { height: 4px; }
+.case-study-card-track::-webkit-scrollbar-track { background: transparent; }
+.case-study-card-track::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(22 74 58 / 22%);
+}
+@media (max-width: 639px) {
+  .case-study-card-track {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 2px;
+    -webkit-overflow-scrolling: touch;
+    padding: 2px 2px 10px;
+  }
+  .case-study-card-track > .case-study-card-slide {
+    flex: 0 0 min(82%, 22rem);
+    min-width: 0;
+    scroll-snap-align: start;
+  }
+  .case-study-technology-track > .case-study-card-slide {
+    flex-basis: min(62%, 13rem);
+    min-width: 10.25rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .case-study-card-track { scroll-behavior: auto; }
+}
+
 .cms-technology-list {
   display: grid;
   gap: 12px;

@@ -21,6 +21,9 @@ import { normalizeTechnologyStack } from '../../lib/db/contentSchemas.js'
 
 const cardPastels = ['bg-[#edf4e9]', 'bg-[#eaf2f8]', 'bg-[#f7f0e5]', 'bg-[#e8f3ed]', 'bg-[#f2e9e2]', 'bg-[#f6efdb]']
 const excludedFeatureTitles = new Set(['responsive design', 'reusable components', 'user experience', 'scalability'])
+const isRemovedFeature = (value) => excludedFeatureTitles.has(
+  String(value || '').split(/\s+[—–-]\s+/)[0].trim().toLowerCase(),
+)
 
 const sections = [
   { id: 'overview', label: 'Overview' },
@@ -287,10 +290,14 @@ export default function ProjectDetailsPage({ project }) {
 
   const features = Array.isArray(project.features) ? project.features.filter((feature) => {
     const title = typeof feature === 'string' ? feature : feature?.title ?? feature?.name ?? ''
-    return !excludedFeatureTitles.has(String(title).split(/\s+[—–-]\s+/)[0].trim().toLowerCase())
+    return !isRemovedFeature(title)
   }) : []
   const outcomes = Array.isArray(project.outcomes) ? project.outcomes.filter(Boolean) : []
   const metrics = Array.isArray(project.metrics) ? project.metrics.filter(Boolean) : []
+  const heroMetrics = metrics.filter((metric) => {
+    const label = typeof metric === 'string' ? metric : metric?.label ?? metric?.title ?? ''
+    return !isRemovedFeature(label)
+  })
   const technologies = normalizeTechnologyStack(project.tech)
   const screenshots = Array.isArray(project.screenshots) ? project.screenshots.filter((image) => image?.src) : []
   const titleWords = project.title.trim().split(/\s+/)
@@ -339,9 +346,9 @@ export default function ProjectDetailsPage({ project }) {
             </div>
           </div>
 
-          {metrics.length > 0 && (
+          {heroMetrics.length > 0 && (
             <div className="mx-auto mt-7 grid max-w-6xl gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-              {metrics.map((metric, index) => {
+              {heroMetrics.map((metric, index) => {
                 const item = typeof metric === 'string' ? { label: metric } : metric
                 return (
                   <article key={`${item.label || item.title || 'metric'}-${index}`} className="rounded-xl border border-forest/10 bg-white/90 p-3 shadow-[0_5px_18px_rgba(31,57,42,.04)]">
@@ -424,11 +431,11 @@ export default function ProjectDetailsPage({ project }) {
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Technical Highlights &amp; Architecture</h2>
             <div className="mt-6">
               {features.length ? (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="case-study-card-track grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {features.map((feature, index) => {
                     const item = typeof feature === 'string' ? { title: feature } : feature
                     return (
-                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className={`min-h-32 rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]`}>
+                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className={`case-study-card-slide min-h-32 rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]`}>
                         <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
                         {item.description && <p className="mt-2 text-[11px] leading-relaxed text-forest/65">{item.description}</p>}
                         {item.implementation && <p className="mt-2 text-[11px] leading-relaxed text-forest/65"><strong>Implementation:</strong> {item.implementation}</p>}
@@ -449,11 +456,11 @@ export default function ProjectDetailsPage({ project }) {
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Impact &amp; Measured Outcomes</h2>
             <div className="mt-6">
               {outcomes.length ? (
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="case-study-card-track grid gap-3 md:grid-cols-2">
                   {outcomes.map((outcome, index) => {
                     const item = typeof outcome === 'string' ? { title: outcome } : outcome
                     return (
-                      <article key={`${item.title || item.name}-${index}`} className={`rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 sm:p-5`}>
+                      <article key={`${item.title || item.name}-${index}`} className={`case-study-card-slide rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 sm:p-5`}>
                         <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
                         {item.description && <p className="mt-2 text-xs leading-relaxed text-forest/65">{item.description}</p>}
                       </article>
@@ -465,11 +472,11 @@ export default function ProjectDetailsPage({ project }) {
               )}
             </div>
             {metrics.length > 0 && (
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="case-study-card-track mt-4 grid gap-3 sm:grid-cols-3">
                 {metrics.map((metric, index) => {
                   const item = typeof metric === 'string' ? { value: metric } : metric
                   return (
-                    <article key={`outcome-${item.label || item.title || index}`} className={`rounded-xl border border-forest/10 ${cardPastels[(index + outcomes.length) % cardPastels.length]} p-4 text-center`}>
+                    <article key={`outcome-${item.label || item.title || index}`} className={`case-study-card-slide rounded-xl border border-forest/10 ${cardPastels[(index + outcomes.length) % cardPastels.length]} p-4 text-center`}>
                       {item.value && <p className="font-serif text-3xl">{item.value}</p>}
                       <p className="mt-1 text-xs font-semibold text-forest">{item.label || item.title}</p>
                       {item.description && <p className="mt-1 text-[10px] leading-relaxed text-forest/60">{item.description}</p>}
@@ -487,7 +494,7 @@ export default function ProjectDetailsPage({ project }) {
             <h2 className="mt-2 text-left font-serif text-2xl sm:text-3xl">Technologies Employed</h2>
             <div className="mx-auto mt-6 max-w-5xl">
               {technologies.length ? (
-                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                <ul className="case-study-card-track case-study-technology-track grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {technologies.map((technology, index) => {
                     const item = typeof technology === 'string' ? { name: technology } : technology
                     const card = (
@@ -499,7 +506,7 @@ export default function ProjectDetailsPage({ project }) {
                       </div>
                     )
                     return (
-                      <li key={`${displayValue(item.name || item.title)}-${index}`}>
+                      <li key={`${displayValue(item.name || item.title)}-${index}`} className="case-study-card-slide">
                         {item.url ? (
                           <a href={item.url} target="_blank" rel="noopener noreferrer" className={`block h-full rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)] transition hover:-translate-y-1 hover:shadow-md focus-visible:outline-2 focus-visible:outline-mint`}>{card}</a>
                         ) : (
