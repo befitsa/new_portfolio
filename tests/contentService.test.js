@@ -128,6 +128,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
     ...settings,
     name: 'Fitsum Local Test',
     about: 'An updated public About section.',
+    visibility: false,
     socialLinks: {
       ...settings.socialLinks,
       github: 'https://github.com/fitsum',
@@ -168,6 +169,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.equal((await service.getSettings('published')).customSocialLinks.some(({ id }) => id === 'custom-facebook'), false)
   await service.publishSettings(updatedSettings.revision)
   const publicSettings = await service.getSettings('published')
+  assert.equal(publicSettings.visibility, true)
   assert.equal(publicSettings.name, 'Fitsum Local Test')
   assert.equal(toProfileSettings(publicSettings, profile).about, 'An updated public About section.')
   assert.equal(toProfileSettings(publicSettings, profile).socials.some(({ id }) => id === 'instagram'), true)

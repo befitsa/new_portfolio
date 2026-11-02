@@ -669,6 +669,7 @@ test('Supabase settings save and publish round-trip an explicitly empty social c
     socialLinkDisplayOrders: {},
     customSocialLinks: [],
     seo: { metaTitle: 'Preserved title', metaDescription: 'Preserved description' },
+    visibility: false,
   }, 0)
   const reloadedDraft = await api.getSettings('drafts')
 
@@ -677,12 +678,14 @@ test('Supabase settings save and publish round-trip an explicitly empty social c
   assert.deepEqual(reloadedDraft.socialLinkDisplayOrders, {})
   assert.deepEqual(reloadedDraft.customSocialLinks, [])
   assert.deepEqual(reloadedDraft.seo, { metaTitle: 'Preserved title', metaDescription: 'Preserved description' })
+  assert.equal(reloadedDraft.visibility, false)
 
   await api.publishSettings(saved.revision)
   const reloadedPublished = await api.getSettings('published')
   assert.deepEqual(reloadedPublished.socialLinks, { email: 'mailto:contact@example.com' })
   assert.deepEqual(reloadedPublished.customSocialLinks, [])
   assert.deepEqual(reloadedPublished.seo, { metaTitle: 'Preserved title', metaDescription: 'Preserved description' })
+  assert.equal(reloadedPublished.visibility, true)
 })
 
 test('settings publishing withdraws the public projection when custom-logo copy fails', async () => {

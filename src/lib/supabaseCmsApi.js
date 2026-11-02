@@ -1213,7 +1213,10 @@ function createCmsApi(client) {
         }
       }
 
-      const payload = siteSettingsSchema.parse(prepared.value)
+      const payload = siteSettingsSchema.parse({
+        ...prepared.value,
+        visibility: true,
+      })
       const value = await assertRpc(client, 'cms_publish_settings_with_assets', {
         p_expected_revision: revision,
         p_payload: payload,

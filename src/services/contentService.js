@@ -459,7 +459,7 @@ export const contentService = {
       const draft = state.settings.drafts
       if (!draft || draft.revision !== expectedRevision) throw new Error('Save the portfolio settings draft before previewing publication.')
       const now = timestamp()
-      state.settings.published = { ...clone(draft), status: 'published', publishedRevision: draft.revision, publishedAt: now, publishedBy: 'local-browser', updatedAt: now, resumeManaged: true }
+      state.settings.published = { ...clone(draft), visibility: true, status: 'published', publishedRevision: draft.revision, publishedAt: now, publishedBy: 'local-browser', updatedAt: now, resumeManaged: true }
       return { revision: draft.revision, mode: 'local-browser' }
     })
   },

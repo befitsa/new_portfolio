@@ -1311,6 +1311,7 @@ export function CmsMediaPage() {
 
 export function CmsSettingsPage() {
   const mutation = useMutation()
+  const loadRequest = useRef(0)
   const [record, setRecord] = useState(null)
   const [form, setForm] = useState(EMPTY_SETTINGS)
   const [projectOptions, setProjectOptions] = useState([])
@@ -1322,6 +1323,7 @@ export function CmsSettingsPage() {
   const ready = apiStatus.ready
   const localMode = apiStatus.state === 'local'
   const load = useCallback(async () => {
+    const requestId = ++loadRequest.current
     if (!ready) {
       setLoading(apiStatus.checking)
       setError('')
@@ -1330,6 +1332,7 @@ export function CmsSettingsPage() {
     setLoading(true); setError('')
     try {
       const [draft, live, projects] = await Promise.all([adminApi.getSettings('drafts'), adminApi.getSettings('published'), adminApi.list('projects', 'published')])
+      if (requestId !== loadRequest.current) return
       setProjectOptions(projects.filter((item) => item.status === 'published' && item.visibility))
       const value = draft || live
       if (value) {
@@ -1370,7 +1373,11 @@ export function CmsSettingsPage() {
           seo: { ...EMPTY_SETTINGS.seo, ...(value.seo || {}) },
         })
       }
-    } catch (cause) { setError(cause.message) } finally { setLoading(false) }
+    } catch (cause) {
+      if (requestId === loadRequest.current) setError(cause.message)
+    } finally {
+      if (requestId === loadRequest.current) setLoading(false)
+    }
   }, [apiStatus.checking, ready])
   useEffect(() => { load() }, [load])
   const field = (key, value) => setForm((current) => ({ ...current, [key]: value }))

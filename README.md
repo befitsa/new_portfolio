@@ -35,6 +35,8 @@ Draft records are kept separate from their published versions. A successful publ
 
 The production admin CMS and public published-content adapter use Supabase. The browser authenticates through Supabase Auth, reads/writes CMS records through authenticated Postgres RPCs, reads public projection tables, and uploads draft assets to Supabase Storage. Administrator authorization is enforced by the existing `public.is_portfolio_admin()` registry and CMS RPCs; a signed-in user is not automatically an administrator. Draft uploads stay in the private `portfolio-private` bucket until an authorized publish operation promotes referenced assets.
 
+Site settings remain private as drafts. An explicit settings publish marks the global profile settings visible so legacy settings imported with `visibility: false` can be exposed through the public projection; use **Publish settings** after deployment to republish those settings.
+
 ### Netlify build configuration
 
 The active Supabase CMS requires these browser configuration variables:
