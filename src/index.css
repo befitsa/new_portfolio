@@ -2143,6 +2143,12 @@ button.cms-sync-pill:disabled {
 .cms-muted { color: #718077; font-size: 10px; line-height: 1.55; }
 .cms-hero-image-preview { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .cms-hero-image-preview img { width: min(360px, 75%); max-height: 180px; border-radius: 7px; object-fit: cover; }
+.cms-gallery-editor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0; }
+.cms-gallery-editor-item { min-width: 0; border: 1px solid #e2e9e3; border-radius: 8px; background: #fbfcfb; padding: 9px; }
+.cms-gallery-editor-preview { display: grid; aspect-ratio: 16 / 10; place-items: center; overflow: hidden; border-radius: 6px; background: #eff4f0; color: #627168; }
+.cms-gallery-editor-preview img { width: 100%; height: 100%; object-fit: cover; }
+.cms-gallery-editor-preview > span { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; }
+.cms-gallery-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 8px 0; }
 .cms-upload-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; color: #738077; font-size: 9px; }
 .cms-upload-control, .cms-file-button { position: relative; display: inline-flex; overflow: hidden; align-items: center; justify-content: center; gap: 7px; }
 .cms-upload-control { min-height: 36px; border: 1px solid #dfe8e1; border-radius: 7px; background: #f4f7f4; color: #244434; cursor: pointer; padding: 0 11px; font-size: 10px; }

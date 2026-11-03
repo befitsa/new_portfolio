@@ -1,8 +1,9 @@
-import { normalizeProjectCategory, normalizeSkills, normalizeTechnologyStack } from './contentSchemas.js'
+import { normalizeProjectCategory, normalizeProjectImageFields, normalizeSkills, normalizeTechnologyStack } from './contentSchemas.js'
 
 /** Convert the CMS project shape to the legacy public portfolio view model. */
 export function toPublicProject(record) {
-  const gallery = Array.isArray(record.gallery) ? record.gallery : []
+  const projectImages = normalizeProjectImageFields(record)
+  const gallery = Array.isArray(projectImages.gallery) ? projectImages.gallery : []
   const highlights = Array.isArray(record.technicalHighlights)
     ? record.technicalHighlights
     : []
@@ -22,7 +23,12 @@ export function toPublicProject(record) {
     timeline: record.timeline || '',
     status: 'Published',
     tech: normalizeTechnologyStack(record.techStack ?? record.technologies),
-    image: record.heroImage?.url || '',
+    coverImage: projectImages.heroImage?.url || '',
+    galleryImages: gallery.map((image) => ({
+      src: image.url,
+      title: image.caption || 'Project interface',
+      alt: image.caption || `${record.title} interface`,
+    })),
     preview3d: null,
     liveUrl: record.links?.live || '',
     sourceUrl: record.links?.github || '',
@@ -37,12 +43,7 @@ export function toPublicProject(record) {
       description: [metric.unit, metric.description].filter(Boolean).join(' · '),
     })),
     metrics,
-    screenshots: gallery.map((image) => ({
-      src: image.url,
-      title: image.caption || 'Project interface',
-      alt: image.caption || `${record.title} interface`,
-    })),
-    isPlaceholder: /^Project slot \d+$/i.test(record.title || '') && !record.heroImage?.url && (!record.synopsis || /^placeholder\b/i.test(record.synopsis)) && !record.executiveSummary,
+    isPlaceholder: /^Project slot \d+$/i.test(record.title || '') && !projectImages.heroImage?.url && (!record.synopsis || /^placeholder\b/i.test(record.synopsis)) && !record.executiveSummary,
     seo: record.seo || {},
     featured: Boolean(record.featured),
     order: record.order ?? 0,

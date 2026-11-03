@@ -115,12 +115,43 @@ export function normalizeProjectCategory(value) {
   return 'Web'
 }
 
+export function normalizeProjectImageFields(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+
+  const asset = (image, order = 0) => {
+    if (typeof image === 'string') return { url: image, storagePath: '', caption: '', order }
+    if (!image || typeof image !== 'object') return null
+    const url = image.url || image.src || ''
+    return {
+      ...image,
+      url,
+      caption: image.caption || image.title || '',
+      order: Number.isInteger(image.order) ? image.order : order,
+    }
+  }
+  const legacyCover = asset(value.coverImage || value.image)
+  const canonicalCover = asset(value.heroImage)
+  const heroImage = canonicalCover?.url || canonicalCover?.storagePath
+    ? canonicalCover
+    : legacyCover || canonicalCover
+  let gallery = value.gallery
+  if (!Array.isArray(gallery)) {
+    const legacyGallery = value.galleryImages ?? value.screenshots
+    gallery = Array.isArray(legacyGallery) ? legacyGallery : []
+  }
+  gallery = gallery
+    .map((image, index) => asset(image, index))
+    .filter((image) => image && (!heroImage?.url || image.url !== heroImage.url))
+
+  return { ...value, heroImage: heroImage || undefined, gallery }
+}
+
 const projectCategorySchema = z.union([
   z.enum(['Web', 'Mobile', 'UI/UX']),
   z.enum(['Web Design', 'Mobile App']),
 ]).transform(normalizeProjectCategory)
 
-export const projectSchema = z.object({
+export const projectSchema = z.preprocess(normalizeProjectImageFields, z.object({
   title: z.string().trim().min(1).max(120),
   slug: z.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   synopsis: optionalText(200).default(''),
@@ -162,7 +193,7 @@ export const projectSchema = z.object({
     metaTitle: optionalText(70).default(''),
     metaDescription: optionalText(180).default(''),
   }).default({}),
-})
+}))
 
 export const experienceSchema = z.object({
   role: z.string().trim().min(1).max(120),

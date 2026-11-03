@@ -43,6 +43,34 @@ test('project categories use the public filter labels and local image paths stay
   assert.equal(projectSchema.safeParse({ title: 'Remote path', slug: 'remote-path', heroImage: { url: '//outside.example/image.webp' } }).success, false)
 })
 
+test('project image fields stay independent and legacy aliases normalize without copying the cover into the gallery', () => {
+  const project = projectSchema.parse({
+    title: 'Separate project images',
+    slug: 'separate-project-images',
+    heroImage: { url: 'https://storage.example/cover.webp', storagePath: 'portfolio-private/cover.webp' },
+    gallery: [
+      { url: 'https://storage.example/gallery-1.webp', storagePath: 'portfolio-private/gallery-1.webp', order: 0 },
+      { url: 'https://storage.example/gallery-2.webp', storagePath: 'portfolio-private/gallery-2.webp', order: 1 },
+    ],
+  })
+  assert.equal(project.heroImage.url, 'https://storage.example/cover.webp')
+  assert.deepEqual(project.gallery.map((image) => image.url), [
+    'https://storage.example/gallery-1.webp',
+    'https://storage.example/gallery-2.webp',
+  ])
+  const legacy = projectSchema.parse({
+    title: 'Legacy project images',
+    slug: 'legacy-project-images',
+    image: 'https://storage.example/legacy-cover.webp',
+    screenshots: [
+      { src: 'https://storage.example/legacy-cover.webp', title: 'Old cover' },
+      { src: 'https://storage.example/legacy-gallery.webp', title: 'Legacy gallery' },
+    ],
+  })
+  assert.equal(legacy.heroImage.url, 'https://storage.example/legacy-cover.webp')
+  assert.deepEqual(legacy.gallery.map((image) => image.url), ['https://storage.example/legacy-gallery.webp'])
+})
+
 test('project technologies support structured entries and normalize legacy comma-separated values', () => {
   const project = projectSchema.parse({
     title: 'Technology records',
@@ -79,6 +107,31 @@ test('public project projection keeps structured technology logos and handles le
   })
   assert.deepEqual(legacy.tech.map(({ name }) => name), ['React', 'JavaScript'])
   assert.equal(legacy.tech[0].logo.url, '')
+})
+
+test('public project projection keeps cover and gallery images in separate fields', () => {
+  const project = toPublicProject({
+    id: 'project-images',
+    slug: 'project-images',
+    title: 'Project images',
+    heroImage: { url: 'https://storage.example/cover.webp' },
+    gallery: [{ url: 'https://storage.example/gallery.webp', caption: 'Gallery screenshot' }],
+  })
+  assert.equal(project.coverImage, 'https://storage.example/cover.webp')
+  assert.deepEqual(project.galleryImages.map((image) => image.src), ['https://storage.example/gallery.webp'])
+
+  const legacy = toPublicProject({
+    id: 'legacy-project-images',
+    slug: 'legacy-project-images',
+    title: 'Legacy project images',
+    image: 'https://storage.example/legacy-cover.webp',
+    screenshots: [
+      { src: 'https://storage.example/legacy-cover.webp' },
+      { src: 'https://storage.example/legacy-gallery.webp', title: 'Legacy gallery' },
+    ],
+  })
+  assert.equal(legacy.coverImage, 'https://storage.example/legacy-cover.webp')
+  assert.deepEqual(legacy.galleryImages.map((image) => image.src), ['https://storage.example/legacy-gallery.webp'])
 })
 
 test('experience schema validates dates and current role rules', () => {

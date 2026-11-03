@@ -17,7 +17,7 @@ function projectPlatform(project) {
 
 function Preview({ project }) {
   const [imageFailed, setImageFailed] = useState(false)
-  const hasImage = Boolean(project.image) && !imageFailed
+  const hasImage = Boolean(project.coverImage) && !imageFailed
   // Big number/letter on the placeholder: the slot number, or the first letter of a real title.
   const mark = /\d+$/.exec(project.id)?.[0] ?? project.title.charAt(0)
 
@@ -31,7 +31,7 @@ function Preview({ project }) {
 
       {hasImage ? (
         <img
-          src={project.image}
+          src={project.coverImage}
           alt={`${project.title} preview`}
           loading="lazy" // below the fold: don't download until needed
           decoding="async"

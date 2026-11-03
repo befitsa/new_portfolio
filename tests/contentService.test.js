@@ -87,6 +87,61 @@ test('local content service initializes, migrates, edits, publishes, and removes
   assert.equal((await service.get('projects', created.id, 'published')).category, 'UI/UX')
   await assert.rejects(service.create('projects', project({ category: 'SaaS & Cloud' })))
 
+  const imageProject = await service.create('projects', project({
+    title: 'Independent project images',
+    slug: 'independent-project-images',
+    heroImage: { url: 'https://storage.example/cover-1.webp', storagePath: 'portfolio-private/cover-1.webp', caption: 'Cover', order: 0 },
+    gallery: [1, 2, 3].map((image) => ({
+      url: `https://storage.example/gallery-${image}.webp`,
+      storagePath: `portfolio-private/gallery-${image}.webp`,
+      caption: `Gallery ${image}`,
+      order: image - 1,
+    })),
+  }))
+  const reopenedImageDraft = await service.get('projects', imageProject.id)
+  assert.equal(reopenedImageDraft.heroImage.storagePath, 'portfolio-private/cover-1.webp')
+  assert.deepEqual(reopenedImageDraft.gallery.map((image) => image.storagePath), [
+    'portfolio-private/gallery-1.webp',
+    'portfolio-private/gallery-2.webp',
+    'portfolio-private/gallery-3.webp',
+  ])
+  await service.publish('projects', imageProject.id, imageProject.revision)
+  const refreshedService = (await loadService()).contentService
+  const refreshedImageDraft = await refreshedService.get('projects', imageProject.id)
+  assert.equal(refreshedImageDraft.heroImage.storagePath, 'portfolio-private/cover-1.webp')
+  assert.deepEqual(refreshedImageDraft.gallery.map((image) => image.storagePath), reopenedImageDraft.gallery.map((image) => image.storagePath))
+  const firstPublishedImages = await service.get('projects', imageProject.id, 'published')
+
+  const coverReplaced = await service.save('projects', imageProject.id, project({
+    title: 'Independent project images',
+    slug: 'independent-project-images',
+    heroImage: { url: 'https://storage.example/cover-2.webp', storagePath: 'portfolio-private/cover-2.webp', caption: 'New cover', order: 0 },
+    gallery: reopenedImageDraft.gallery,
+  }), imageProject.revision)
+  assert.equal(coverReplaced.heroImage.storagePath, 'portfolio-private/cover-2.webp')
+  assert.deepEqual(coverReplaced.gallery, reopenedImageDraft.gallery)
+  assert.equal((await service.get('projects', imageProject.id, 'published')).heroImage.storagePath, firstPublishedImages.heroImage.storagePath)
+  await service.publish('projects', imageProject.id, coverReplaced.revision)
+
+  const galleryChanged = await service.save('projects', imageProject.id, project({
+    title: 'Independent project images',
+    slug: 'independent-project-images',
+    heroImage: coverReplaced.heroImage,
+    gallery: [reopenedImageDraft.gallery[0], reopenedImageDraft.gallery[2]],
+  }), coverReplaced.revision)
+  assert.equal(galleryChanged.heroImage.storagePath, 'portfolio-private/cover-2.webp')
+  assert.deepEqual(galleryChanged.gallery.map((image) => image.storagePath), [
+    'portfolio-private/gallery-1.webp',
+    'portfolio-private/gallery-3.webp',
+  ])
+  await service.publish('projects', imageProject.id, galleryChanged.revision)
+  const republishedImages = await service.get('projects', imageProject.id, 'published')
+  assert.equal(republishedImages.heroImage.storagePath, 'portfolio-private/cover-2.webp')
+  assert.deepEqual(republishedImages.gallery.map((image) => image.storagePath), [
+    'portfolio-private/gallery-1.webp',
+    'portfolio-private/gallery-3.webp',
+  ])
+
   const education = await service.create('education', {
     degree: 'BSc', institution: 'Local University', startYear: 2020, endYear: 2024, credentialUrl: 'https://example.com/credential',
   })

@@ -867,6 +867,12 @@ test('publishing a private draft promotes assets and passes the current revision
       caption: '',
       order: 0,
     },
+    gallery: [1, 2, 3].map((image) => ({
+      url: `https://signed.example/gallery-${image}.png`,
+      storagePath: `portfolio-private/drafts/admin/project-1/gallery-${image}.png`,
+      caption: `Gallery ${image}`,
+      order: image - 1,
+    })),
   })
   let publishArgs
   const client = mockClient(async (name, args) => {
@@ -893,6 +899,12 @@ test('publishing a private draft promotes assets and passes the current revision
   assert.equal(publishArgs.p_expected_revision, 3)
   assert.equal(publishArgs.p_payload.heroImage.storagePath, 'portfolio-published/published/drafts/admin/project-1/hero.png')
   assert.equal(publishArgs.p_payload.heroImage.url, 'https://public.example/published/drafts/admin/project-1/hero.png')
+  assert.deepEqual(publishArgs.p_payload.gallery.map((image) => image.storagePath), [1, 2, 3].map(
+    (image) => `portfolio-published/published/drafts/admin/project-1/gallery-${image}.png`,
+  ))
+  assert.deepEqual(publishArgs.p_payload.gallery.map((image) => image.url), [1, 2, 3].map(
+    (image) => `https://public.example/published/drafts/admin/project-1/gallery-${image}.png`,
+  ))
   assert.equal(result.status, 'published')
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'upload' && bucket === PUBLIC_BUCKET))
   assert.ok(client.storageCalls.some(([operation, bucket]) => operation === 'download' && bucket === PRIVATE_BUCKET))

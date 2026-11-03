@@ -10,7 +10,7 @@ import { skills as fallbackSkills } from '../data/skills.js'
 import MarkdownContent from '../components/common/MarkdownContent.jsx'
 import { adminApi, checkCmsApiHealth, isLocalCmsMode, useCmsApiStatus } from '../lib/adminApi.js'
 import { cmsHref } from './cmsPaths.js'
-import { projectSchema, experienceSchema, educationSchema, normalizeProjectCategory, normalizeSkills, normalizeTechnologyStack, siteSettingsSchema } from '../lib/db/contentSchemas.js'
+import { projectSchema, experienceSchema, educationSchema, normalizeProjectCategory, normalizeProjectImageFields, normalizeSkills, normalizeTechnologyStack, siteSettingsSchema } from '../lib/db/contentSchemas.js'
 import { getPublicSiteUrl } from '../lib/siteUrls.js'
 
 const EMPTY_PROJECT = {
@@ -102,15 +102,6 @@ function fromMetrics(value) {
 }
 function projectTechnologyNames(record) {
   return normalizeTechnologyStack(record?.techStack ?? record?.technologies).map((technology) => technology.name)
-}
-function galleryText(values = []) { return values.map((item) => `${item.url}|${item.caption || ''}`).join('\n') }
-function galleryFromText(value, current = []) {
-  return fromLines(value).map((line, order) => {
-    const [url = '', caption = ''] = line.split('|')
-    const normalizedUrl = url.trim()
-    const previous = current.find((image) => image.url === normalizedUrl)
-    return { url: normalizedUrl, caption: caption.trim(), storagePath: previous?.storagePath || '', order }
-  })
 }
 function persistableProject(value, localMode) {
   if (!localMode) return value
@@ -460,8 +451,11 @@ export function CmsProjectEditorPage({ id }) {
   const [progress, setProgress] = useState(0)
   const [technologyUploadingId, setTechnologyUploadingId] = useState('')
   const [heroPreviewUrl, setHeroPreviewUrl] = useState('')
+  const [galleryUploading, setGalleryUploading] = useState(false)
+  const [galleryUploadLabel, setGalleryUploadLabel] = useState('')
   const [uploadPlacement, setUploadPlacement] = useState('form')
   const heroImageInput = useRef(null)
+  const galleryImageInput = useRef(null)
   const apiStatus = useCmsApiStatus()
   const ready = apiStatus.ready
   const localMode = isLocalCmsMode()
@@ -481,7 +475,9 @@ export function CmsProjectEditorPage({ id }) {
     adminApi.get('projects', id).then(async (draft) => {
       const value = draft || await adminApi.get('projects', id, 'published')
       if (active && value) {
-        const nextForm = { ...EMPTY_PROJECT, ...cleanRecord(value), category: normalizeProjectCategory(value.category), heroImage: { ...EMPTY_PROJECT.heroImage, ...(value.heroImage || {}) }, links: { ...EMPTY_PROJECT.links, ...(value.links || {}) }, techStack: normalizeTechnologyStack(value.techStack ?? value.technologies), seo: { ...EMPTY_PROJECT.seo, ...(value.seo || {}) } }
+        const normalized = normalizeProjectImageFields(value)
+        const content = Object.fromEntries(Object.entries(cleanRecord(normalized)).filter(([key]) => !['image', 'coverImage', 'galleryImages', 'screenshots'].includes(key)))
+        const nextForm = { ...EMPTY_PROJECT, ...content, category: normalizeProjectCategory(value.category), heroImage: { ...EMPTY_PROJECT.heroImage, ...(normalized.heroImage || {}) }, gallery: normalized.gallery.map((asset, order) => ({ ...EMPTY_PROJECT.heroImage, ...asset, order })), links: { ...EMPTY_PROJECT.links, ...(value.links || {}) }, techStack: normalizeTechnologyStack(value.techStack ?? value.technologies), seo: { ...EMPTY_PROJECT.seo, ...(value.seo || {}) } }
         setRecord(value); setForm(nextForm); setSavedContent(projectSchema.parse(persistableProject(nextForm, localMode))); setSlugEdited(true)
       }
     }).catch((error) => { if (active) setLoadError(error.message) }).finally(() => { if (active) setLoading(false) })
@@ -524,14 +520,20 @@ export function CmsProjectEditorPage({ id }) {
     }, publish ? (localMode ? 'Project added to the local public preview.' : 'Project published successfully.') : (localMode ? 'Draft saved to local JSON.' : 'Draft saved.'))
     if (saved && publish) { const refreshed = await adminApi.get('projects', saved.id); if (refreshed) setRecord(refreshed) }
   }
+  const imageUploadError = (file) => {
+    if (!localMode && apiStatus.storageReady === false) {
+      return apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media."'
+    }
+    if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
+      return 'Choose a JPEG, PNG, or WebP image larger than 0 bytes and no larger than 12 MB.'
+    }
+    return ''
+  }
   const uploadHero = async (file) => {
     if (!file) return
-    if (!localMode && apiStatus.storageReady === false) {
-      await mutation.run(() => { throw new Error(apiStatus.storageMessage || 'Supabase Storage is unavailable. Check portfolio-published and portfolio-private, plus the separate legacy IDs "portfolio_media", "portfolio-media", and "portfolio-media.".') })
-      return
-    }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 12 * 1024 * 1024) {
-      await mutation.run(() => { throw new Error('Choose a JPEG, PNG, or WebP image larger than 0 bytes and no larger than 12 MB.') })
+    const error = imageUploadError(file)
+    if (error) {
+      await mutation.run(() => { throw new Error(error) })
       return
     }
     try {
@@ -552,6 +554,67 @@ export function CmsProjectEditorPage({ id }) {
     input.value = ''
     void uploadHero(file)
   }
+  const uploadGalleryFiles = async (files) => {
+    if (!files.length) return
+    const error = files.map(imageUploadError).find(Boolean)
+    if (error) {
+      await mutation.run(() => { throw new Error(error) })
+      return
+    }
+    if (form.gallery.length + files.length > 30) {
+      await mutation.run(() => { throw new Error('A project can contain no more than 30 gallery images.') })
+      return
+    }
+    setUploadPlacement('gallery')
+    setGalleryUploading(true)
+    const result = await mutation.run(async () => {
+      for (const [index, file] of files.entries()) {
+        setGalleryUploadLabel(`Uploading gallery image ${index + 1} of ${files.length}…`)
+        const asset = await adminApi.upload(file, { kind: 'image', onProgress: setProgress })
+        setForm((current) => ({
+          ...current,
+          gallery: [...current.gallery, { url: asset.url, storagePath: asset.storagePath, caption: '', order: current.gallery.length }],
+        }))
+      }
+    }, localMode ? 'Gallery images saved to local disk.' : 'Gallery images uploaded to private draft storage.')
+    setProgress(0)
+    setGalleryUploading(false)
+    setGalleryUploadLabel('')
+    return result
+  }
+  const replaceGalleryImage = async (file, index) => {
+    if (!file) return
+    const error = imageUploadError(file)
+    if (error) {
+      await mutation.run(() => { throw new Error(error) })
+      return
+    }
+    setUploadPlacement('gallery')
+    setGalleryUploading(true)
+    const uploaded = await mutation.run(
+      () => adminApi.upload(file, { kind: 'image', onProgress: setProgress }),
+      localMode ? 'Gallery image saved to local disk.' : 'Gallery image uploaded to private draft storage.',
+    )
+    if (uploaded) {
+      setForm((current) => ({
+        ...current,
+        gallery: current.gallery.map((image, imageIndex) => imageIndex === index
+          ? { ...image, url: uploaded.url, storagePath: uploaded.storagePath }
+          : image),
+      }))
+    }
+    setProgress(0)
+    setGalleryUploading(false)
+  }
+  const chooseGalleryImages = (event) => {
+    const files = Array.from(event.currentTarget.files || [])
+    event.currentTarget.value = ''
+    void uploadGalleryFiles(files)
+  }
+  const updateGallery = (update) => setForm((current) => ({
+    ...current,
+    gallery: update(current.gallery).map((image, order) => ({ ...image, order })),
+  }))
   const importHero = async () => {
     if (!imageUrl.trim()) return
     if (!localMode && apiStatus.storageReady === false) {
@@ -632,8 +695,34 @@ export function CmsProjectEditorPage({ id }) {
       </section>
       <section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">02</span><div><h2>Overview & case study foundation</h2><p>Narrative content for the long-form project page.</p></div></div><TextArea label="Card summary" value={form.synopsis} onChange={(value) => set('synopsis', value)} rows={3} maxLength={200} hint={`${form.synopsis.length}/200 characters`} /><TextArea label="Executive summary (Markdown)" value={form.executiveSummary} onChange={(value) => set('executiveSummary', value)} rows={5} maxLength={12000} hint="Supports headings, lists, emphasis, inline code, links, and fenced code blocks." /><Button onClick={() => setMarkdownPreview((value) => !value)}><Eye size={14} /> {markdownPreview ? 'Hide Markdown preview' : 'Preview Markdown'}</Button>{markdownPreview && <div className="cms-markdown-preview"><MarkdownContent source={form.executiveSummary} /></div>}<TextArea label="Core problem" value={form.coreProblem} onChange={(value) => set('coreProblem', value)} rows={4} /><TagInput label="Strategic objectives" values={form.strategicObjectives} onChange={(value) => set('strategicObjectives', value)} /><TextArea label="Leadership & responsibilities" value={form.leadership} onChange={(value) => set('leadership', value)} rows={4} /><TextArea label="Development methodology" value={form.methodology} onChange={(value) => set('methodology', value)} rows={4} /></section>
       <section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">03</span><div><h2>Technical highlights & outcomes</h2><p>Use one item per line; separate fields with a vertical bar.</p></div></div><TextArea label="Technical highlights · Title | Description | tags separated by commas" value={toHighlights(form.technicalHighlights)} onChange={(value) => set('technicalHighlights', fromHighlights(value))} rows={5} /><TextArea label="Impact metrics · Label | value | unit | description" value={toMetrics(form.metrics)} onChange={(value) => set('metrics', fromMetrics(value))} rows={4} /></section>
-      <section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">04</span><div><h2>Cover canvas & gallery</h2><p>{localMode ? 'Choose a cover image from your computer. It is saved under .local-cms/uploads and remains available after refresh or restart.' : 'Choose a cover image from your computer. It is uploaded to managed storage and attached when you save the project.'}</p></div></div>{(heroPreviewUrl || form.heroImage.url) && <div className="cms-hero-image-preview"><img src={heroPreviewUrl || form.heroImage.url} alt={form.heroImage.caption || 'Project cover canvas preview'} /><Button className="cms-action-delete" disabled={mutation.busy} onClick={() => { setHeroPreviewUrl(''); setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: '', storagePath: '' } })) }}><Trash2 size={14} /> Remove cover</Button></div>}<div className="cms-upload-row"><label className={`cms-upload-control${mutation.busy ? ' is-busy' : ''}`}><Upload size={17} /><span>{mutation.busy ? 'Uploading cover canvas…' : form.heroImage.url ? 'Replace Cover Canvas' : 'Choose Cover Canvas image'}</span><input ref={heroImageInput} aria-label="Upload Cover Canvas image" type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={chooseHeroImage} /></label><span>JPEG, PNG, WebP · max 12 MB</span></div>{progress > 0 && uploadPlacement === 'form' && <div className="cms-upload-status" role="status"><progress className="cms-upload-progress" max="100" value={progress} /><span>Uploading Cover Canvas · {progress}%</span></div>}<div className="cms-inline-import"><TextInput label={localMode ? 'Reference image URL' : 'Import permitted image URL'} value={imageUrl} onChange={setImageUrl} type="url" placeholder="https://…" /><Button className="cms-action-preview" disabled={!ready || mutation.busy || !imageUrl.trim()} onClick={importHero}>{localMode ? 'Use URL' : <><CloudUpload size={14} /> Import image</>}</Button><Button className="cms-action-edit" href="/media"><ImageIcon size={14} /> Media Library</Button></div><TextInput label="Cover image caption / alt text" value={form.heroImage.caption} onChange={(value) => setNested('heroImage', 'caption', value)} maxLength={300} /><TextArea label="Gallery · one URL per line; optionally add |caption" value={galleryText(form.gallery)} onChange={(value) => set('gallery', galleryFromText(value, form.gallery))} rows={5} hint="Use managed URLs from Media Library when possible." /></section>
-      <section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">05</span><div><h2>Project links & SEO</h2><p>External destinations and search preview metadata.</p></div></div><div className="cms-field-grid"><TextInput label="GitHub repository URL" value={form.links.github} onChange={(value) => setNested('links', 'github', value)} type="url" /><TextInput label="Figma prototype URL" value={form.links.figma} onChange={(value) => setNested('links', 'figma', value)} type="url" /><TextInput label="Live project URL" value={form.links.live} onChange={(value) => setNested('links', 'live', value)} type="url" /><TextInput label="SEO title" value={form.seo.metaTitle} onChange={(value) => setNested('seo', 'metaTitle', value)} maxLength={70} /><TextArea className="cms-field-full" label="SEO description" value={form.seo.metaDescription} onChange={(value) => setNested('seo', 'metaDescription', value)} rows={3} maxLength={180} /></div></section>
+      <section className="cms-editor-card">
+        <div className="cms-section-heading"><span className="cms-step-number">04</span><div><h2>Project Cover Image</h2><p>{localMode ? 'Choose one cover image. It is saved under .local-cms/uploads and remains available after refresh or restart.' : 'Choose one cover image. It is uploaded to managed storage and attached when you save the project.'}</p></div></div>
+        {(heroPreviewUrl || form.heroImage.url) && <div className="cms-hero-image-preview"><img src={heroPreviewUrl || form.heroImage.url} alt={form.heroImage.caption || 'Project cover preview'} /><Button className="cms-action-delete" disabled={mutation.busy} onClick={() => { setHeroPreviewUrl(''); setForm((current) => ({ ...current, heroImage: { ...current.heroImage, url: '', storagePath: '' } })) }}><Trash2 size={14} /> Remove cover</Button></div>}
+        <div className="cms-upload-row"><label className={`cms-upload-control${mutation.busy ? ' is-busy' : ''}`}><Upload size={17} /><span>{mutation.busy ? 'Uploading cover image…' : form.heroImage.url ? 'Replace cover image' : 'Upload cover image'}</span><input ref={heroImageInput} aria-label="Upload project cover image" type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={chooseHeroImage} /></label><span>JPEG, PNG, WebP · max 12 MB</span></div>
+        {progress > 0 && uploadPlacement === 'form' && <div className="cms-upload-status" role="status"><progress className="cms-upload-progress" max="100" value={progress} /><span>Uploading cover image · {progress}%</span></div>}
+        <div className="cms-inline-import"><TextInput label={localMode ? 'Reference image URL' : 'Import permitted image URL'} value={imageUrl} onChange={setImageUrl} type="url" placeholder="https://…" /><Button className="cms-action-preview" disabled={!ready || mutation.busy || !imageUrl.trim()} onClick={importHero}>{localMode ? 'Use URL' : <><CloudUpload size={14} /> Import image</>}</Button><Button className="cms-action-edit" href="/media"><ImageIcon size={14} /> Media Library</Button></div>
+        <TextInput label="Cover image caption / alt text" value={form.heroImage.caption} onChange={(value) => setNested('heroImage', 'caption', value)} maxLength={300} />
+      </section>
+      <section className="cms-editor-card">
+        <div className="cms-section-heading"><span className="cms-step-number">05</span><div><h2>Project Gallery Images</h2><p>Upload and manage up to 30 detail-gallery images. Gallery images are independent from the project cover.</p></div></div>
+        {form.gallery.length > 0 && <div className="cms-gallery-editor-grid">
+          {form.gallery.map((image, index) => (
+            <article key={`${image.storagePath || image.url}-${index}`} className="cms-gallery-editor-item">
+              <div className="cms-gallery-editor-preview">{image.url ? <img src={image.url} alt={image.caption || `Gallery image ${index + 1}`} /> : <span><ImageIcon size={20} /> Preview unavailable</span>}</div>
+              <div className="cms-gallery-editor-actions">
+                <label className={`cms-upload-control${mutation.busy ? ' is-busy' : ''}`}><Upload size={13} /><span>Replace</span><input aria-label={`Replace gallery image ${index + 1}`} type="file" accept="image/jpeg,image/png,image/webp" disabled={!ready || mutation.busy} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void replaceGalleryImage(file, index) }} /></label>
+                <Button className="cms-square-button" title="Move gallery image earlier" aria-label={`Move gallery image ${index + 1} earlier`} disabled={mutation.busy || index === 0} onClick={() => updateGallery((gallery) => { const next = [...gallery]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next })}><ArrowUp size={14} /></Button>
+                <Button className="cms-square-button" title="Move gallery image later" aria-label={`Move gallery image ${index + 1} later`} disabled={mutation.busy || index === form.gallery.length - 1} onClick={() => updateGallery((gallery) => { const next = [...gallery]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; return next })}><ArrowDown size={14} /></Button>
+                <Button className="cms-square-button cms-action-delete" title="Remove gallery image" aria-label={`Remove gallery image ${index + 1}`} disabled={mutation.busy} onClick={() => updateGallery((gallery) => gallery.filter((_, imageIndex) => imageIndex !== index))}><Trash2 size={14} /></Button>
+              </div>
+              <TextInput label={`Gallery image ${index + 1} caption / alt text`} value={image.caption} onChange={(value) => updateGallery((gallery) => gallery.map((entry, imageIndex) => imageIndex === index ? { ...entry, caption: value } : entry))} maxLength={300} />
+            </article>
+          ))}
+        </div>}
+        <div className="cms-upload-row"><label className={`cms-upload-control${mutation.busy ? ' is-busy' : ''}`}><Upload size={15} /><span>{galleryUploading ? galleryUploadLabel || 'Uploading gallery images…' : 'Add gallery images'}</span><input ref={galleryImageInput} aria-label="Upload project gallery images" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={!ready || mutation.busy || form.gallery.length >= 30} onChange={chooseGalleryImages} /></label><span>JPEG, PNG, WebP · max 12 MB each · up to 30 images</span></div>
+        {progress > 0 && uploadPlacement === 'gallery' && <div className="cms-upload-status" role="status"><progress className="cms-upload-progress" max="100" value={progress} /><span>{galleryUploadLabel || 'Uploading gallery image'} · {progress}%</span></div>}
+      </section>
+      <section className="cms-editor-card"><div className="cms-section-heading"><span className="cms-step-number">06</span><div><h2>Project links & SEO</h2><p>External destinations and search preview metadata.</p></div></div><div className="cms-field-grid"><TextInput label="GitHub repository URL" value={form.links.github} onChange={(value) => setNested('links', 'github', value)} type="url" /><TextInput label="Figma prototype URL" value={form.links.figma} onChange={(value) => setNested('links', 'figma', value)} type="url" /><TextInput label="Live project URL" value={form.links.live} onChange={(value) => setNested('links', 'live', value)} type="url" /><TextInput label="SEO title" value={form.seo.metaTitle} onChange={(value) => setNested('seo', 'metaTitle', value)} maxLength={70} /><TextArea className="cms-field-full" label="SEO description" value={form.seo.metaDescription} onChange={(value) => setNested('seo', 'metaDescription', value)} rows={3} maxLength={180} /></div></section>
       <div className="cms-editor-actions"><span>{hasUnsavedChanges ? 'Unsaved changes' : record ? `${record.status === 'published' ? 'Published version unchanged.' : 'Draft saved'} · v${record.revision}` : 'New project · not saved yet'}</span><Button type="submit" disabled={!ready || mutation.busy || Boolean(slugConflict)}><Save size={15} /> Save draft</Button><Button disabled={!ready || mutation.busy || !form.title || Boolean(slugConflict)} onClick={() => save(true)} variant="brown"><CloudUpload size={15} /> Save & publish</Button><Button disabled={!form.title} onClick={() => setPreview((value) => !value)}><Eye size={15} /> {preview ? 'Hide preview' : 'Preview draft'}</Button></div>
     </form><aside className="cms-editor-aside"><section className="cms-editor-card cms-publish-card"><h2>Publishing status</h2><div className="cms-publish-state"><span className="cms-studio-dot" /><StatusBadge status={record?.status || 'draft'} /></div><p>Public visibility is controlled by the last successful publish. Preview content stays in this editor.</p><div className="cms-editor-meta"><span>Last saved</span><strong>{datePretty(record?.updatedAt?.seconds ? new Date(record.updatedAt.seconds * 1000).toISOString().slice(0, 10) : '')}</strong></div><div className="cms-editor-meta"><span>Published revision</span><strong>{record?.publishedRevision ?? 0}</strong></div></section><section className="cms-editor-card"><h2>Cover canvas</h2>{heroPreviewUrl || form.heroImage.url ? <img className="cms-aside-image" src={heroPreviewUrl || form.heroImage.url} alt={form.heroImage.caption || ''} /> : <div className="cms-cover-placeholder"><ImageIcon size={22} /><span>Upload a project hero</span></div>}<Button className="cms-action-preview" disabled={!ready || mutation.busy} onClick={() => { setUploadPlacement('aside'); heroImageInput.current?.click() }}><Upload size={14} /> {mutation.busy ? 'Uploading…' : heroPreviewUrl || form.heroImage.url ? 'Replace Cover Canvas' : 'Upload Cover Canvas'}</Button>{progress > 0 && uploadPlacement === 'aside' && <div className="cms-upload-status" role="status"><progress className="cms-upload-progress" max="100" value={progress} /><span>Uploading Cover Canvas · {progress}%</span></div>}<p className="cms-muted">JPEG, PNG, or WebP · maximum 12 MB. Saved to the project when you save this form.</p></section>{preview && <section className="cms-editor-card cms-draft-preview"><p className="cms-eyebrow">PRIVATE DRAFT PREVIEW</p><h2>{form.title || 'Untitled project'}</h2><p>{form.synopsis}</p>{(heroPreviewUrl || form.heroImage.url) && <img src={heroPreviewUrl || form.heroImage.url} alt={form.heroImage.caption || ''} />}{form.executiveSummary && <div><strong>Executive summary</strong><MarkdownContent source={form.executiveSummary} /></div>}{form.techStack.length > 0 && <div className="cms-tag-list">{form.techStack.map((item) => <span key={item.id}>{item.name}</span>)}</div>}</section>}</aside></div>
   </>

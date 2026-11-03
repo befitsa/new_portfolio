@@ -226,20 +226,17 @@ export default function ProjectDetailsPage({ project }) {
     return () => ctx.revert()
   }, [project.slug, reduced])
 
-  useEffect(() => setCoverImageFailed(false), [project.image])
+  useEffect(() => setCoverImageFailed(false), [project.coverImage])
   const galleryImages = useMemo(() => {
-    const cover = project.image
-      ? [{ src: project.image, title: `${project.title} — Project preview`, alt: `${project.title} project preview` }]
+    const screenshots = Array.isArray(project.galleryImages)
+      ? project.galleryImages.filter((image) => image?.src)
       : []
-    const screenshots = Array.isArray(project.screenshots)
-      ? project.screenshots.filter((image) => image?.src && image.src !== project.image)
-      : []
-    return [...cover, ...screenshots.map((image) => ({
+    return screenshots.map((image) => ({
       src: image.src,
       title: image.title || 'Project interface',
       alt: image.alt || `${project.title} interface`,
-    }))]
-  }, [project])
+    }))
+  }, [project.galleryImages, project.title])
 
   const closeViewer = useCallback(() => setSelectedImage(null), [])
   const navigateViewer = useCallback((direction) => {
@@ -299,7 +296,7 @@ export default function ProjectDetailsPage({ project }) {
     return !isRemovedFeature(label)
   })
   const technologies = normalizeTechnologyStack(project.tech)
-  const screenshots = Array.isArray(project.screenshots) ? project.screenshots.filter((image) => image?.src) : []
+  const screenshots = Array.isArray(project.galleryImages) ? project.galleryImages.filter((image) => image?.src) : []
   const titleWords = project.title.trim().split(/\s+/)
   const titleAccent = titleWords.pop()
 
@@ -367,12 +364,12 @@ export default function ProjectDetailsPage({ project }) {
                 <span className="size-2 rounded-full bg-[#f18875]" /><span className="size-2 rounded-full bg-[#f1c265]" /><span className="size-2 rounded-full bg-[#83c69a]" />
               </div>
               <span className="text-[8px] font-semibold tracking-[.12em] text-forest/50 uppercase sm:text-[9px]">{project.title} preview</span>
-              <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.image && !coverImageFailed ? 'Select to enlarge' : 'Preview unavailable'}</span>
+              <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.coverImage && !coverImageFailed ? 'Project cover' : 'Preview unavailable'}</span>
             </div>
-            {project.image && !coverImageFailed ? (
-              <button type="button" onClick={() => setSelectedImage(0)} aria-label={`Enlarge ${project.title} preview`} className="block w-full cursor-zoom-in bg-[#eef4ef] focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-mint">
-                <img src={project.image} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
-              </button>
+            {project.coverImage && !coverImageFailed ? (
+              <div className="bg-[#eef4ef]">
+                <img src={project.coverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
+              </div>
             ) : (
               <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
                 <p className="max-w-lg text-sm leading-relaxed text-forest/65">
