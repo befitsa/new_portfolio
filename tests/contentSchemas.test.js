@@ -39,6 +39,7 @@ test('project categories use the public filter labels and local image paths stay
   assert.equal(projectSchema.parse({ title: 'Legacy web', slug: 'legacy-web', category: 'Web Design' }).category, 'Web')
   assert.equal(projectSchema.parse({ title: 'Legacy mobile', slug: 'legacy-mobile', category: 'Mobile App' }).category, 'Mobile')
   assert.equal(project.heroImage.url, '/images/projects/example.webp')
+  assert.equal(project.cardImage, undefined)
   assert.equal(projectSchema.safeParse({ title: 'Custom category', slug: 'custom-category', category: 'SaaS & Cloud' }).success, false)
   assert.equal(projectSchema.safeParse({ title: 'Remote path', slug: 'remote-path', heroImage: { url: '//outside.example/image.webp' } }).success, false)
 })
@@ -47,12 +48,14 @@ test('project image fields stay independent and legacy aliases normalize without
   const project = projectSchema.parse({
     title: 'Separate project images',
     slug: 'separate-project-images',
+    cardImage: { url: 'https://storage.example/card.webp', storagePath: 'portfolio-private/card.webp' },
     heroImage: { url: 'https://storage.example/cover.webp', storagePath: 'portfolio-private/cover.webp' },
     gallery: [
       { url: 'https://storage.example/gallery-1.webp', storagePath: 'portfolio-private/gallery-1.webp', order: 0 },
       { url: 'https://storage.example/gallery-2.webp', storagePath: 'portfolio-private/gallery-2.webp', order: 1 },
     ],
   })
+  assert.equal(project.cardImage.url, 'https://storage.example/card.webp')
   assert.equal(project.heroImage.url, 'https://storage.example/cover.webp')
   assert.deepEqual(project.gallery.map((image) => image.url), [
     'https://storage.example/gallery-1.webp',
@@ -68,7 +71,17 @@ test('project image fields stay independent and legacy aliases normalize without
     ],
   })
   assert.equal(legacy.heroImage.url, 'https://storage.example/legacy-cover.webp')
+  assert.equal(legacy.cardImage, undefined)
   assert.deepEqual(legacy.gallery.map((image) => image.url), ['https://storage.example/legacy-gallery.webp'])
+  const removedCardImage = toPublicProject({
+    id: 'removed-card-image',
+    slug: 'removed-card-image',
+    title: 'Removed card image',
+    cardImage: null,
+    heroImage: { url: 'https://storage.example/details-only.webp' },
+  })
+  assert.equal(removedCardImage.cardImage, '')
+  assert.equal(removedCardImage.detailCoverImage, 'https://storage.example/details-only.webp')
 })
 
 test('project technologies support structured entries and normalize legacy comma-separated values', () => {
@@ -114,10 +127,12 @@ test('public project projection keeps cover and gallery images in separate field
     id: 'project-images',
     slug: 'project-images',
     title: 'Project images',
+    cardImage: { url: 'https://storage.example/card.webp' },
     heroImage: { url: 'https://storage.example/cover.webp' },
     gallery: [{ url: 'https://storage.example/gallery.webp', caption: 'Gallery screenshot' }],
   })
-  assert.equal(project.coverImage, 'https://storage.example/cover.webp')
+  assert.equal(project.cardImage, 'https://storage.example/card.webp')
+  assert.equal(project.detailCoverImage, 'https://storage.example/cover.webp')
   assert.deepEqual(project.galleryImages.map((image) => image.src), ['https://storage.example/gallery.webp'])
 
   const legacy = toPublicProject({
@@ -130,8 +145,17 @@ test('public project projection keeps cover and gallery images in separate field
       { src: 'https://storage.example/legacy-gallery.webp', title: 'Legacy gallery' },
     ],
   })
-  assert.equal(legacy.coverImage, 'https://storage.example/legacy-cover.webp')
+  assert.equal(legacy.cardImage, 'https://storage.example/legacy-cover.webp')
+  assert.equal(legacy.detailCoverImage, 'https://storage.example/legacy-cover.webp')
   assert.deepEqual(legacy.galleryImages.map((image) => image.src), ['https://storage.example/legacy-gallery.webp'])
+  const legacyHeroOnly = toPublicProject({
+    id: 'legacy-hero-only',
+    slug: 'legacy-hero-only',
+    title: 'Legacy hero only',
+    heroImage: { url: 'https://storage.example/legacy-hero.webp' },
+  })
+  assert.equal(legacyHeroOnly.cardImage, 'https://storage.example/legacy-hero.webp')
+  assert.equal(legacyHeroOnly.detailCoverImage, 'https://storage.example/legacy-hero.webp')
 })
 
 test('experience schema validates dates and current role rules', () => {

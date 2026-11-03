@@ -861,6 +861,12 @@ test('legacy bucket IDs remain distinct and the exact dotted ID is parsed', asyn
 
 test('publishing a private draft promotes assets and passes the current revision', async () => {
   const draft = project({
+    cardImage: {
+      url: 'https://signed.example/card.png',
+      storagePath: 'portfolio-private/drafts/admin/project-1/card.png',
+      caption: '',
+      order: 0,
+    },
     heroImage: {
       url: 'https://signed.example/draft.png',
       storagePath: 'portfolio-private/drafts/admin/project-1/hero.png',
@@ -899,6 +905,8 @@ test('publishing a private draft promotes assets and passes the current revision
   assert.equal(publishArgs.p_expected_revision, 3)
   assert.equal(publishArgs.p_payload.heroImage.storagePath, 'portfolio-published/published/drafts/admin/project-1/hero.png')
   assert.equal(publishArgs.p_payload.heroImage.url, 'https://public.example/published/drafts/admin/project-1/hero.png')
+  assert.equal(publishArgs.p_payload.cardImage.storagePath, 'portfolio-published/published/drafts/admin/project-1/card.png')
+  assert.equal(publishArgs.p_payload.cardImage.url, 'https://public.example/published/drafts/admin/project-1/card.png')
   assert.deepEqual(publishArgs.p_payload.gallery.map((image) => image.storagePath), [1, 2, 3].map(
     (image) => `portfolio-published/published/drafts/admin/project-1/gallery-${image}.png`,
   ))

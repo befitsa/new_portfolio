@@ -32,6 +32,19 @@ test('backend CMS validation accepts structured technologies and preserves legac
   assert.deepEqual(parsePayload('projects', { ...project, slug: 'legacy-stack', techStack: 'React, Vite' }).techStack.map(({ name }) => name), ['React', 'Vite'])
 })
 
+test('backend CMS validation preserves independent card and details cover assets', () => {
+  const project = parsePayload('projects', {
+    title: 'Separate cover images',
+    slug: 'separate-cover-images',
+    cardImage: { url: 'https://storage.example/card.webp', storagePath: 'portfolio-private/card.webp' },
+    heroImage: { url: 'https://storage.example/details.webp', storagePath: 'portfolio-private/details.webp' },
+    gallery: [{ url: 'https://storage.example/gallery.webp', storagePath: 'portfolio-private/gallery.webp' }],
+  })
+  assert.equal(project.cardImage.storagePath, 'portfolio-private/card.webp')
+  assert.equal(project.heroImage.storagePath, 'portfolio-private/details.webp')
+  assert.equal(project.gallery[0].storagePath, 'portfolio-private/gallery.webp')
+})
+
 test('CMS API resume records support an inline preview URL separately from the download URL', () => {
   const resume = parsePayload('resumes', {
     fileUrl: 'https://storage.example/resume.pdf', previewUrl: 'https://storage.example/resume.pdf?inline=1',

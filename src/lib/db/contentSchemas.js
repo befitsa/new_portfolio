@@ -134,6 +134,7 @@ export function normalizeProjectImageFields(value) {
   const heroImage = canonicalCover?.url || canonicalCover?.storagePath
     ? canonicalCover
     : legacyCover || canonicalCover
+  const cardImage = value.cardImage === undefined ? undefined : asset(value.cardImage)
   let gallery = value.gallery
   if (!Array.isArray(gallery)) {
     const legacyGallery = value.galleryImages ?? value.screenshots
@@ -143,7 +144,12 @@ export function normalizeProjectImageFields(value) {
     .map((image, index) => asset(image, index))
     .filter((image) => image && (!heroImage?.url || image.url !== heroImage.url))
 
-  return { ...value, heroImage: heroImage || undefined, gallery }
+  return {
+    ...value,
+    ...(cardImage === undefined ? {} : { cardImage }),
+    heroImage: heroImage || undefined,
+    gallery,
+  }
 }
 
 const projectCategorySchema = z.union([
@@ -163,6 +169,7 @@ export const projectSchema = z.preprocess(normalizeProjectImageFields, z.object(
   featured: z.boolean().default(false),
   visibility: z.boolean().default(true),
   order: z.number().int().nonnegative().default(0),
+  cardImage: imageAssetSchema.nullable().optional(),
   heroImage: imageAssetSchema.default({}),
   gallery: z.array(imageAssetSchema).max(30).default([]),
   links: z.object({

@@ -23,7 +23,10 @@ export function toPublicProject(record) {
     timeline: record.timeline || '',
     status: 'Published',
     tech: normalizeTechnologyStack(record.techStack ?? record.technologies),
-    coverImage: projectImages.heroImage?.url || '',
+    cardImage: projectImages.cardImage === null
+      ? ''
+      : projectImages.cardImage?.url || projectImages.heroImage?.url || '',
+    detailCoverImage: projectImages.heroImage?.url || '',
     galleryImages: gallery.map((image) => ({
       src: image.url,
       title: image.caption || 'Project interface',
@@ -43,7 +46,7 @@ export function toPublicProject(record) {
       description: [metric.unit, metric.description].filter(Boolean).join(' · '),
     })),
     metrics,
-    isPlaceholder: /^Project slot \d+$/i.test(record.title || '') && !projectImages.heroImage?.url && (!record.synopsis || /^placeholder\b/i.test(record.synopsis)) && !record.executiveSummary,
+    isPlaceholder: /^Project slot \d+$/i.test(record.title || '') && !projectImages.heroImage?.url && !projectImages.cardImage?.url && (!record.synopsis || /^placeholder\b/i.test(record.synopsis)) && !record.executiveSummary,
     seo: record.seo || {},
     featured: Boolean(record.featured),
     order: record.order ?? 0,

@@ -90,6 +90,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
   const imageProject = await service.create('projects', project({
     title: 'Independent project images',
     slug: 'independent-project-images',
+    cardImage: { url: 'https://storage.example/card-1.webp', storagePath: 'portfolio-private/card-1.webp', caption: 'Card', order: 0 },
     heroImage: { url: 'https://storage.example/cover-1.webp', storagePath: 'portfolio-private/cover-1.webp', caption: 'Cover', order: 0 },
     gallery: [1, 2, 3].map((image) => ({
       url: `https://storage.example/gallery-${image}.webp`,
@@ -99,6 +100,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
     })),
   }))
   const reopenedImageDraft = await service.get('projects', imageProject.id)
+  assert.equal(reopenedImageDraft.cardImage.storagePath, 'portfolio-private/card-1.webp')
   assert.equal(reopenedImageDraft.heroImage.storagePath, 'portfolio-private/cover-1.webp')
   assert.deepEqual(reopenedImageDraft.gallery.map((image) => image.storagePath), [
     'portfolio-private/gallery-1.webp',
@@ -108,24 +110,40 @@ test('local content service initializes, migrates, edits, publishes, and removes
   await service.publish('projects', imageProject.id, imageProject.revision)
   const refreshedService = (await loadService()).contentService
   const refreshedImageDraft = await refreshedService.get('projects', imageProject.id)
+  assert.equal(refreshedImageDraft.cardImage.storagePath, 'portfolio-private/card-1.webp')
   assert.equal(refreshedImageDraft.heroImage.storagePath, 'portfolio-private/cover-1.webp')
   assert.deepEqual(refreshedImageDraft.gallery.map((image) => image.storagePath), reopenedImageDraft.gallery.map((image) => image.storagePath))
   const firstPublishedImages = await service.get('projects', imageProject.id, 'published')
 
+  const cardReplaced = await service.save('projects', imageProject.id, project({
+    title: 'Independent project images',
+    slug: 'independent-project-images',
+    cardImage: { url: 'https://storage.example/card-2.webp', storagePath: 'portfolio-private/card-2.webp', caption: 'New card', order: 0 },
+    heroImage: reopenedImageDraft.heroImage,
+    gallery: reopenedImageDraft.gallery,
+  }), imageProject.revision)
+  assert.equal(cardReplaced.cardImage.storagePath, 'portfolio-private/card-2.webp')
+  assert.equal(cardReplaced.heroImage.storagePath, 'portfolio-private/cover-1.webp')
+  assert.deepEqual(cardReplaced.gallery, reopenedImageDraft.gallery)
+  await service.publish('projects', imageProject.id, cardReplaced.revision)
+
   const coverReplaced = await service.save('projects', imageProject.id, project({
     title: 'Independent project images',
     slug: 'independent-project-images',
+    cardImage: cardReplaced.cardImage,
     heroImage: { url: 'https://storage.example/cover-2.webp', storagePath: 'portfolio-private/cover-2.webp', caption: 'New cover', order: 0 },
-    gallery: reopenedImageDraft.gallery,
-  }), imageProject.revision)
+    gallery: cardReplaced.gallery,
+  }), cardReplaced.revision)
+  assert.equal(coverReplaced.cardImage.storagePath, 'portfolio-private/card-2.webp')
   assert.equal(coverReplaced.heroImage.storagePath, 'portfolio-private/cover-2.webp')
-  assert.deepEqual(coverReplaced.gallery, reopenedImageDraft.gallery)
+  assert.deepEqual(coverReplaced.gallery, cardReplaced.gallery)
   assert.equal((await service.get('projects', imageProject.id, 'published')).heroImage.storagePath, firstPublishedImages.heroImage.storagePath)
   await service.publish('projects', imageProject.id, coverReplaced.revision)
 
   const galleryChanged = await service.save('projects', imageProject.id, project({
     title: 'Independent project images',
     slug: 'independent-project-images',
+    cardImage: coverReplaced.cardImage,
     heroImage: coverReplaced.heroImage,
     gallery: [reopenedImageDraft.gallery[0], reopenedImageDraft.gallery[2]],
   }), coverReplaced.revision)
@@ -136,6 +154,7 @@ test('local content service initializes, migrates, edits, publishes, and removes
   ])
   await service.publish('projects', imageProject.id, galleryChanged.revision)
   const republishedImages = await service.get('projects', imageProject.id, 'published')
+  assert.equal(republishedImages.cardImage.storagePath, 'portfolio-private/card-2.webp')
   assert.equal(republishedImages.heroImage.storagePath, 'portfolio-private/cover-2.webp')
   assert.deepEqual(republishedImages.gallery.map((image) => image.storagePath), [
     'portfolio-private/gallery-1.webp',

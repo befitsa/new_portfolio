@@ -54,7 +54,7 @@ export const schemas = {
     synopsis: text(200).default(''), executiveSummary: text(12000).default(''), category: projectCategory.default('Web'),
     role: text(120).default(''), timeline: text(120).default(''), readTime: z.number().int().nonnegative().default(0),
     featured: z.boolean().default(false), visibility: z.boolean().default(true), order: z.number().int().nonnegative().default(0),
-    heroImage: asset.default({}), gallery: z.array(asset).max(30).default([]),
+    cardImage: asset.nullable().optional(), heroImage: asset.default({}), gallery: z.array(asset).max(30).default([]),
     links: z.object({ github: optionalUrl.default(''), figma: optionalUrl.default(''), live: optionalUrl.default('') }).default({}),
     techStack: z.preprocess(normalizeTechnologyStack, z.array(technology).max(40).default([])), coreProblem: text(6000).default(''),
     strategicObjectives: z.array(z.string().trim().min(1).max(500)).max(20).default([]), leadership: text(6000).default(''),

@@ -53,6 +53,7 @@ function safeOldAsset(record) {
     }
     return asset
   }
+  if (next.cardImage) next.cardImage = clearUnpersisted(next.cardImage)
   if (next.heroImage) next.heroImage = clearUnpersisted(next.heroImage)
   if (Array.isArray(next.gallery)) next.gallery = next.gallery.map(clearUnpersisted)
   if (/^blob:/i.test(next.fileUrl || '') || /^https:\/\/local-demo\.invalid\//.test(next.fileUrl || '')) return null
@@ -233,6 +234,7 @@ async function hydrateRecord(record) {
     const url = await getLocalFileUrl(asset.storagePath)
     return url ? { ...asset, [field]: url } : { ...asset, [field]: '' }
   }
+  if (next.cardImage) next.cardImage = await hydrate(next.cardImage)
   if (next.heroImage) next.heroImage = await hydrate(next.heroImage)
   if (Array.isArray(next.gallery)) next.gallery = await Promise.all(next.gallery.map((asset) => hydrate(asset)))
   if (next.fileName && next.version) next.previewUrl ||= next.fileUrl || ''
@@ -314,7 +316,7 @@ function referencesFile(state, storagePath) {
   for (const type of COLLECTIONS) {
     for (const item of [...state.drafts[type], ...state.published[type]]) {
       if (item.id && item.status !== 'deleted' && item.storagePath === storagePath) return true
-      if (item.heroImage?.storagePath === storagePath || item.gallery?.some((asset) => asset.storagePath === storagePath)) return true
+      if (item.cardImage?.storagePath === storagePath || item.heroImage?.storagePath === storagePath || item.gallery?.some((asset) => asset.storagePath === storagePath)) return true
     }
   }
   return false
@@ -325,7 +327,7 @@ function mediaUsage(state, mediaId, storagePath) {
   for (const view of ['drafts', 'published']) {
     for (const project of state[view].projects) {
       if (project.status === 'deleted') continue
-      if (project.heroImage?.storagePath === storagePath || project.gallery?.some((asset) => asset.storagePath === storagePath)) {
+      if (project.cardImage?.storagePath === storagePath || project.heroImage?.storagePath === storagePath || project.gallery?.some((asset) => asset.storagePath === storagePath)) {
         usedIn.add(project.title || project.slug || 'Project')
       }
     }
@@ -519,6 +521,7 @@ export const contentService = {
               changed = true
               return { ...asset, url: content.url, storagePath }
             }
+            project.cardImage = replaceAsset(project.cardImage)
             project.heroImage = replaceAsset(project.heroImage)
             project.gallery = (project.gallery || []).map(replaceAsset)
             if (changed) {
