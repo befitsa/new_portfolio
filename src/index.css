@@ -804,7 +804,7 @@ button.cms-sync-pill:disabled {
   font-size: 11px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   .cms-local-mode-banner { align-items: flex-start; flex-direction: column; gap: 2px; }
 }
 
@@ -3158,7 +3158,7 @@ button.cms-sync-pill:disabled {
   .cms-skills-save-actions { justify-content: stretch; }
   .cms-skills-save-actions .cms-button { flex: 1; }
 }
-@media (max-width: 639px) {
+@media (max-width: 640px) {
   #background-panel { overflow-x: clip; }
 }
 .cms-skill-editor {
@@ -3304,6 +3304,17 @@ button.cms-sync-pill:disabled {
   min-width: 0;
   scroll-snap-align: start;
 }
+.about-support-track {
+  min-width: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.about-support-track::-webkit-scrollbar {
+  display: none;
+}
+.opportunity-card-action {
+  min-width: 0;
+}
 .project-details-active,
 .project-details-active body,
 .project-details-page,
@@ -3319,7 +3330,34 @@ button.cms-sync-pill:disabled {
   width: 0;
   height: 0;
 }
-@media (max-width: 639px) {
+@media (max-width: 640px) {
+  .opportunity-card-actions > :is(a, button) {
+    flex: 1 1 0%;
+    gap: 4px;
+    min-width: 0;
+    padding-inline: 8px;
+    font-size: 0.7rem;
+  }
+  .opportunity-card-actions svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+  }
+  .about-support-track {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 2px;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 10px;
+  }
+  .about-support-track > div {
+    flex: 0 0 min(84%, 22rem);
+    min-width: 0;
+    scroll-snap-align: start;
+  }
   .case-study-card-track {
     display: flex;
     overflow-x: auto;
@@ -3337,6 +3375,30 @@ button.cms-sync-pill:disabled {
   .case-study-technology-track > .case-study-card-slide {
     flex-basis: min(62%, 13rem);
     min-width: 10.25rem;
+  }
+}
+@media (min-width: 768px) {
+  .case-study-highlight-track > .case-study-card-slide {
+    flex-basis: min(calc((100% - 24px) / 3), 22rem);
+  }
+}
+@media (max-width: 359px) {
+  .opportunity-card-actions > :is(a, button) {
+    flex: 1 1 0%;
+    gap: 2px;
+    min-width: 0;
+    padding-inline: 4px;
+    font-size: 0.58rem;
+  }
+  .opportunity-card-actions > :is(a, button) > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .opportunity-card-actions svg {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
   }
 }
 @media (prefers-reduced-motion: reduce) {

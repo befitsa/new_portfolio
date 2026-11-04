@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   Code2,
   ExternalLink,
@@ -188,6 +190,7 @@ export default function ProjectDetailsPage({ project }) {
   const [activeSection, setActiveSection] = useState(sections[0].id)
   const [selectedImage, setSelectedImage] = useState(null)
   const [coverImageFailed, setCoverImageFailed] = useState(false)
+  const [galleryEdges, setGalleryEdges] = useState({ left: false, right: false })
   const reduced = useReducedMotion()
 
   useScrollTriggerRefresh()
@@ -228,7 +231,7 @@ export default function ProjectDetailsPage({ project }) {
     }
     const onWheel = (event) => {
       if (gallery.scrollWidth <= gallery.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
-      gallery.scrollLeft += event.deltaY
+      gallery.scrollBy({ left: event.deltaY, behavior: 'smooth' })
       event.preventDefault()
     }
 
@@ -370,6 +373,37 @@ export default function ProjectDetailsPage({ project }) {
   const titleWords = project.title.trim().split(/\s+/)
   const titleAccent = titleWords.pop()
 
+  useEffect(() => {
+    const gallery = galleryRef.current
+    if (!gallery) return undefined
+
+    const updateEdges = () => {
+      const maxScroll = gallery.scrollWidth - gallery.clientWidth
+      const left = gallery.scrollLeft > 1
+      const right = gallery.scrollLeft < maxScroll - 1
+      setGalleryEdges((current) => current.left === left && current.right === right ? current : { left, right })
+    }
+
+    updateEdges()
+    gallery.addEventListener('scroll', updateEdges, { passive: true })
+    window.addEventListener('resize', updateEdges)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateEdges)
+    observer?.observe(gallery)
+    return () => {
+      gallery.removeEventListener('scroll', updateEdges)
+      window.removeEventListener('resize', updateEdges)
+      observer?.disconnect()
+    }
+  }, [project.slug, screenshots.length])
+
+  const scrollGallery = (direction) => {
+    const gallery = galleryRef.current
+    const firstItem = gallery?.querySelector('.project-gallery-image')
+    if (!gallery || !firstItem) return
+    const gap = Number.parseFloat(getComputedStyle(gallery).columnGap) || 0
+    gallery.scrollBy({ left: direction * (firstItem.getBoundingClientRect().width + gap), behavior: 'smooth' })
+  }
+
   return (
     <div className="project-details-page min-h-screen bg-[#f7faf7] text-[#14271e]">
       <a href="#main" className="sr-only z-[110] rounded-md bg-white px-4 py-2 font-semibold focus:not-sr-only focus:fixed focus:top-3 focus:left-3">
@@ -442,6 +476,29 @@ export default function ProjectDetailsPage({ project }) {
           </ul>
         </nav>
 
+        <div className="mx-auto mt-6 max-w-6xl px-5 sm:px-8">
+          <div className="overflow-hidden rounded-[1.25rem] border border-forest/10 bg-white shadow-[0_12px_32px_rgba(31,57,42,.09)]">
+            <div className="flex items-center justify-between border-b border-forest/10 bg-[#f7faf7] px-4 py-2.5 sm:px-6">
+              <div className="flex gap-1.5" aria-hidden="true">
+                <span className="size-2 rounded-full bg-[#f18875]" /><span className="size-2 rounded-full bg-[#f1c265]" /><span className="size-2 rounded-full bg-[#83c69a]" />
+              </div>
+              <span className="text-[8px] font-semibold tracking-[.12em] text-forest/50 uppercase sm:text-[9px]">{project.title} preview</span>
+              <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.detailCoverImage && !coverImageFailed ? 'Project cover' : 'Preview unavailable'}</span>
+            </div>
+            {project.detailCoverImage && !coverImageFailed ? (
+              <div className="bg-[#eef4ef]">
+                <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
+              </div>
+            ) : (
+              <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
+                <p className="max-w-lg text-sm leading-relaxed text-forest/65">
+                  {coverImageFailed ? 'The project cover could not be loaded.' : 'No project cover image is available.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
         <section id="overview" data-case-study-reveal className="scroll-mt-16 border-b border-forest/10 bg-white py-11 sm:scroll-mt-20 sm:py-16">
           <div className="mx-auto grid max-w-6xl gap-7 px-5 sm:px-8 lg:grid-cols-[1.2fr_.8fr] lg:gap-12">
             <div>
@@ -492,26 +549,6 @@ export default function ProjectDetailsPage({ project }) {
                 </div>
               ) : (
                 <EvidenceNote>No technical highlights or architecture details have been added to this project record.</EvidenceNote>
-              )}
-            </div>
-            <div className="mx-auto mt-6 max-w-6xl overflow-hidden rounded-[1.25rem] border border-forest/10 bg-white shadow-[0_12px_32px_rgba(31,57,42,.09)]">
-              <div className="flex items-center justify-between border-b border-forest/10 bg-[#f7faf7] px-4 py-2.5 sm:px-6">
-                <div className="flex gap-1.5" aria-hidden="true">
-                  <span className="size-2 rounded-full bg-[#f18875]" /><span className="size-2 rounded-full bg-[#f1c265]" /><span className="size-2 rounded-full bg-[#83c69a]" />
-                </div>
-                <span className="text-[8px] font-semibold tracking-[.12em] text-forest/50 uppercase sm:text-[9px]">{project.title} preview</span>
-                <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.detailCoverImage && !coverImageFailed ? 'Project cover' : 'Preview unavailable'}</span>
-              </div>
-              {project.detailCoverImage && !coverImageFailed ? (
-                <div className="bg-[#eef4ef]">
-                  <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
-                </div>
-              ) : (
-                <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
-                  <p className="max-w-lg text-sm leading-relaxed text-forest/65">
-                    {coverImageFailed ? 'The project cover could not be loaded.' : 'No project cover image is available.'}
-                  </p>
-                </div>
               )}
             </div>
           </div>
@@ -595,26 +632,49 @@ export default function ProjectDetailsPage({ project }) {
             <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">05 / User Experience</p>
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Interface Gallery &amp; User Journeys</h2>
             {screenshots.length ? (
-              <div
-                ref={galleryRef}
-                className="project-gallery-track mt-6"
-                role="region"
-                aria-label="Project interface images"
-                tabIndex={0}
-                onClickCapture={(event) => {
-                  if (draggedGallery.current) {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    draggedGallery.current = false
-                  }
-                }}
-              >
-                {screenshots.map((image, index) => (
-                  <button key={image.src} type="button" onClick={() => setSelectedImage(galleryImages.findIndex((entry) => entry.src === image.src))} aria-label={`Open image: ${image.title || 'Project interface'}`} className="project-gallery-image group overflow-hidden rounded-xl border border-forest/10 bg-[#f7faf7] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-                    <GalleryImage image={image} projectTitle={project.title} />
-                    <span className="flex min-h-10 items-center justify-between px-4 text-xs font-semibold">{image.title || 'Project interface'}<ArrowUpRight size={14} aria-hidden="true" /></span>
+              <div className="mt-6">
+                <div className="mb-3 hidden justify-end gap-2 sm:flex">
+                  <button
+                    type="button"
+                    onClick={() => scrollGallery(-1)}
+                    disabled={!galleryEdges.left}
+                    aria-label="Scroll to previous project images"
+                    className="grid size-10 place-items-center rounded-full border border-forest/15 bg-white text-forest transition hover:bg-[#f2f7f3] active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronLeft size={18} aria-hidden="true" />
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => scrollGallery(1)}
+                    disabled={!galleryEdges.right}
+                    aria-label="Scroll to next project images"
+                    className="grid size-10 place-items-center rounded-full border border-forest/15 bg-white text-forest transition hover:bg-[#f2f7f3] active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronRight size={18} aria-hidden="true" />
+                  </button>
+                </div>
+                <div
+                  ref={galleryRef}
+                  className="project-gallery-track"
+                  data-lenis-prevent-wheel
+                  role="region"
+                  aria-label="Project interface images"
+                  tabIndex={0}
+                  onClickCapture={(event) => {
+                    if (draggedGallery.current) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      draggedGallery.current = false
+                    }
+                  }}
+                >
+                  {screenshots.map((image) => (
+                    <button key={image.src} type="button" onClick={() => setSelectedImage(galleryImages.findIndex((entry) => entry.src === image.src))} aria-label={`Open image: ${image.title || 'Project interface'}`} className="project-gallery-image group overflow-hidden rounded-xl border border-forest/10 bg-[#f7faf7] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                      <GalleryImage image={image} projectTitle={project.title} />
+                      <span className="flex min-h-10 items-center justify-between px-4 text-xs font-semibold">{image.title || 'Project interface'}<ArrowUpRight size={14} aria-hidden="true" /></span>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="mt-5">

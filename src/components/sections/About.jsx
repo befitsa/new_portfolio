@@ -74,8 +74,8 @@ export default function About() {
   return (
     <Section id="about" ref={aboutRoot} className="bg-cream py-24 md:py-32">
       <div className="mx-auto max-w-[90rem] px-5 md:px-10">
-        <div className="grid items-center gap-12 lg:grid-cols-12">
-          <div className="lg:col-span-10 lg:col-start-2">
+        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12">
+          <div className="min-w-0 lg:col-span-10 lg:col-start-2">
             <SectionHeading
               label="About me"
               title={'Thoughtful design.\nPurposeful code.'}
@@ -88,7 +88,7 @@ export default function About() {
               text={profile.about}
               className="mt-10 max-w-2xl font-display text-[clamp(1.35rem,2.4vw,2rem)] leading-snug text-ink"
             />
-            <div className="mt-12 grid gap-8 border-t border-forest/15 pt-8 sm:grid-cols-3">
+            <div className="about-support-track mt-12 grid gap-8 border-t border-forest/15 pt-8 sm:grid-cols-3">
               {[
                 ['01', 'User-centered', 'Clear interfaces built around real needs.', 'bg-[#E8F0E3]'],
                 ['02', 'Purposeful', 'Thoughtful details that make the experience feel effortless.', 'bg-[#F0E5D8]'],

@@ -64,15 +64,15 @@ function ResumeCard() {
             'No resume is currently available for download.'
           )}
         </p>
-        <div data-opportunity-card-copy className="mt-8 flex flex-wrap gap-3">
+        <div data-opportunity-card-copy className="opportunity-card-actions mt-8 flex gap-2 sm:flex-wrap sm:gap-3">
           {ready ? (
-            <Button data-resume-button href={href} icon={Download} variant="dark" download={downloadName} className="bg-black text-white shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:bg-[#1e2325] hover:text-white">
+            <Button data-resume-button href={href} icon={Download} variant="dark" download={downloadName} className="opportunity-card-action bg-black text-white shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:bg-[#1e2325] hover:text-white">
               Download Resume
             </Button>
           ) : (
-            <Button data-resume-button icon={Download} variant="dark" disabled className="bg-black text-white">Download Resume</Button>
+            <Button data-resume-button icon={Download} variant="dark" disabled className="opportunity-card-action bg-black text-white">Download Resume</Button>
           )}
-          <Button data-resume-button href="#contact" variant="dark" className="bg-black text-white shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:bg-[#1e2325] hover:text-white">Contact Me</Button>
+          <Button data-resume-button href="#contact" variant="dark" className="opportunity-card-action bg-black text-white shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:bg-[#1e2325] hover:text-white">Contact Me</Button>
         </div>
       </motion.div>
     </div>

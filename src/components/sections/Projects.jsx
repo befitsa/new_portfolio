@@ -14,12 +14,14 @@ import ProjectCard from '../projects/ProjectCard'
 import Section from '../common/Section'
 import { scrollToId } from '../../utils/scroll'
 
-const INITIAL_COUNT = 4
+const DESKTOP_INITIAL_COUNT = 4
+const MOBILE_INITIAL_COUNT = 2
 
 export default function Projects() {
   const root = useRef(null)
   const [filter, setFilter] = useState('All')
   const [expanded, setExpanded] = useState(false)
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 640px)').matches)
   const reduced = useReducedMotion()
   const published = usePublishedCollection('projects')
   const portfolio = usePortfolioProfile()
@@ -36,10 +38,19 @@ export default function Projects() {
     () => (filter === 'All' ? projects : projects.filter((p) => p.category === filter)),
     [filter, projects],
   )
-  const visible = expanded ? filtered : filtered.slice(0, INITIAL_COUNT)
+  const initialCount = isMobile ? MOBILE_INITIAL_COUNT : DESKTOP_INITIAL_COUNT
+  const visible = expanded ? filtered : filtered.slice(0, initialCount)
   const countFor = (cat) => (cat === 'All' ? projects.length : projects.filter((p) => p.category === cat).length)
 
   const dur = reduced ? 0 : 0.4
+
+  useEffect(() => {
+    const mobileQuery = window.matchMedia('(max-width: 640px)')
+    const updateViewport = (event) => setIsMobile(event.matches)
+    setIsMobile(mobileQuery.matches)
+    mobileQuery.addEventListener('change', updateViewport)
+    return () => mobileQuery.removeEventListener('change', updateViewport)
+  }, [])
 
   useLayoutEffect(() => {
     if (!expanded || reduced || !root.current) return undefined
@@ -68,7 +79,7 @@ export default function Projects() {
     }, root)
 
     return () => ctx.revert()
-  }, [expanded, reduced])
+  }, [expanded, initialCount, reduced])
 
   // The page gets taller/shorter when filtering, so tell ScrollTrigger to re-measure.
   useEffect(() => {
@@ -124,7 +135,7 @@ export default function Projects() {
                 // Every second card drops down: the staggered, editorial alignment.
                 className={i % 2 === 1 ? 'md:mt-28' : ''}
               >
-                <div data-expanded-project={expanded && i >= INITIAL_COUNT ? '' : undefined}>
+                <div data-expanded-project={expanded && i >= initialCount ? '' : undefined}>
                   <ProjectCard project={project} />
                 </div>
               </motion.li>
@@ -132,8 +143,8 @@ export default function Projects() {
           </AnimatePresence>
         </motion.ul>
 
-        {!expanded && filtered.length > INITIAL_COUNT && (
-          <div className="mt-16 flex justify-center">
+        {!expanded && filtered.length > initialCount && (
+          <div className="mt-16 flex justify-center text-center">
             <Button
               type="button"
               variant="outlineDark"
@@ -159,7 +170,7 @@ export default function Projects() {
           <p className="mt-12 text-forest/80">No projects have been published yet.</p>
         )}
 
-        {expanded && filtered.length > INITIAL_COUNT && (
+        {expanded && filtered.length > initialCount && (
           <div className="mt-16 flex justify-center">
             <Button
               variant="outlineDark"
