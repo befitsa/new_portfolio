@@ -87,21 +87,43 @@ export default function Opportunities() {
     const section = root.current
     if (!section || reduced) return undefined
 
+    let roleIndex = 0
+    let roleDelay
+    let roleTimeline
+
     const ctx = gsap.context(() => {
+      const roleText = section.querySelector('[data-opportunity-role-text]')
+      const cycleRole = () => {
+        roleTimeline = gsap.timeline({
+          onComplete: () => {
+            roleDelay = gsap.delayedCall(1.8, cycleRole)
+          },
+        })
+        roleTimeline
+          .to(roleText, { y: -14, autoAlpha: 0, duration: 0.3, ease: 'power2.in' })
+          .call(() => {
+            roleIndex = (roleIndex + 1) % opportunityRoles.length
+            roleText.textContent = opportunityRoles[roleIndex]
+            gsap.set(roleText, { y: 14 })
+          })
+          .to(roleText, { y: 0, autoAlpha: 1, duration: 0.45, ease: 'power3.out' })
+      }
+
       gsap.fromTo(
-        section.querySelectorAll('[data-opportunity-role-word]'),
-        { yPercent: 110, autoAlpha: 0.35 },
+        roleText,
+        { y: 18, autoAlpha: 0 },
         {
-          yPercent: 0,
+          y: 0,
           autoAlpha: 1,
-          stagger: 0.08,
-          ease: 'none',
+          duration: 0.75,
+          ease: 'power3.out',
+          onComplete: () => {
+            roleDelay = gsap.delayedCall(1.8, cycleRole)
+          },
           scrollTrigger: {
-            trigger: section.querySelector('[aria-label="Roles"]'),
+            trigger: section.querySelector('[aria-label="Available roles"]'),
             start: 'top 82%',
-            end: 'bottom 58%',
-            scrub: 0.7,
-            invalidateOnRefresh: true,
+            once: true,
           },
         },
       )
@@ -115,7 +137,11 @@ export default function Opportunities() {
       })
     }, section)
 
-    return () => ctx.revert()
+    return () => {
+      ctx.revert()
+      roleDelay?.kill()
+      roleTimeline?.kill()
+    }
   }, [reduced])
 
   return (
@@ -130,25 +156,19 @@ export default function Opportunities() {
             description="I design and develop thoughtful digital experiences that solve real problems and grow with people."
           />
 
-          <ul className="mt-14 divide-y divide-white/15 border-y border-white/15" aria-label="Roles">
-            {opportunityRoles.map((role, i) => (
-              <Reveal as="li" key={role} delay={i * 0.07} y={16}>
-                <div className="group flex items-center gap-4 py-5 transition-[padding] duration-300 hover:pl-3">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-white/20 transition-colors duration-300 group-hover:bg-forest" />
-                  <span data-opportunity-role className="font-display text-[clamp(1.7rem,4.2vw,3.4rem)] font-semibold tracking-tight uppercase">
-                    <span className="sr-only">{role}</span>
-                    <span aria-hidden="true">
-                      {role.split(' ').map((word, wordIndex) => (
-                        <span key={`${word}-${wordIndex}`} className="mr-[0.28em] inline-block overflow-hidden align-bottom">
-                          <span data-opportunity-role-word className="inline-block">{word}</span>
-                        </span>
-                      ))}
-                    </span>
-                  </span>
-                </div>
-              </Reveal>
-            ))}
-          </ul>
+          <div className="mt-14 border-y border-white/15 py-5" role="group" aria-label="Available roles">
+            <p className="sr-only">{`Available roles: ${opportunityRoles.join(', ')}`}</p>
+            <div className="flex min-h-[1.25em] items-center gap-4">
+              <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-[#FFFFFF]" />
+              <span
+                data-opportunity-role-text
+                aria-hidden="true"
+                className="whitespace-nowrap font-display text-[clamp(1.25rem,4.2vw,3.4rem)] font-semibold tracking-tight text-[#FFFFFF] uppercase"
+              >
+                {opportunityRoles[0]}
+              </span>
+            </div>
+          </div>
         </div>
 
         <Reveal className="lg:col-span-5 lg:self-center" delay={0.1}>
