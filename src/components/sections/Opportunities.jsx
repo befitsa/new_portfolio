@@ -1,5 +1,5 @@
 // src/components/sections/Opportunities.jsx
-// A pale green opportunity section for a gentle contrast within the cream palette.
+// Opportunity roles and resume card.
 import { useLayoutEffect, useRef } from 'react'
 import { motion } from 'motion/react'
 import { Check, Download } from 'lucide-react'
@@ -119,9 +119,9 @@ export default function Opportunities() {
   }, [reduced])
 
   return (
-    <Section id="opportunities" ref={root} className="bg-soft-green py-24 text-ink md:py-32">
+    <Section id="opportunities" ref={root} className="bg-[#000000] py-24 text-[#FFFFFF] md:py-32">
       <div className="mx-auto grid max-w-[90rem] gap-16 px-5 md:px-10 lg:grid-cols-12">
-        <div className="lg:col-span-7">
+        <div className="lg:col-span-7 [&_h2]:!text-white [&_p]:!text-white">
           <SectionHeading
             compact
             label="Open for opportunities"
@@ -129,11 +129,11 @@ export default function Opportunities() {
             description="I design and develop thoughtful digital experiences that solve real problems and grow with people."
           />
 
-          <ul className="mt-14 divide-y divide-ink/15 border-y border-ink/15" aria-label="Roles">
+          <ul className="mt-14 divide-y divide-white/15 border-y border-white/15" aria-label="Roles">
             {opportunityRoles.map((role, i) => (
               <Reveal as="li" key={role} delay={i * 0.07} y={16}>
                 <div className="group flex items-center gap-4 py-5 transition-[padding] duration-300 hover:pl-3">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-ink/20 transition-colors duration-300 group-hover:bg-forest" />
+                  <span aria-hidden="true" className="size-2 rounded-full bg-white/20 transition-colors duration-300 group-hover:bg-forest" />
                   <span data-opportunity-role className="font-display text-[clamp(1.7rem,4.2vw,3.4rem)] font-semibold tracking-tight uppercase">
                     <span className="sr-only">{role}</span>
                     <span aria-hidden="true">
