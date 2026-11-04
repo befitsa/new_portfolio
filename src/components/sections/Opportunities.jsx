@@ -124,6 +124,7 @@ export default function Opportunities() {
         <div className="lg:col-span-7 [&_h2]:!text-white [&_p]:!text-white">
           <SectionHeading
             compact
+            className="[&_h2]:!text-[clamp(2.2rem,4vw,3.6rem)] [&_h2]:!font-bold"
             label="Open for opportunities"
             title={'Building scalable products\nwith purpose.'}
             description="I design and develop thoughtful digital experiences that solve real problems and grow with people."
