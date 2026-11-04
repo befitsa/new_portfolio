@@ -10,6 +10,7 @@ export default function SectionHeading({
   description,
   as: Tag = 'h2',
   compact = false, // smaller heading for narrow columns
+  titleMode = 'lines',
   className = '',
 }) {
   const size = compact ? 'text-[clamp(2rem,3.6vw,3.25rem)]' : 'text-[clamp(2.6rem,7vw,6.25rem)]'
@@ -25,7 +26,7 @@ export default function SectionHeading({
       <AnimatedText
         as={Tag}
         text={title}
-        mode="lines"
+        mode={titleMode}
         className={`font-display ${size} leading-[0.95] font-semibold tracking-tight text-balance text-ink`}
       />
       {description && (

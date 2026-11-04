@@ -1,6 +1,6 @@
 // src/components/sections/Opportunities.jsx
 // Opportunity roles and resume card.
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { motion } from 'motion/react'
 import { Check, Download } from 'lucide-react'
 import { opportunityRoles } from '../../data/services'
@@ -81,9 +81,6 @@ function ResumeCard() {
 
 export default function Opportunities() {
   const root = useRef(null)
-  const roleAnimationStarted = useRef(false)
-  const [roleIndex, setRoleIndex] = useState(0)
-  const [rolesActive, setRolesActive] = useState(false)
   const reduced = useReducedMotion()
 
   useLayoutEffect(() => {
@@ -93,7 +90,7 @@ export default function Opportunities() {
     const ctx = gsap.context(() => {
       gsap.fromTo(
         section.querySelectorAll('[data-opportunity-role-word]'),
-        { yPercent: 110, autoAlpha: 0.35 },
+        { yPercent: 110, autoAlpha: 1 },
         {
           yPercent: 0,
           autoAlpha: 1,
@@ -105,7 +102,6 @@ export default function Opportunities() {
             end: 'bottom 58%',
             scrub: 0.7,
             invalidateOnRefresh: true,
-            onEnter: () => setRolesActive(true),
           },
         },
       )
@@ -122,69 +118,38 @@ export default function Opportunities() {
     return () => ctx.revert()
   }, [reduced])
 
-  useLayoutEffect(() => {
-    const section = root.current
-    if (!section || reduced) return undefined
-    if (!roleAnimationStarted.current) {
-      roleAnimationStarted.current = true
-      return undefined
-    }
-
-    const words = section.querySelectorAll('[data-opportunity-role-word]')
-    gsap.fromTo(
-      words,
-      { yPercent: 110, autoAlpha: 0.35 },
-      { yPercent: 0, autoAlpha: 1, stagger: 0.08, duration: 0.65, ease: 'none' },
-    )
-    return () => gsap.killTweensOf(words)
-  }, [roleIndex, reduced])
-
-  useLayoutEffect(() => {
-    if (!rolesActive || reduced) return undefined
-
-    const interval = window.setTimeout(() => {
-      const section = root.current
-      const words = section?.querySelectorAll('[data-opportunity-role-word]')
-      if (!words?.length) return
-
-      gsap.to(words, {
-        yPercent: -110,
-        autoAlpha: 0.35,
-        stagger: 0.08,
-        duration: 0.45,
-        ease: 'none',
-        onComplete: () => setRoleIndex((current) => (current + 1) % opportunityRoles.length),
-      })
-    }, 2600)
-
-    return () => window.clearTimeout(interval)
-  }, [roleIndex, rolesActive, reduced])
-
   return (
     <Section id="opportunities" ref={root} className="bg-[#000000] py-24 text-[#FFFFFF] md:py-32">
       <div className="mx-auto grid max-w-[90rem] gap-16 px-5 md:px-10 lg:grid-cols-12">
         <div className="lg:col-span-7 [&_h2]:!text-white [&_p]:!text-white">
           <SectionHeading
             compact
-            className="[&_h2]:!text-[clamp(2.2rem,4vw,3.6rem)] [&_h2]:!font-bold"
+            className="[&_h2]:!text-[clamp(2.4rem,4.2vw,3.75rem)] [&_h2]:!font-normal"
+            titleMode="chars"
             label="Open for opportunities"
             title={'Building scalable products\nwith purpose.'}
             description="I design and develop thoughtful digital experiences that solve real problems and grow with people."
           />
 
-          <div className="mt-14 border-y border-white/15 py-5" role="group" aria-label="Available roles">
-            <p className="sr-only">{`Available roles: ${opportunityRoles.join(', ')}`}</p>
-            <div className="flex min-h-[1.25em] items-center gap-4">
-              <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-[#FFFFFF]" />
-              <span aria-hidden="true" className="font-display text-[clamp(1.7rem,4.2vw,3.4rem)] font-semibold tracking-tight text-[#FFFFFF] uppercase">
-                {opportunityRoles[roleIndex].split(' ').map((word, wordIndex) => (
-                  <span key={`${roleIndex}-${word}-${wordIndex}`} className="mr-[0.28em] inline-block overflow-hidden align-bottom">
-                    <span data-opportunity-role-word className="inline-block">{word}</span>
+          <ul className="mt-14 divide-y divide-white/15 border-y border-white/15" aria-label="Available roles">
+            {opportunityRoles.map((role, i) => (
+              <Reveal as="li" key={role} delay={i * 0.07} y={16}>
+                <div className="group flex items-center gap-4 py-5 transition-[padding] duration-300 hover:pl-3">
+                  <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-[#FFFFFF]" />
+                  <span data-opportunity-role className="font-display text-[clamp(1.7rem,4.2vw,3.4rem)] font-semibold tracking-tight text-[#FFFFFF] uppercase">
+                    <span className="sr-only">{role}</span>
+                    <span aria-hidden="true">
+                      {role.split(' ').map((word, wordIndex) => (
+                        <span key={`${word}-${wordIndex}`} className="mr-[0.28em] inline-block overflow-hidden align-bottom">
+                          <span data-opportunity-role-word className="inline-block">{word}</span>
+                        </span>
+                      ))}
+                    </span>
                   </span>
-                ))}
-              </span>
-            </div>
-          </div>
+                </div>
+              </Reveal>
+            ))}
+          </ul>
         </div>
 
         <Reveal className="lg:col-span-5 lg:self-center" delay={0.1}>
