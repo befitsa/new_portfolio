@@ -1,9 +1,10 @@
 // src/components/projects/ProjectCard.jsx
 // One project preview and its compact title/platform details link.
-import { lazy, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { ArrowUpRight } from 'lucide-react'
 import { gsap } from '../../utils/gsap'
+import { warnProjectImageLoadFailure } from '../../utils/projectImageErrors'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { projectDetailsPath } from '../../data/projects'
 import LazyScene from '../three/LazyScene'
@@ -17,6 +18,7 @@ function projectPlatform(project) {
 
 function Preview({ project }) {
   const [imageFailed, setImageFailed] = useState(false)
+  useEffect(() => setImageFailed(false), [project.cardImage])
   const hasImage = Boolean(project.cardImage) && !imageFailed
   // Big number/letter on the placeholder: the slot number, or the first letter of a real title.
   const mark = /\d+$/.exec(project.id)?.[0] ?? project.title.charAt(0)
@@ -36,7 +38,10 @@ function Preview({ project }) {
           loading="lazy" // below the fold: don't download until needed
           decoding="async"
           className="absolute inset-0 size-full object-cover"
-          onError={() => setImageFailed(true)}
+          onError={() => {
+            warnProjectImageLoadFailure(project.title, 'card', project.cardImage)
+            setImageFailed(true)
+          }}
         />
       ) : (
         project.preview3d && (

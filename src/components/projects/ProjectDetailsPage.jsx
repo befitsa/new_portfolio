@@ -20,6 +20,7 @@ import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { useScrollTriggerRefresh } from '../../hooks/useScrollTriggerRefresh'
 import { gsap } from '../../utils/gsap'
 import { normalizeTechnologyStack } from '../../lib/db/contentSchemas.js'
+import { warnProjectImageLoadFailure } from '../../utils/projectImageErrors'
 
 const cardPastels = ['bg-[#edf4e9]', 'bg-[#eaf2f8]', 'bg-[#f7f0e5]', 'bg-[#e8f3ed]', 'bg-[#f2e9e2]', 'bg-[#f6efdb]']
 const excludedFeatureTitles = new Set(['responsive design', 'reusable components', 'user experience', 'scalability'])
@@ -49,7 +50,7 @@ function EvidenceNote({ children }) {
   )
 }
 
-function TechnologyLogo({ technology }) {
+function TechnologyLogo({ technology, projectTitle }) {
   const name = displayValue(technology.name || technology.title)
   const source = typeof technology.logo === 'string' ? technology.logo : technology.logo?.url || ''
   const [failed, setFailed] = useState(false)
@@ -58,7 +59,10 @@ function TechnologyLogo({ technology }) {
   if (!source || failed) {
     return <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-white/70 font-serif text-lg text-[#398b69]">{name.charAt(0).toUpperCase() || '?'}</span>
   }
-  return <img src={source} alt={`${name} logo`} onError={() => setFailed(true)} className="size-12 shrink-0 object-contain" />
+  return <img src={source} alt={`${name} logo`} onError={() => {
+    warnProjectImageLoadFailure(projectTitle, `technology logo (${name})`, source)
+    setFailed(true)
+  }} className="size-12 shrink-0 object-contain" />
 }
 
 function ActionLink({ href, children, secondary = false }) {
@@ -79,7 +83,7 @@ function ActionLink({ href, children, secondary = false }) {
   )
 }
 
-function ProjectImageViewer({ images, index, onClose, onNavigate }) {
+function ProjectImageViewer({ images, index, onClose, onNavigate, projectTitle }) {
   const closeButton = useRef(null)
   const dialog = useRef(null)
   const reduced = useReducedMotion()
@@ -158,7 +162,10 @@ function ProjectImageViewer({ images, index, onClose, onNavigate }) {
             <X size={18} aria-hidden="true" />
           </button>
         </div>
-        {imageFailed ? <div className="mt-5 grid min-h-48 place-items-center rounded-xl bg-soft-green p-6 text-sm text-forest/65">This project image is unavailable.</div> : <img src={image.src} alt={image.alt} onError={() => setImageFailed(true)} className="mt-5 max-h-[68vh] w-full rounded-xl bg-soft-green object-contain" />}
+        {imageFailed ? <div className="mt-5 grid min-h-48 place-items-center rounded-xl bg-soft-green p-6 text-sm text-forest/65">This project image is unavailable.</div> : <img src={image.src} alt={image.alt} onError={() => {
+          warnProjectImageLoadFailure(projectTitle, 'gallery viewer', image.src)
+          setImageFailed(true)
+        }} className="mt-5 max-h-[68vh] w-full rounded-xl bg-soft-green object-contain" />}
         {images.length > 1 && (
           <div className="mt-4 flex items-center justify-between gap-3">
             <button type="button" onClick={() => onNavigate(-1)} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-forest/20 px-4 text-sm font-semibold text-forest hover:bg-soft-green">
@@ -179,7 +186,10 @@ function GalleryImage({ image, projectTitle }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [image.src])
   if (failed) return <span className="grid aspect-[16/10] w-full place-items-center bg-soft-green px-4 text-center text-xs text-forest/65">Image unavailable</span>
-  return <img src={image.src} alt={image.alt || `${projectTitle} interface`} loading="lazy" draggable="false" onError={() => setFailed(true)} className="aspect-[16/10] w-full bg-[#eef4ef] object-contain" />
+  return <img src={image.src} alt={image.alt || `${projectTitle} interface`} loading="lazy" draggable="false" onError={() => {
+    warnProjectImageLoadFailure(projectTitle, 'gallery', image.src)
+    setFailed(true)
+  }} className="aspect-[16/10] w-full bg-[#eef4ef] object-contain" />
 }
 
 export default function ProjectDetailsPage({ project }) {
@@ -506,7 +516,10 @@ export default function ProjectDetailsPage({ project }) {
             </div>
             {project.detailCoverImage && !coverImageFailed ? (
               <div className="bg-[#eef4ef]">
-                <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
+                <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => {
+                  warnProjectImageLoadFailure(project.title, 'cover', project.detailCoverImage)
+                  setCoverImageFailed(true)
+                }} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
               </div>
             ) : (
               <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
@@ -622,7 +635,7 @@ export default function ProjectDetailsPage({ project }) {
                     const item = typeof technology === 'string' ? { name: technology } : technology
                     const card = (
                       <div className="flex h-full min-w-0 flex-col items-center text-center">
-                        <TechnologyLogo technology={item} />
+                        <TechnologyLogo technology={item} projectTitle={project.title} />
                         <span className="mt-3 block w-full break-words text-xs font-semibold">{displayValue(item.name || item.title)}</span>
                         {item.description && <span className="mt-1 block w-full break-words text-[10px] leading-relaxed text-forest/70">{item.description}</span>}
                         {item.url && <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-forest">Documentation <ExternalLink size={11} aria-hidden="true" /></span>}
@@ -743,7 +756,7 @@ export default function ProjectDetailsPage({ project }) {
 
       <AnimatePresence>
         {selectedImage !== null && galleryImages[selectedImage] && (
-          <ProjectImageViewer images={galleryImages} index={selectedImage} onClose={closeViewer} onNavigate={navigateViewer} />
+          <ProjectImageViewer images={galleryImages} index={selectedImage} onClose={closeViewer} onNavigate={navigateViewer} projectTitle={project.title} />
         )}
       </AnimatePresence>
     </div>
