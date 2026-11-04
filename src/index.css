@@ -3279,6 +3279,10 @@ button.cms-sync-pill:disabled {
   min-width: 0;
   scroll-snap-align: start;
 }
+.project-impact-metrics {
+  min-width: 0;
+  max-width: 100%;
+}
 .project-gallery-track {
   display: flex;
   min-width: 0;
@@ -3369,6 +3373,21 @@ button.cms-sync-pill:disabled {
   }
   .case-study-card-track > .case-study-card-slide {
     flex: 0 0 min(82%, 22rem);
+    min-width: 0;
+    scroll-snap-align: start;
+  }
+  .project-impact-metrics {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 2px;
+    -webkit-overflow-scrolling: touch;
+    padding: 2px 2px 10px;
+  }
+  .project-impact-card {
+    flex: 0 0 min(84%, 22rem);
     min-width: 0;
     scroll-snap-align: start;
   }

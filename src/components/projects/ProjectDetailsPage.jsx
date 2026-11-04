@@ -287,6 +287,19 @@ export default function ProjectDetailsPage({ project }) {
         })
       }
 
+      const impactTrack = root.querySelector('[data-project-impact-metrics]')
+      const impactCards = impactTrack?.querySelectorAll('[data-project-impact-card]')
+      if (impactCards?.length) {
+        gsap.from(impactCards, {
+          x: -24,
+          opacity: 0,
+          duration: 0.65,
+          ease: 'power3.out',
+          stagger: 0.12,
+          scrollTrigger: { trigger: impactTrack, start: 'top 88%', once: true },
+        })
+      }
+
       media.add('(min-width: 640px)', () => {
         animateContent(16, 0.7)
       })
@@ -448,11 +461,17 @@ export default function ProjectDetailsPage({ project }) {
           </div>
 
           {heroMetrics.length > 0 && (
-            <div className="mx-auto mt-7 grid max-w-6xl gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            <div
+              className="project-impact-metrics mx-auto mt-7 grid max-w-6xl gap-2.5 sm:grid-cols-2 lg:grid-cols-4"
+              data-project-impact-metrics
+              role="region"
+              aria-label="Project impact metrics"
+              tabIndex={0}
+            >
               {heroMetrics.map((metric, index) => {
                 const item = typeof metric === 'string' ? { label: metric } : metric
                 return (
-                  <article key={`${item.label || item.title || 'metric'}-${index}`} className="rounded-xl border border-forest/10 bg-white/90 p-3 shadow-[0_5px_18px_rgba(31,57,42,.04)]">
+                  <article key={`${item.label || item.title || 'metric'}-${index}`} data-project-impact-card className="project-impact-card rounded-xl border border-forest/10 bg-white/90 p-3 shadow-[0_5px_18px_rgba(31,57,42,.04)]">
                     {item.label && <p className="text-[9px] font-semibold tracking-[.12em] text-forest/55 uppercase">{item.label}</p>}
                     {item.value && <p className="mt-1 font-serif text-xl">{item.value}</p>}
                     {item.description && <p className="mt-1 text-[10px] leading-relaxed text-forest/55">{item.description}</p>}
