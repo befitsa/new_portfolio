@@ -3262,6 +3262,63 @@ button.cms-sync-pill:disabled {
   border-radius: 999px;
   background: rgb(22 74 58 / 22%);
 }
+.case-study-highlight-track {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 2px;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 2px 10px;
+}
+.case-study-highlight-track > .case-study-card-slide {
+  flex: 0 0 min(82%, 22rem);
+  min-width: 0;
+  scroll-snap-align: start;
+}
+.project-gallery-track {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 2px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 2px 10px;
+  cursor: grab;
+  user-select: none;
+}
+.project-gallery-track.is-dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
+  scroll-snap-type: none;
+}
+.project-gallery-image {
+  flex: 0 0 min(82%, 36rem);
+  min-width: 0;
+  scroll-snap-align: start;
+}
+.project-details-active,
+.project-details-active body,
+.project-details-page,
+.project-details-page * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.project-details-active::-webkit-scrollbar,
+.project-details-active body::-webkit-scrollbar,
+.project-details-page::-webkit-scrollbar,
+.project-details-page *::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
 @media (max-width: 639px) {
   .case-study-card-track {
     display: flex;
@@ -3284,6 +3341,7 @@ button.cms-sync-pill:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   .case-study-card-track { scroll-behavior: auto; }
+  .project-gallery-track { scroll-behavior: auto; }
 }
 
 .cms-technology-list {

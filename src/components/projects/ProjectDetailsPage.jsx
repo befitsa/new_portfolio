@@ -177,18 +177,75 @@ function GalleryImage({ image, projectTitle }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [image.src])
   if (failed) return <span className="grid aspect-[16/10] w-full place-items-center bg-soft-green px-4 text-center text-xs text-forest/65">Image unavailable</span>
-  return <img src={image.src} alt={image.alt || `${projectTitle} interface`} loading="lazy" onError={() => setFailed(true)} className="aspect-[16/10] w-full object-cover" />
+  return <img src={image.src} alt={image.alt || `${projectTitle} interface`} loading="lazy" draggable="false" onError={() => setFailed(true)} className="aspect-[16/10] w-full bg-[#eef4ef] object-contain" />
 }
 
 export default function ProjectDetailsPage({ project }) {
   const profile = usePortfolioProfile()
   const contentRef = useRef(null)
+  const galleryRef = useRef(null)
+  const draggedGallery = useRef(false)
   const [activeSection, setActiveSection] = useState(sections[0].id)
   const [selectedImage, setSelectedImage] = useState(null)
   const [coverImageFailed, setCoverImageFailed] = useState(false)
   const reduced = useReducedMotion()
 
   useScrollTriggerRefresh()
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('project-details-active')
+    return () => root.classList.remove('project-details-active')
+  }, [])
+
+  useEffect(() => {
+    const gallery = galleryRef.current
+    if (!gallery) return undefined
+
+    let drag
+    const onPointerDown = (event) => {
+      if (event.pointerType !== 'mouse' || event.button !== 0) return
+      drag = { pointerId: event.pointerId, startX: event.clientX, startScrollLeft: gallery.scrollLeft, moved: false }
+      gallery.classList.add('is-dragging')
+    }
+    const onPointerMove = (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return
+      const distance = event.clientX - drag.startX
+      if (Math.abs(distance) > 4) drag.moved = true
+      if (drag.moved) {
+        event.preventDefault()
+        gallery.scrollLeft = drag.startScrollLeft - distance
+      }
+    }
+    const endDrag = (event) => {
+      if (!drag || (event && event.pointerId !== drag.pointerId)) return
+      if (drag.moved) {
+        draggedGallery.current = true
+        window.setTimeout(() => { draggedGallery.current = false }, 0)
+      }
+      drag = undefined
+      gallery.classList.remove('is-dragging')
+    }
+    const onWheel = (event) => {
+      if (gallery.scrollWidth <= gallery.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
+      gallery.scrollLeft += event.deltaY
+      event.preventDefault()
+    }
+
+    gallery.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', endDrag)
+    window.addEventListener('pointercancel', endDrag)
+    gallery.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      gallery.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', endDrag)
+      window.removeEventListener('pointercancel', endDrag)
+      gallery.removeEventListener('wheel', onWheel)
+      gallery.classList.remove('is-dragging')
+    }
+  }, [project.slug])
 
   useLayoutEffect(() => {
     const root = contentRef.current
@@ -211,6 +268,19 @@ export default function ProjectDetailsPage({ project }) {
             stagger: 0.07,
             scrollTrigger: { trigger: section, start: 'top 88%', once: true },
           })
+        })
+      }
+
+      const highlightTrack = root.querySelector('[data-project-highlights]')
+      const highlightCards = highlightTrack?.querySelectorAll('[data-project-highlight]')
+      if (highlightCards?.length) {
+        gsap.from(highlightCards, {
+          x: -36,
+          opacity: 0,
+          duration: 0.7,
+          ease: 'power3.out',
+          stagger: 0.14,
+          scrollTrigger: { trigger: highlightTrack, start: 'top 82%', once: true },
         })
       }
 
@@ -301,7 +371,7 @@ export default function ProjectDetailsPage({ project }) {
   const titleAccent = titleWords.pop()
 
   return (
-    <div className="min-h-screen bg-[#f7faf7] text-[#14271e]">
+    <div className="project-details-page min-h-screen bg-[#f7faf7] text-[#14271e]">
       <a href="#main" className="sr-only z-[110] rounded-md bg-white px-4 py-2 font-semibold focus:not-sr-only focus:fixed focus:top-3 focus:left-3">
         Skip to content
       </a>
@@ -358,26 +428,6 @@ export default function ProjectDetailsPage({ project }) {
             </div>
           )}
 
-          <div className="mx-auto mt-6 max-w-6xl overflow-hidden rounded-[1.25rem] border border-forest/10 bg-white shadow-[0_12px_32px_rgba(31,57,42,.09)]">
-            <div className="flex items-center justify-between border-b border-forest/10 bg-[#f7faf7] px-4 py-2.5 sm:px-6">
-              <div className="flex gap-1.5" aria-hidden="true">
-                <span className="size-2 rounded-full bg-[#f18875]" /><span className="size-2 rounded-full bg-[#f1c265]" /><span className="size-2 rounded-full bg-[#83c69a]" />
-              </div>
-              <span className="text-[8px] font-semibold tracking-[.12em] text-forest/50 uppercase sm:text-[9px]">{project.title} preview</span>
-              <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.detailCoverImage && !coverImageFailed ? 'Project cover' : 'Preview unavailable'}</span>
-            </div>
-            {project.detailCoverImage && !coverImageFailed ? (
-              <div className="bg-[#eef4ef]">
-                <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
-              </div>
-            ) : (
-              <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
-                <p className="max-w-lg text-sm leading-relaxed text-forest/65">
-                  {coverImageFailed ? 'The project cover could not be loaded.' : 'No project cover image is available.'}
-                </p>
-              </div>
-            )}
-          </div>
         </section>
 
         <nav aria-label="Project sections" className="sticky top-0 z-40 border-y border-forest/10 bg-[#f7faf7]/95 backdrop-blur-md">
@@ -428,11 +478,11 @@ export default function ProjectDetailsPage({ project }) {
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Technical Highlights &amp; Architecture</h2>
             <div className="mt-6">
               {features.length ? (
-                <div className="case-study-card-track grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="case-study-highlight-track" data-project-highlights>
                   {features.map((feature, index) => {
                     const item = typeof feature === 'string' ? { title: feature } : feature
                     return (
-                      <motion.article key={`${item.title || item.name}-${index}`} whileHover={reduced ? undefined : { y: -3 }} className={`case-study-card-slide min-h-32 rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]`}>
+                      <motion.article key={`${item.title || item.name}-${index}`} data-project-highlight whileHover={reduced ? undefined : { y: -3 }} className={`case-study-card-slide min-h-32 rounded-xl border border-forest/10 ${cardPastels[index % cardPastels.length]} p-4 shadow-[0_5px_16px_rgba(31,57,42,.04)]`}>
                         <h3 className="text-sm font-semibold">{displayValue(item.title || item.name)}</h3>
                         {item.description && <p className="mt-2 text-[11px] leading-relaxed text-forest/65">{item.description}</p>}
                         {item.implementation && <p className="mt-2 text-[11px] leading-relaxed text-forest/65"><strong>Implementation:</strong> {item.implementation}</p>}
@@ -442,6 +492,26 @@ export default function ProjectDetailsPage({ project }) {
                 </div>
               ) : (
                 <EvidenceNote>No technical highlights or architecture details have been added to this project record.</EvidenceNote>
+              )}
+            </div>
+            <div className="mx-auto mt-6 max-w-6xl overflow-hidden rounded-[1.25rem] border border-forest/10 bg-white shadow-[0_12px_32px_rgba(31,57,42,.09)]">
+              <div className="flex items-center justify-between border-b border-forest/10 bg-[#f7faf7] px-4 py-2.5 sm:px-6">
+                <div className="flex gap-1.5" aria-hidden="true">
+                  <span className="size-2 rounded-full bg-[#f18875]" /><span className="size-2 rounded-full bg-[#f1c265]" /><span className="size-2 rounded-full bg-[#83c69a]" />
+                </div>
+                <span className="text-[8px] font-semibold tracking-[.12em] text-forest/50 uppercase sm:text-[9px]">{project.title} preview</span>
+                <span className="text-[8px] text-forest/45 sm:text-[9px]">{project.detailCoverImage && !coverImageFailed ? 'Project cover' : 'Preview unavailable'}</span>
+              </div>
+              {project.detailCoverImage && !coverImageFailed ? (
+                <div className="bg-[#eef4ef]">
+                  <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => setCoverImageFailed(true)} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
+                </div>
+              ) : (
+                <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
+                  <p className="max-w-lg text-sm leading-relaxed text-forest/65">
+                    {coverImageFailed ? 'The project cover could not be loaded.' : 'No project cover image is available.'}
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -525,9 +595,22 @@ export default function ProjectDetailsPage({ project }) {
             <p className="text-[9px] font-bold tracking-[.16em] text-[#bd6a29] uppercase">05 / User Experience</p>
             <h2 className="mt-2 font-serif text-2xl sm:text-3xl">Interface Gallery &amp; User Journeys</h2>
             {screenshots.length ? (
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div
+                ref={galleryRef}
+                className="project-gallery-track mt-6"
+                role="region"
+                aria-label="Project interface images"
+                tabIndex={0}
+                onClickCapture={(event) => {
+                  if (draggedGallery.current) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    draggedGallery.current = false
+                  }
+                }}
+              >
                 {screenshots.map((image, index) => (
-                  <button key={image.src} type="button" onClick={() => setSelectedImage(galleryImages.findIndex((entry) => entry.src === image.src))} aria-label={`Open image: ${image.title || 'Project interface'}`} className="group overflow-hidden rounded-xl border border-forest/10 bg-[#f7faf7] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                  <button key={image.src} type="button" onClick={() => setSelectedImage(galleryImages.findIndex((entry) => entry.src === image.src))} aria-label={`Open image: ${image.title || 'Project interface'}`} className="project-gallery-image group overflow-hidden rounded-xl border border-forest/10 bg-[#f7faf7] text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
                     <GalleryImage image={image} projectTitle={project.title} />
                     <span className="flex min-h-10 items-center justify-between px-4 text-xs font-semibold">{image.title || 'Project interface'}<ArrowUpRight size={14} aria-hidden="true" /></span>
                   </button>
