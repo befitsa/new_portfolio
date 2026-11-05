@@ -135,7 +135,7 @@ export default function Background() {
           <SectionHeading
             label="Background"
             title="Professional journey"
-            description="My personal journey — fueling growth through experience."
+            description="My personal journey fueling growth through experience."
             className="lg:sticky lg:top-28"
           />
         </div>
