@@ -6,6 +6,7 @@ import path from 'node:path'
 import { createLocalCmsStore } from '../dev/localCmsServer.js'
 import { profile } from '../src/data/profile.js'
 import { toProfileSettings } from '../src/lib/db/presentation.js'
+import { publishSkillChanges } from '../src/lib/db/skillPublishing.js'
 
 const imageBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2kAAAAASUVORK5CYII=', 'base64')
 
@@ -200,6 +201,87 @@ test('local skills and tools persist through draft, publish, and logo replacemen
     assert.equal(replacement.name, 'JavaScript')
     assert.equal(replacement.category, 'Frontend')
     assert.equal(replacement.url.startsWith('/__local-cms/uploads/'), true)
+  })
+})
+
+test('skill deletion stays private as a draft and publishing removes it without publishing its logo', async () => {
+  await withStore(async (directory) => {
+    const store = createLocalCmsStore(directory)
+    const catalog = await store.create('media', {
+      type: 'image',
+      isSkillCatalog: true,
+      url: '',
+      storagePath: '',
+      sizeBytes: 0,
+    })
+    const createSkill = (name, order) => store.create('media', {
+      type: 'image',
+      isSkill: true,
+      name,
+      category: 'Frontend',
+      url: `https://cdn.example.com/${name.toLowerCase()}.svg`,
+      storagePath: '',
+      sizeBytes: 0,
+      order,
+    })
+    const removed = await createSkill('React', 0)
+    const alsoRemoved = await createSkill('HTML', 1)
+    const edited = await createSkill('TypeScript', 1)
+    const unaffected = await createSkill('CSS', 3)
+    await store.publish('media', removed.id, removed.revision)
+    await store.publish('media', alsoRemoved.id, alsoRemoved.revision)
+    await store.publish('media', edited.id, edited.revision)
+    await store.publish('media', unaffected.id, unaffected.revision)
+    await store.publish('media', catalog.id, catalog.revision)
+
+    const deletionDraft = await store.save('media', removed.id, {
+      ...removed,
+      visibility: false,
+      pendingDelete: true,
+    }, removed.revision)
+    assert.deepEqual(
+      (await store.publishedRecords('media')).filter((item) => item.isSkill).map((item) => item.name),
+      ['React', 'HTML', 'TypeScript', 'CSS'],
+    )
+    const secondDeletionDraft = await store.save('media', alsoRemoved.id, {
+      ...alsoRemoved,
+      visibility: false,
+      pendingDelete: true,
+    }, alsoRemoved.revision)
+
+    const editedDraft = await store.save('media', edited.id, {
+      ...edited,
+      name: 'TypeScript 5',
+    }, edited.revision)
+    const added = await createSkill('Vite', 3)
+    const savedItems = [
+      { ...deletionDraft, pendingDelete: true },
+      { ...secondDeletionDraft, pendingDelete: true },
+      editedDraft,
+      added,
+      unaffected,
+    ]
+
+    const publishedIds = []
+    await publishSkillChanges({
+      publish: async (...args) => {
+        publishedIds.push(args[1])
+        return store.publish(...args)
+      },
+      deleteItem: (...args) => store.deleteItem(...args),
+    }, savedItems, catalog)
+
+    assert.deepEqual(publishedIds, [edited.id, added.id, unaffected.id, catalog.id])
+    const publishedSkills = (await store.publishedRecords('media'))
+      .filter((item) => item.isSkill)
+      .map((item) => item.name)
+    assert.deepEqual(publishedSkills, ['TypeScript 5', 'CSS', 'Vite'])
+
+    const restarted = createLocalCmsStore(directory)
+    assert.deepEqual(
+      (await restarted.publishedRecords('media')).filter((item) => item.isSkill).map((item) => item.name),
+      publishedSkills,
+    )
   })
 })
 

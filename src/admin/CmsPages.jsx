@@ -11,6 +11,7 @@ import MarkdownContent from '../components/common/MarkdownContent.jsx'
 import { adminApi, checkCmsApiHealth, isLocalCmsMode, useCmsApiStatus } from '../lib/adminApi.js'
 import { cmsHref } from './cmsPaths.js'
 import { projectSchema, experienceSchema, educationSchema, normalizeProjectCategory, normalizeProjectImageFields, normalizeSkills, normalizeTechnologyStack, siteSettingsSchema } from '../lib/db/contentSchemas.js'
+import { publishSkillChanges } from '../lib/db/skillPublishing.js'
 import { getPublicSiteUrl } from '../lib/siteUrls.js'
 
 const EMPTY_PROJECT = {
@@ -1249,13 +1250,7 @@ export function CmsSkillsPage() {
         : await adminApi.create('media', emptyCatalogRecord())
 
       if (publishChanges) {
-        for (const item of savedItems) {
-          await adminApi.publish('media', item.id, item.revision)
-        }
-        await adminApi.publish('media', savedCatalog.id, savedCatalog.revision)
-        for (const item of savedItems.filter((entry) => entry.pendingDelete)) {
-          await adminApi.deleteItem('media', item.id)
-        }
+        await publishSkillChanges(adminApi, savedItems, savedCatalog)
       }
 
       if (!await refresh()) throw new Error('Changes were saved, but the skills list could not be refreshed.')

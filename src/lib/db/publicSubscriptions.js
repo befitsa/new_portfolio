@@ -42,7 +42,9 @@ async function fetchPublishedCollection(type) {
 function subscribeToRecords(type, onValue, onError, id = null) {
   assertContentType(type)
   let active = true
+  let latestLoad = 0
   const load = async () => {
+    const loadId = ++latestLoad
     try {
       if (id) {
         const { data, error } = await supabase
@@ -55,12 +57,15 @@ function subscribeToRecords(type, onValue, onError, id = null) {
         const record = data?.published_payload
           ? { ...data.published_payload, id: data.record_id, status: 'published' }
           : null
-        onValue(record?.visibility === true && !isLegacySeedRecord(type, record) ? record : null)
+        if (active && loadId === latestLoad) {
+          onValue(record?.visibility === true && !isLegacySeedRecord(type, record) ? record : null)
+        }
         return
       }
-      onValue(await fetchPublishedCollection(type))
+      const records = await fetchPublishedCollection(type)
+      if (active && loadId === latestLoad) onValue(records)
     } catch (error) {
-      if (active) onError(error)
+      if (active && loadId === latestLoad) onError(error)
     }
   }
 

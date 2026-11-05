@@ -43,7 +43,9 @@ export default function Skills() {
         color: fallback?.color,
       }
     })
-    : fallbackSkills.map((skill) => ({ ...skill, id: skill.name, category: 'Technology', logo: '' }))
+    : publishedMedia.error
+      ? []
+      : fallbackSkills.map((skill) => ({ ...skill, id: skill.name, category: 'Technology', logo: '' }))
   const activeIndex = entries.length ? active % entries.length : 0
   const activeRef = useRef(active)
 
