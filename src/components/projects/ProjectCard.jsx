@@ -37,7 +37,7 @@ function Preview({ project }) {
           alt={`${project.title} preview`}
           loading="lazy" // below the fold: don't download until needed
           decoding="async"
-          className="absolute inset-0 size-full object-cover"
+          className="absolute inset-0 size-full object-cover object-center"
           onError={() => {
             warnProjectImageLoadFailure(project.title, 'card', project.cardImage)
             setImageFailed(true)

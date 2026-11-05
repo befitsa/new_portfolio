@@ -165,7 +165,7 @@ function ProjectImageViewer({ images, index, onClose, onNavigate, projectTitle }
         {imageFailed ? <div className="mt-5 grid min-h-48 place-items-center rounded-xl bg-soft-green p-6 text-sm text-forest/65">This project image is unavailable.</div> : <img src={image.src} alt={image.alt} onError={() => {
           warnProjectImageLoadFailure(projectTitle, 'gallery viewer', image.src)
           setImageFailed(true)
-        }} className="mt-5 max-h-[68vh] w-full rounded-xl bg-soft-green object-contain" />}
+        }} className="mt-5 max-h-[68vh] w-full rounded-xl bg-soft-green object-contain object-center" />}
         {images.length > 1 && (
           <div className="mt-4 flex items-center justify-between gap-3">
             <button type="button" onClick={() => onNavigate(-1)} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-forest/20 px-4 text-sm font-semibold text-forest hover:bg-soft-green">
@@ -189,7 +189,7 @@ function GalleryImage({ image, projectTitle }) {
   return <img src={image.src} alt={image.alt || `${projectTitle} interface`} loading="lazy" draggable="false" onError={() => {
     warnProjectImageLoadFailure(projectTitle, 'gallery', image.src)
     setFailed(true)
-  }} className="aspect-[16/10] w-full bg-[#eef4ef] object-contain" />
+  }} className="aspect-[16/10] w-full bg-[#eef4ef] object-contain object-center" />
 }
 
 export default function ProjectDetailsPage({ project }) {
@@ -519,7 +519,7 @@ export default function ProjectDetailsPage({ project }) {
                 <img src={project.detailCoverImage} alt={`${project.title} project preview`} onError={() => {
                   warnProjectImageLoadFailure(project.title, 'cover', project.detailCoverImage)
                   setCoverImageFailed(true)
-                }} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain sm:min-h-64" />
+                }} className="max-h-[min(60vh,34rem)] min-h-48 w-full object-contain object-center sm:min-h-64" />
               </div>
             ) : (
               <div className="grid min-h-44 place-items-center bg-[radial-gradient(ellipse_at_top,_rgba(221,232,216,.5),_transparent_65%)] px-6 py-8 text-center sm:min-h-64">
