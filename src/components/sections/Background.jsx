@@ -2,17 +2,22 @@
 // Education | Experience toggle with an animated timeline.
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
+import { ChevronDown } from 'lucide-react'
 import { gsap } from '../../utils/gsap'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { usePublishedCollection } from '../../hooks/usePublishedCollection.js'
 import { toPublicEducation, toPublicExperience } from '../../lib/db/presentation.js'
 import { skillBadgeColor } from '../../lib/db/skillBadges.js'
+import Button from '../common/Button'
 import SectionHeading from '../common/SectionHeading'
 import Reveal from '../common/Reveal'
 import Section from '../common/Section'
 
+const EDUCATION_PREVIEW_COUNT = 2
+const EXPERIENCE_PREVIEW_COUNT = 1
+
 // Timeline: a mint line draws itself down as you scroll, and each entry slides in from the side.
-function Timeline({ items }) {
+function Timeline({ items, id, showRecommendationLinks = true }) {
   const root = useRef(null)
   const reduced = useReducedMotion()
 
@@ -43,7 +48,7 @@ function Timeline({ items }) {
   }, [reduced, items])
 
   return (
-    <ol ref={root} className="relative ml-1.5">
+    <ol id={id} ref={root} className="relative ml-1.5">
       <span aria-hidden="true" className="absolute top-0 bottom-0 left-0 w-px bg-forest/15" />
       <span aria-hidden="true" data-line className="absolute top-0 bottom-0 left-0 w-px bg-mint" />
       {items.map((entry) => (
@@ -53,10 +58,14 @@ function Timeline({ items }) {
           <h3 className="mt-2 font-display text-[clamp(1.6rem,3vw,2.5rem)] leading-tight font-semibold">{entry.title}</h3>
           <p className="mt-1 text-forest/75">{entry.place}</p>
           {entry.description && <p className="mt-3 max-w-lg text-forest/75">{entry.description}</p>}
-          {(entry.credentialImageUrl || entry.credentialUrl || entry.recommendationLetterImageUrl || entry.recommendationLetterUrl) && (
+          {(entry.credentialImageUrl || entry.credentialUrl) && (
             <div className="mt-4 flex flex-wrap gap-2">
               {entry.credentialImageUrl && <a className="cms-public-document-link" href={entry.credentialImageUrl} target="_blank" rel="noopener noreferrer">{/diploma/i.test(entry.title) ? 'View Diploma' : 'View Certificate'}</a>}
               {entry.credentialUrl && <a className="cms-public-document-link" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View Credential</a>}
+            </div>
+          )}
+          {showRecommendationLinks && (entry.recommendationLetterImageUrl || entry.recommendationLetterUrl) && (
+            <div className="mt-4 flex flex-wrap gap-2">
               {entry.recommendationLetterImageUrl && <a className="cms-public-document-link" href={entry.recommendationLetterImageUrl} target="_blank" rel="noopener noreferrer">View Recommendation Letter</a>}
               {entry.recommendationLetterUrl && <a className="cms-public-document-link" href={entry.recommendationLetterUrl} target="_blank" rel="noopener noreferrer">Recommendation Letter Link</a>}
             </div>
@@ -76,6 +85,8 @@ function Timeline({ items }) {
 
 export default function Background() {
   const [active, setActive] = useState('education')
+  const [educationExpanded, setEducationExpanded] = useState(false)
+  const [experienceExpanded, setExperienceExpanded] = useState(false)
   const reduced = useReducedMotion()
   const publishedEducation = usePublishedCollection('education')
   const publishedExperience = usePublishedCollection('experiences')
@@ -100,6 +111,14 @@ export default function Background() {
     },
   ], [educationItems, experienceItems])
   const current = tabs.find((t) => t.id === active)
+  const expanded = active === 'education' ? educationExpanded : experienceExpanded
+  const previewCount = active === 'education' ? EDUCATION_PREVIEW_COUNT : EXPERIENCE_PREVIEW_COUNT
+  const visibleItems = expanded ? current.items : current.items.slice(0, previewCount)
+  const recommendationItems = active === 'experience'
+    ? visibleItems.filter((item) => item.recommendationLetterImageUrl || item.recommendationLetterUrl)
+    : []
+  const timelineId = `background-${active}-timeline`
+  const toggleExpanded = active === 'education' ? setEducationExpanded : setExperienceExpanded
 
   // Arrow keys move between tabs (standard accessible tab behavior).
   const onKeyDown = (e) => {
@@ -166,7 +185,40 @@ export default function Background() {
                 ) : (active === 'education' ? publishedEducation.error : publishedExperience.error) ? (
                   <p className="border-l border-forest/20 py-4 pl-8 text-forest/70" role="alert">{active === 'education' ? 'Education' : 'Experience'} entries could not be loaded right now.</p>
                 ) : current.items.length > 0 ? (
-                  <Timeline items={current.items} />
+                 <motion.div layout transition={{ layout: { duration: reduced ? 0 : 0.25, ease: 'easeOut' } }}>
+                   <Timeline items={visibleItems} id={timelineId} showRecommendationLinks={active !== 'experience'} />
+                   {current.items.length > previewCount && (
+                     <div className="mt-2 flex justify-center">
+                       <Button
+                         variant="outlineDark"
+                         size="sm"
+                         icon={ChevronDown}
+                         className={`${expanded ? '[&>svg]:rotate-180' : ''} [&>svg]:transition-transform [&>svg]:duration-300`}
+                         aria-expanded={expanded}
+                         aria-controls={timelineId}
+                         onClick={() => toggleExpanded((value) => !value)}
+                       >
+                         {expanded ? 'See Less' : 'See More'}
+                       </Button>
+                     </div>
+                   )}
+                   {recommendationItems.length > 0 && (
+                     <section className="mt-8 border-t border-forest/10 pt-5" aria-labelledby="background-recommendations-title">
+                       <h3 id="background-recommendations-title" className="font-display text-sm font-semibold text-forest">Recommendation Letter</h3>
+                       <div className="mt-3 space-y-3">
+                         {recommendationItems.map((item) => (
+                           <div key={item.id}>
+                             <p className="mb-2 text-sm text-forest/75">{item.title} · {item.place}</p>
+                             <div className="flex flex-wrap gap-2">
+                               {item.recommendationLetterImageUrl && <a className="cms-public-document-link" href={item.recommendationLetterImageUrl} target="_blank" rel="noopener noreferrer">View Recommendation Letter</a>}
+                               {item.recommendationLetterUrl && <a className="cms-public-document-link" href={item.recommendationLetterUrl} target="_blank" rel="noopener noreferrer">Recommendation Letter Link</a>}
+                             </div>
+                           </div>
+                         ))}
+                       </div>
+                     </section>
+                   )}
+                 </motion.div>
                 ) : (
                   <div className="border-l border-dashed border-forest/20 py-4 pl-8">
                     <p className="font-display text-2xl font-semibold">No {active} entries have been published yet.</p>
