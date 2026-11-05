@@ -116,6 +116,38 @@ where id = 'main';
 
 The result should have `visibility = true` and reflect the published link counts. The RPC's publication gate checks the storage/operator review state and projection integrity; a successful draft save alone does not publish. No migration is applied automatically by the frontend.
 
+### Public CMS verification-generation migration
+
+The public-read policies now use a private, singleton verification-generation row instead of invoking the full recursive CMS audit on every visitor query. The full audit reads five database dependencies: `portfolio_cms_records`, `portfolio_cms_public_records`, `portfolio_cms_settings`, `portfolio_cms_public_settings`, and the existence/public flags of the `portfolio-published` and `portfolio-private` Storage buckets. Relevant row changes to each dependency invalidate the generation; statement-level `TRUNCATE` triggers invalidate it as well. Deferred per-row checks lock the singleton and verify the final transaction state once per generation; subsequent checks return the cached result. Draft-only source edits and unrelated Storage bucket changes do not invalidate the generation because they do not affect the audit result.
+
+The audit recursively validates the source and projection JSON payloads; it does not read `storage.objects`. Object changes continue to invalidate the separate operator Storage-content audit, not the database publication generation. Direct privileged row changes still fire the same invalidation triggers. A database owner can disable triggers or edit protected state directly and is therefore part of the trusted database boundary; do not do so. If a changed generation fails the audit, it remains unverified and public database reads fail closed. Privileged `TRUNCATE` invalidates the state but does not automatically reverify it.
+
+Review and test `supabase/migrations/20261105120000_version_public_cms_verification.sql` only after `20261105100000_optimize_public_cms_audit_rls.sql` and `20261105103000_consolidate_public_storage_audit.sql` are confirmed applied. First test it in the verified disposable project and run `supabase/validation/08_publication_verification.sql`. For two-session concurrency coverage, follow steps 15–17 in `supabase/validation/README.md` and run the paired scripts from two distinct SQL Editor sessions. These tests are disposable-project-only; do not run them in production.
+
+The migration intentionally invalidates the current generation. Immediately after applying it, public projection reads will return no rows until a trusted database owner verifies the generation. In the SQL Editor for the verified target, inspect the function owner and current SQL Editor role:
+
+```sql
+select
+  current_user as sql_editor_role,
+  pg_get_userbyid(p.proowner) as function_owner,
+  has_function_privilege(current_user, p.oid, 'execute') as can_run_trusted_verification
+from pg_proc p
+where p.oid = 'public.cms_reverify_publication_generation()'::regprocedure;
+```
+
+Only continue if `can_run_trusted_verification` is true and the selected project is correct. Then execute:
+
+```sql
+select public.cms_reverify_publication_generation() as verified;
+select public.cms_publication_generation_is_verified() as public_reads_enabled;
+```
+
+Both results must be `true`. If the first is `false`, do not edit the verification table or force a success marker; inspect and reconcile the existing published-data audit. If either call times out or errors, leave the generation unverified and investigate before allowing public reads. The verification table and reverify function are not executable/readable by anon or ordinary authenticated clients. Supported CMS mutations automatically invalidate and revalidate the state at transaction end; generation changes serialize through a row lock so an older check cannot verify a newer generation. A privileged `TRUNCATE` invalidates the state but does not auto-verify it; run the trusted SQL verification again after recovery.
+
+The full audit is moved off public reads, not removed: publication eligibility and controlled Storage-review workflows still perform it. Consequently published mutations may take longer and roll back on a database error, while normal collection reads check the indexed singleton and the existing per-row visibility gate. This verification covers database projection eligibility and bucket flags; it does not replace the separate operator review of public Storage object contents or make public object URLs private.
+
+The two earlier migrations may have been applied manually rather than recorded in Supabase's migration history. Do not run `supabase db push` until `supabase migration list` is reconciled with the actual production schema. Prefer the reviewed SQL Editor procedure above for the new migration unless the target and history are independently confirmed. If using CLI history repair, first verify the live definitions and mark each manually applied version as applied individually with `supabase migration repair <version> --status applied`; never mark a version applied based solely on a successful command.
+
 Do not run the base CMS migration against a populated project as a repair shortcut. First inspect the target project's existing schema and migration state. If the CMS schema/RPCs already exist, preserve them; use only the reviewed additive workflow migration when catalog checks confirm its three audit RPCs are missing and its prerequisites are present:
 
 `supabase/migrations/20261029120000_portfolio_storage_audit_workflow.sql`

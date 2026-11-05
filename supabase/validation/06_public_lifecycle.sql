@@ -97,10 +97,15 @@ select public.cms_save_record(
   0
 );
 
+set constraints all immediate;
+
 do $published_parity$
 begin
   if not public.cms_public_content_audited() then
     raise exception 'FAIL: a normal publication did not leave current storage/projection parity valid.';
+  end if;
+  if not public.cms_publication_generation_is_verified() then
+    raise exception 'FAIL: a normal publication did not verify its generation before commit.';
   end if;
 end;
 $published_parity$;
@@ -163,6 +168,44 @@ begin
   end if;
 end;
 $anonymous_after_unpublish$;
+reset role;
+
+select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}',
+  true
+);
+select public.cms_publish_record(
+  'projects',
+  'validation-public-lifecycle',
+  1,
+  '{"title":"Lifecycle public fixture","slug":"validation-public-lifecycle","visibility":true}'::jsonb
+);
+set constraints all immediate;
+do $republish_verified$
+begin
+  if not public.cms_publication_generation_is_verified() then
+    raise exception 'FAIL: republishing did not verify the updated publication generation.';
+  end if;
+end;
+$republish_verified$;
+
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claims', '{"role":"anon"}', true);
+set local role anon;
+do $anonymous_after_republish$
+declare
+  v_count integer;
+begin
+  select count(*) into v_count
+  from public.portfolio_cms_public_records
+  where record_id in ('validation-public-lifecycle', 'validation-legacy-published');
+  if v_count <> 2 then
+    raise exception 'FAIL: republishing did not restore the public projection without hiding unrelated content.';
+  end if;
+end;
+$anonymous_after_republish$;
 reset role;
 
 select set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);

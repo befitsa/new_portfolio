@@ -62,11 +62,25 @@ the test project does not need the production administrator UID.
   **not** protect public Storage objects or direct object URLs. A public
   `portfolio-published` object is accessible outside database projection
   rules, so its contents require a separate Storage audit.
-- `cms_public_content_audited()` is a dynamic eligibility check, not an audit
-  marker check. For every public database read it verifies current source /
-  projection parity, public/private destination bucket flags, and the absence
-  of private, unknown, or unsafe legacy asset paths. A stale or unsafe
-  projection fails closed. It does not make direct public Storage URLs private.
+- `cms_public_content_audited()` is the retained full integrity check. It
+  verifies source / projection parity, destination bucket flags, and the
+  absence of private, unknown, or unsafe legacy asset paths. It runs in
+  controlled verification and mutation workflows, not for each public read.
+- Public projection RLS uses
+  `cms_publication_generation_is_verified()`, a single-row indexed check of a
+  private generation table, and keeps the per-record visibility predicate.
+  Relevant source, projection, settings, and bucket-visibility changes
+  invalidate the generation in the same transaction. A deferred trusted
+  trigger performs the full check before that transaction commits. A failed
+  check leaves the generation unverified, so public reads fail closed.
+- The verification table and full audit / refresh functions are not directly
+  accessible to `anon` or ordinary `authenticated` users. The SQL Editor
+  operator who owns the migration functions can run the one-time refresh after
+  deployment. Do not mark the generation verified by directly editing the
+  state row.
+- This generation protects public database projection eligibility; it does
+  not make direct public Storage URLs private or replace the separate trusted
+  review of `portfolio-published` Storage objects.
 - Trusted-operator visibility and Storage-content attestations remain
   publication-readiness requirements. Destination bucket configuration
   changes invalidate both; object changes invalidate the content review.
@@ -247,7 +261,26 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
     its deletion in the Dashboard even when the script fails. This integration
     test creates a fresh audit only after the operator has explicitly marked
     the public inventory as manually reviewed.
-11. If the disposable project's operator has explicitly configured
+11. Verify the disposable project again and apply
+    [20261030120000_social_settings_asset_publication.sql](../migrations/20261030120000_social_settings_asset_publication.sql)
+    followed by
+    [20261102182000_repair_settings_publish_rpc.sql](../migrations/20261102182000_repair_settings_publish_rpc.sql)
+    so the settings workflows match the deployed CMS.
+    Then apply
+    [20261105100000_optimize_public_cms_audit_rls.sql](../migrations/20261105100000_optimize_public_cms_audit_rls.sql),
+    [20261105103000_consolidate_public_storage_audit.sql](../migrations/20261105103000_consolidate_public_storage_audit.sql),
+    and
+    [20261105120000_version_public_cms_verification.sql](../migrations/20261105120000_version_public_cms_verification.sql)
+    in that order. The last migration intentionally leaves the generation
+    unverified. As the migration-owning SQL Editor role, run
+    `select public.cms_reverify_publication_generation();` and proceed only
+    if it returns `true` and
+    `select public.cms_publication_generation_is_verified();` also returns
+    `true`. Never edit the verification table directly. Then run
+    [08_public_storage_audit_performance.sql](../tests/08_public_storage_audit_performance.sql)
+    to check RLS, client privileges, and that policies call only the generation
+    check. This SQL test is transactional and rolls back.
+12. If the disposable project's operator has explicitly configured
     `portfolio-published` as public, performed the Storage review, and recorded
     the required attestations using the CMS **Storage review** page, verify
     the Dashboard project again and run
@@ -266,7 +299,15 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    Do not change bucket visibility just to run this test. If the required
    configuration is not already in place, skip this scenario and report it as
    not run. The lifecycle script rolls its CMS changes back.
-12. The dotted-object check is optional and is the only step that creates an
+13. Verify the disposable project again and run
+   [08_publication_verification.sql](./08_publication_verification.sql). It
+   uses a rollback-only CMS fixture to test draft privacy, publication and
+   same-transaction verification, unsafe-path fail-closed behavior, recovery,
+   direct source-settings and projection mutations/deletes, client denial from
+   the verification table, bucket-visibility invalidation, and fail-closed
+   behavior after relevant `TRUNCATE` operations. It rolls all fixture changes
+   back. Do not execute it against production.
+14. The dotted-object check is optional and is the only step that creates an
    actual Storage object. If needed, verify the Dashboard project again and
    upload exactly one harmless, non-sensitive text file to bucket ID
    `portfolio-media.` (including the trailing period). This fixture bucket is
@@ -277,6 +318,40 @@ tables, prerequisite or legacy tables, or any of the fixture bucket IDs.
    `portfolio-media.` contains zero objects before ending the test. If the
    assertion fails, perform this cleanup anyway. Never write directly to
    `storage.objects`.
+15. For the two-session publication-generation regression, first verify the
+    disposable Dashboard project again and run
+    [09_publication_concurrency_setup.sql](./09_publication_concurrency_setup.sql).
+    It commits two draft-only project fixtures with exact IDs
+    `validation-concurrency-a` and `validation-concurrency-b`; do not rerun
+    setup if either exists.
+16. Open two independent SQL Editor sessions and record the displayed backend
+    PIDs. Start
+    [09_publication_concurrency_session_a.sql](./09_publication_concurrency_session_a.sql)
+    in session A, then start
+    [09_publication_concurrency_session_b.sql](./09_publication_concurrency_session_b.sql)
+    in session B within two seconds. Keep both queries running; do not cancel
+    either one. Session A publishes record A while holding the generation lock,
+    and session B attempts to publish record B and waits. In the second phase,
+    A changes and audits one published payload while B's direct source change
+    waits to invalidate the singleton. The scripts assert both publications,
+    anonymous visibility, monotonic generation advancement, final source /
+    projection parity, and a verified final generation. Confirm the PIDs differ
+    and that B remains running during both deliberate waits. If the Dashboard
+    cannot provide concurrent connections, report this test as not run rather
+    than treating sequential execution as concurrency coverage.
+17. After both sessions finish successfully, run
+    [09_publication_concurrency_cleanup.sql](./09_publication_concurrency_cleanup.sql)
+    to delete only the two exact test records and verify the resulting
+    generation. If either session fails, roll back its open transaction and
+    inspect the fixtures before cleanup. Never use these scripts in production.
+
+The generation dependency inventory for the audit is exactly the two CMS
+record tables, the two CMS settings tables, and `storage.buckets`. The audit
+function does not query `storage.objects`; those changes are tracked by the
+separate storage-content audit invalidation trigger. The read-only contract
+checks in `08_public_storage_audit_performance.sql` verify the function grants,
+search paths, RLS policy, trigger inventory, and verification-table privilege
+boundary.
 
 The PostgREST integration test requires these environment variables, set only
 in the test shell or a secret manager and never committed or printed:

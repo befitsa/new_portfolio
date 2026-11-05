@@ -1340,6 +1340,153 @@ test('migration is conservative for ambiguous legacy records and preserves proje
   assert.match(migration.trim(), /commit;$/i)
 })
 
+test('publication verification migration removes the global audit from public RLS and fails closed on relevant writes', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/20261105120000_version_public_cms_verification.sql', import.meta.url),
+    'utf8',
+  )
+  const normalizedMigration = migration.replace(/\r\n/g, '\n')
+  const policy = migration.slice(
+    migration.indexOf('create policy portfolio_cms_public_projection_read'),
+    migration.indexOf('drop trigger if exists portfolio_cms_publication_verification_records'),
+  )
+  const reverify = migration.slice(
+    migration.indexOf('create or replace function public.cms_reverify_publication_generation'),
+    migration.indexOf('create or replace function public.cms_invalidate_publication_verification'),
+  )
+  const invalidate = migration.slice(
+    migration.indexOf('create or replace function public.cms_invalidate_publication_verification'),
+    migration.indexOf('create or replace function public.cms_verify_publication_after_mutation'),
+  )
+
+  assert.match(migration, /create table if not exists public\.portfolio_cms_publication_verification/)
+  assert.match(migration, /do \$verification_schema_contract\$[\s\S]*incompatible column layout[\s\S]*incompatible singleton or generation-consistency constraints/)
+  assert.match(migration, /alter table public\.portfolio_cms_publication_verification enable row level security/)
+  assert.match(migration, /revoke all on public\.portfolio_cms_publication_verification[\s\S]*from public, anon, authenticated/)
+  assert.match(policy, /published_payload ->> 'visibility' = 'true'/)
+  assert.match(policy, /select public\.cms_publication_generation_is_verified\(\)/)
+  assert.doesNotMatch(policy, /cms_public_content_audited/)
+  assert.match(reverify, /for update/)
+  assert.match(reverify, /if not public\.cms_public_content_audited\(\) then[\s\S]{0,300}checked_generation = v_generation[\s\S]{0,200}return false/)
+  assert.match(reverify, /verified_generation = v_generation/)
+  assert.match(invalidate, /publication_generation = publication_generation \+ 1/)
+  assert.match(invalidate, /verified_generation = null,\s+verified_at = null/)
+  assert.match(invalidate, /portfolio_cms_records/)
+  assert.match(migration, /create trigger portfolio_cms_publication_verification_projection/)
+  assert.match(invalidate, /portfolio_cms_settings/)
+  assert.match(migration, /create trigger portfolio_cms_publication_verification_public_settings/)
+  assert.match(invalidate, /storage/)
+  assert.match(migration, /deferrable initially deferred/)
+  for (const [table, relation] of [
+    ['records', 'public.portfolio_cms_records'],
+    ['projection', 'public.portfolio_cms_public_records'],
+    ['settings', 'public.portfolio_cms_settings'],
+    ['public_settings', 'public.portfolio_cms_public_settings'],
+    ['buckets', 'storage.buckets'],
+  ]) {
+    assert.ok(
+      normalizedMigration.includes(
+        `create trigger portfolio_cms_publication_verification_${table}_truncate\n  after truncate on ${relation}`,
+      ),
+    )
+  }
+  assert.match(migration, /create or replace function public\.cms_reverify_publication_generation[\s\S]*for update/)
+  assert.match(migration, /create or replace function public\.cms_publication_generation_is_verified[\s\S]*stable[\s\S]*security definer[\s\S]*set search_path = ''/)
+  assert.match(migration, /create or replace function public\.cms_publication_block_reason[\s\S]*?cms_publication_generation_is_verified\(\)/)
+  assert.match(migration, /'publicProjectionEligible', public\.cms_publication_generation_is_verified\(\)/)
+  assert.match(migration, /revoke all on function public\.cms_public_content_audited\(\)[\s\S]*from public, anon, authenticated/)
+  assert.match(migration.trim(), /commit;[\s\S]*notify pgrst, 'reload schema';$/i)
+})
+
+test('publication audit dependencies are invalidated for row mutations and TRUNCATE', async () => {
+  const migration = await readFile(
+    new URL('../supabase/migrations/20261105120000_version_public_cms_verification.sql', import.meta.url),
+    'utf8',
+  )
+  const normalizedMigration = migration.replace(/\r\n/g, '\n')
+  const auditMigration = await readFile(
+    new URL('../supabase/migrations/20261105103000_consolidate_public_storage_audit.sql', import.meta.url),
+    'utf8',
+  )
+  const audit = auditMigration.slice(
+    auditMigration.indexOf('create or replace function public.cms_public_content_audited'),
+    auditMigration.indexOf('revoke all on function public.cms_jsonb_has_unsafe_public_storage_reference'),
+  )
+  for (const [table, trigger] of [
+    ['public.portfolio_cms_records', 'portfolio_cms_publication_verification_records'],
+    ['public.portfolio_cms_public_records', 'portfolio_cms_publication_verification_projection'],
+    ['public.portfolio_cms_settings', 'portfolio_cms_publication_verification_settings'],
+    ['public.portfolio_cms_public_settings', 'portfolio_cms_publication_verification_public_settings'],
+    ['storage.buckets', 'portfolio_cms_publication_verification_buckets'],
+  ]) {
+    assert.ok(audit.includes(table), `audit dependency ${table} is present`)
+    assert.ok(
+      normalizedMigration.includes(
+        `create trigger ${trigger}\n  after insert or update or delete on ${table}`,
+      ),
+      `row invalidation trigger exists for ${table}`,
+    )
+    assert.ok(
+      normalizedMigration.includes(
+        `create trigger ${trigger}_truncate\n  after truncate on ${table}`,
+      ),
+      `TRUNCATE invalidation trigger exists for ${table}`,
+    )
+  }
+  assert.doesNotMatch(audit, /storage\.objects/)
+  assert.match(migration, /revoke all on function public\.cms_invalidate_publication_verification[\s\S]*from public, anon, authenticated/)
+  assert.match(migration, /revoke all on function public\.cms_verify_publication_after_mutation[\s\S]*from public, anon, authenticated/)
+})
+
+test('publication verification includes paired two-session concurrency scripts', async () => {
+  const setup = await readFile(
+    new URL('../supabase/validation/09_publication_concurrency_setup.sql', import.meta.url),
+    'utf8',
+  )
+  const sessionA = await readFile(
+    new URL('../supabase/validation/09_publication_concurrency_session_a.sql', import.meta.url),
+    'utf8',
+  )
+  const sessionB = await readFile(
+    new URL('../supabase/validation/09_publication_concurrency_session_b.sql', import.meta.url),
+    'utf8',
+  )
+  const cleanup = await readFile(
+    new URL('../supabase/validation/09_publication_concurrency_cleanup.sql', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(setup, /cms_save_record[\s\S]*validation-concurrency-a/)
+  assert.match(setup, /cms_save_record[\s\S]*validation-concurrency-b/)
+  assert.match(sessionA, /cms_publish_record\([\s\S]*validation-concurrency-a/)
+  assert.match(sessionA, /audit-owner/)
+  assert.match(sessionB, /cms_publish_record\([\s\S]*validation-concurrency-b/)
+  assert.match(sessionB, /concurrent-invalidator/)
+  assert.match(sessionA, /pg_sleep\(8\)/)
+  assert.match(sessionB, /pg_sleep\(2\)/)
+  assert.match(sessionB, /overwritten by an older audit/)
+  assert.match(cleanup, /cms_delete_record/)
+})
+
+test('publication verification integration covers settings, direct projections, rollback and truncation', async () => {
+  const sql = await readFile(
+    new URL('../supabase/validation/08_publication_verification.sql', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(sql, /validation-private-media-draft/)
+  assert.match(sql, /source_settings_mismatch_fails_closed/)
+  assert.match(sql, /direct_settings_projection_update_fails_closed/)
+  assert.match(sql, /direct_settings_projection_delete_fails_closed/)
+  assert.match(sql, /direct_record_projection_update_fails_closed/)
+  assert.match(sql, /direct_record_projection_delete_fails_closed/)
+  assert.match(sql, /rolled_back_mutation_is_atomic/)
+  assert.match(sql, /multiple_mutations_share_final_verification/)
+  assert.match(sql, /portfolio-private.*public = true|set public = true[\s\S]*portfolio-private/)
+  assert.match(sql, /truncate_invalidates_and_stays_closed/)
+  assert.match(sql.trim(), /rollback;$/i)
+})
+
 test('migration distinguishes every legacy bucket and checks the exact dotted bucket contents and references', async () => {
   const migration = await readFile(
     new URL('../supabase/migrations/20261028130000_portfolio_cms.sql', import.meta.url),
@@ -1486,7 +1633,7 @@ test('social settings asset publication migration keeps the Storage audit and pr
   assert.match(migration, /grant execute on function public\.cms_publish_settings_with_assets\(integer, jsonb\) to authenticated/)
 })
 
-test('public lifecycle validation covers publish, unpublish, delete, stale parity, and audit invalidation', async () => {
+test('public lifecycle validation covers publish, unpublish, delete, republish, stale parity, and audit invalidation', async () => {
   const sql = await readFile(
     new URL('../supabase/validation/06_public_lifecycle.sql', import.meta.url),
     'utf8',
@@ -1497,6 +1644,8 @@ test('public lifecycle validation covers publish, unpublish, delete, stale parit
   assert.match(sql, /cms_delete_record/)
   assert.match(sql, /anonymous_after_publish/)
   assert.match(sql, /anonymous_after_unpublish/)
+  assert.match(sql, /republish_verified/)
+  assert.match(sql, /anonymous_after_republish/)
   assert.match(sql, /anonymous_after_delete/)
   assert.match(sql, /anonymous_stale_projection/)
   assert.match(sql, /anonymous_after_audit_invalidation/)
