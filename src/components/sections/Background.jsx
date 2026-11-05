@@ -17,7 +17,7 @@ const EDUCATION_PREVIEW_COUNT = 2
 const EXPERIENCE_PREVIEW_COUNT = 1
 
 // Timeline: a mint line draws itself down as you scroll, and each entry slides in from the side.
-function Timeline({ items, id, showRecommendationLinks = true, afterFirst = null }) {
+function Timeline({ items, id, showRecommendationLinks = true }) {
   const root = useRef(null)
   const reduced = useReducedMotion()
 
@@ -51,38 +51,33 @@ function Timeline({ items, id, showRecommendationLinks = true, afterFirst = null
     <ol id={id} ref={root} className="relative ml-1.5">
       <span aria-hidden="true" className="absolute top-0 bottom-0 left-0 w-px bg-forest/15" />
       <span aria-hidden="true" data-line className="absolute top-0 bottom-0 left-0 w-px bg-mint" />
-      {items.map((entry, index) => (
-          <li
-            key={entry.id}
-            data-entry
-            className={`relative ${((index === 0 && afterFirst) || index === items.length - 1) ? 'pb-0' : 'pb-14'} pl-8 md:pl-12`}
-          >
-            <span aria-hidden="true" className="absolute top-2 -left-[5px] size-2.5 rounded-full bg-mint ring-4 ring-soft-green" />
-            <p className="font-display text-sm font-medium text-forest">{entry.date}</p>
-            <h3 className="mt-2 font-display text-[clamp(1.6rem,3vw,2.5rem)] leading-tight font-semibold">{entry.title}</h3>
-            <p className="mt-1 text-forest/75">{entry.place}</p>
-            {entry.description && <p className="mt-3 max-w-lg text-forest/75">{entry.description}</p>}
-            {(entry.credentialImageUrl || entry.credentialUrl) && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {entry.credentialImageUrl && <a className="cms-public-document-link" href={entry.credentialImageUrl} target="_blank" rel="noopener noreferrer">{/diploma/i.test(entry.title) ? 'View Diploma' : 'View Certificate'}</a>}
-                {entry.credentialUrl && <a className="cms-public-document-link" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View Credential</a>}
-              </div>
-            )}
-            {showRecommendationLinks && (entry.recommendationLetterImageUrl || entry.recommendationLetterUrl) && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {entry.recommendationLetterImageUrl && <a className="cms-public-document-link" href={entry.recommendationLetterImageUrl} target="_blank" rel="noopener noreferrer">View Recommendation Letter</a>}
-                {entry.recommendationLetterUrl && <a className="cms-public-document-link" href={entry.recommendationLetterUrl} target="_blank" rel="noopener noreferrer">Recommendation Letter Link</a>}
-              </div>
-            )}
-            {entry.skills?.length > 0 && (
-              <ul className="mt-3 flex flex-wrap gap-2" aria-label="Skills used">
-                {entry.skills.map((skill, skillIndex) => (
-                  <li key={skill} className="background-skill-badge" style={{ backgroundColor: skillBadgeColor(skillIndex) }}>{skill}</li>
-                ))}
-              </ul>
-            )}
-            {index === 0 && afterFirst}
-          </li>
+      {items.map((entry) => (
+        <li key={entry.id} data-entry className="relative pb-14 pl-8 last:pb-0 md:pl-12">
+          <span aria-hidden="true" className="absolute top-2 -left-[5px] size-2.5 rounded-full bg-mint ring-4 ring-soft-green" />
+          <p className="font-display text-sm font-medium text-forest">{entry.date}</p>
+          <h3 className="mt-2 font-display text-[clamp(1.6rem,3vw,2.5rem)] leading-tight font-semibold">{entry.title}</h3>
+          <p className="mt-1 text-forest/75">{entry.place}</p>
+          {entry.description && <p className="mt-3 max-w-lg text-forest/75">{entry.description}</p>}
+          {(entry.credentialImageUrl || entry.credentialUrl) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {entry.credentialImageUrl && <a className="cms-public-document-link" href={entry.credentialImageUrl} target="_blank" rel="noopener noreferrer">{/diploma/i.test(entry.title) ? 'View Diploma' : 'View Certificate'}</a>}
+              {entry.credentialUrl && <a className="cms-public-document-link" href={entry.credentialUrl} target="_blank" rel="noopener noreferrer">View Credential</a>}
+            </div>
+          )}
+          {showRecommendationLinks && (entry.recommendationLetterImageUrl || entry.recommendationLetterUrl) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {entry.recommendationLetterImageUrl && <a className="cms-public-document-link" href={entry.recommendationLetterImageUrl} target="_blank" rel="noopener noreferrer">View Recommendation Letter</a>}
+              {entry.recommendationLetterUrl && <a className="cms-public-document-link" href={entry.recommendationLetterUrl} target="_blank" rel="noopener noreferrer">Recommendation Letter Link</a>}
+            </div>
+          )}
+          {entry.skills?.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2" aria-label="Skills used">
+              {entry.skills.map((skill, index) => (
+                <li key={skill} className="background-skill-badge" style={{ backgroundColor: skillBadgeColor(index) }}>{skill}</li>
+              ))}
+            </ul>
+          )}
+        </li>
       ))}
     </ol>
   )
@@ -120,7 +115,7 @@ export default function Background() {
   const previewCount = active === 'education' ? EDUCATION_PREVIEW_COUNT : EXPERIENCE_PREVIEW_COUNT
   const visibleItems = expanded ? current.items : current.items.slice(0, previewCount)
   const recommendationItems = active === 'experience'
-    ? visibleItems.filter((item) => item.recommendationLetterImageUrl || item.recommendationLetterUrl)
+    ? experienceItems.filter((item) => item.recommendationLetterImageUrl || item.recommendationLetterUrl)
     : []
   const timelineId = `background-${active}-timeline`
   const toggleExpanded = active === 'education' ? setEducationExpanded : setExperienceExpanded
@@ -210,9 +205,8 @@ export default function Background() {
                      items={visibleItems}
                      id={timelineId}
                      showRecommendationLinks={active !== 'experience'}
-                     afterFirst={active === 'experience' ? seeMoreButton : null}
                    />
-                   {active === 'education' && seeMoreButton}
+                   {seeMoreButton}
                    {recommendationItems.length > 0 && (
                      <section className="mt-8 border-t border-forest/10 pt-5" aria-labelledby="background-recommendations-title">
                        <h3 id="background-recommendations-title" className="font-display text-sm font-semibold text-forest">Recommendation Letter</h3>
