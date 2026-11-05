@@ -282,6 +282,7 @@ export function CmsDashboardPage() {
   const ready = apiStatus.ready
   const localMode = apiStatus.state === 'local'
   const [assetDiagnostics, setAssetDiagnostics] = useState([])
+  const [showAllAssetDiagnostics, setShowAllAssetDiagnostics] = useState(false)
   const publishedProjects = projects.published.filter((item) => item.status === 'published' && item.visibility)
   const drafts = projects.drafts.filter((item) => item.status === 'draft')
   const currentResume = resumes.published.find((item) => item.isActive && item.visibility)
@@ -291,6 +292,9 @@ export function CmsDashboardPage() {
   const careerDraftCount = experiences.drafts.filter((item) => item.status === 'draft').length
     + education.drafts.filter((item) => item.status === 'draft').length
   const assetIssues = assetDiagnostics.filter((item) => item.status !== 'accessible')
+  const visibleAssetDiagnostics = showAllAssetDiagnostics
+    ? assetDiagnostics
+    : assetDiagnostics.slice(0, 3)
   useEffect(() => {
     if (!ready || localMode) {
       setAssetDiagnostics([])
@@ -344,7 +348,7 @@ export function CmsDashboardPage() {
         <div><h2>Storage asset diagnostics</h2><p>{assetIssues.length ? `${assetIssues.length} asset access issue${assetIssues.length === 1 ? '' : 's'} found.` : `${assetDiagnostics.length} referenced asset${assetDiagnostics.length === 1 ? '' : 's'} accessible.`}</p></div>
         {assetIssues.length > 0 && <Button onClick={retryAssetDiagnostics}><RefreshCw size={14} /> Retry failed assets</Button>}
       </div>
-      <div className="cms-version-list">{assetDiagnostics.map((item, index) => <article className="cms-version-row" key={`${item.recordType}:${item.recordId}:${item.field}:${item.bucket}:${item.objectPath}:${index}`}>
+      <div id="storage-asset-diagnostics-list" className="cms-version-list">{visibleAssetDiagnostics.map((item, index) => <article className="cms-version-row" key={`${item.recordType}:${item.recordId}:${item.field}:${item.bucket}:${item.objectPath}:${index}`}>
         <span className={`cms-version-marker${item.status === 'accessible' ? ' is-active' : ''}`}>{item.status === 'accessible' ? <Check size={14} /> : <CircleAlert size={14} />}</span>
         <div><strong>{item.status === 'accessible' ? 'Accessible' : item.status.replaceAll('-', ' ')}</strong>
           <small>{item.recordType} · record {item.recordId} · field {item.field}</small>
@@ -361,6 +365,15 @@ export function CmsDashboardPage() {
           )}>Open record to replace or investigate</a>}
         </div>
       </article>)}</div>
+      {assetDiagnostics.length > 3 && <div className="mt-4 flex justify-center">
+        <Button
+          aria-expanded={showAllAssetDiagnostics}
+          aria-controls="storage-asset-diagnostics-list"
+          onClick={() => setShowAllAssetDiagnostics((expanded) => !expanded)}
+        >
+          {showAllAssetDiagnostics ? 'See Less' : 'See More'}
+        </Button>
+      </div>}
     </section>}
     <section className="cms-welcome-card cms-dashboard-welcome"><div><span className="cms-dashboard-kicker"><ShieldCheck size={15} /> {localMode ? 'LOCAL PREVIEW' : 'CURATOR CONSOLE'}</span><h2>Your portfolio workspace</h2><p>{localMode ? 'Create, edit, and remove local records. Local publish actions update only the local public preview.' : ready ? 'Your connected CMS provider can save drafts and manage private uploads. Publishing remains protected by the Storage audit gate.' : apiStatus.message}</p></div><div className="cms-welcome-status"><strong className={ready && !errors.length ? 'is-ready' : ''}>{localMode ? 'Local JSON + disk ready' : ready && !errors.length ? 'Persistent provider connected' : apiStatus.label}</strong><p>{localMode ? 'Records are saved in local JSON files; uploads are stored on disk.' : ready ? apiStatus.publishReady ? 'Content API is connected; publishing is ready.' : apiStatus.publishMessage || 'Content API is connected; publishing needs Storage review.' : apiStatus.message}</p></div></section>
     <div className="cms-quick-actions"><span className="cms-section-kicker">QUICK ACTIONS</span><Button variant="primary" href="/projects/new"><Plus size={15} /> Add Project</Button><Button href="/background"><Plus size={15} /> Add Experience</Button><Button href="/resume"><Upload size={15} /> Upload Resume</Button><Button href="/media"><ImageIcon size={15} /> Manage Media</Button></div>
