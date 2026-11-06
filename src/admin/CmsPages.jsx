@@ -1920,10 +1920,12 @@ export function CmsStorageAuditPage() {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [reviewed, setReviewed] = useState(false)
+  const [showAllPublicObjects, setShowAllPublicObjects] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
   const loadInventory = useCallback(async () => {
+    setShowAllPublicObjects(false)
     if (localMode) {
       setInventory(null)
       setError('Public Storage review is available only in the authenticated Supabase CMS.')
@@ -1943,6 +1945,10 @@ export function CmsStorageAuditPage() {
       setLoading(false)
     }
   }, [localMode])
+
+  const visiblePublicObjects = showAllPublicObjects
+    ? inventory?.objects || []
+    : inventory?.objects.slice(0, 3) || []
 
   useEffect(() => {
     loadInventory()
@@ -1983,19 +1989,30 @@ export function CmsStorageAuditPage() {
       </section>
       <section className="cms-editor-card">
         <div className="cms-panel-heading"><div><h2>Public object inventory</h2><p>{inventory ? `${inventory.objects.length} object${inventory.objects.length === 1 ? '' : 's'} currently in portfolio-published` : 'Reload the inventory to begin a review.'}</p></div><Button onClick={loadInventory} disabled={loading || busy}><RefreshCw size={14} /> Reload inventory</Button></div>
-        {loading ? <LoadingPanel /> : inventory?.objects.length ? <ol className="cms-version-list">{inventory.objects.map((object) => {
-          const metadata = object.metadata || {}
-          const references = object.referencedBy || []
-          return <li className="cms-version-row" key={object.id}>
-            <div className="cms-version-marker"><FileText size={15} /></div>
-            <div>
-              <strong>{object.name}</strong>
-              <small>{metadata.mimetype || metadata.contentType || 'Unknown content type'} · {metadata.size ? `${metadata.size} bytes` : 'Size unavailable'} · updated {object.updatedAt || 'unknown'}</small>
-              <small>{references.length ? `Referenced by ${references.map((reference) => `${reference.contentType}:${reference.recordId}`).join(', ')}` : 'Not referenced by currently published CMS content — verify whether this public object should remain.'}</small>
-              <a href={object.publicUrl} target="_blank" rel="noreferrer">Open public object for inspection</a>
-            </div>
-          </li>
-        })}</ol> : inventory ? <p className="cms-muted">The bucket currently has no objects.</p> : null}
+        {loading ? <LoadingPanel /> : inventory?.objects.length ? <>
+          <ol id="public-object-inventory-list" className="cms-version-list">{visiblePublicObjects.map((object) => {
+            const metadata = object.metadata || {}
+            const references = object.referencedBy || []
+            return <li className="cms-version-row" key={object.id}>
+              <div className="cms-version-marker"><FileText size={15} /></div>
+              <div>
+                <strong>{object.name}</strong>
+                <small>{metadata.mimetype || metadata.contentType || 'Unknown content type'} · {metadata.size ? `${metadata.size} bytes` : 'Size unavailable'} · updated {object.updatedAt || 'unknown'}</small>
+                <small>{references.length ? `Referenced by ${references.map((reference) => `${reference.contentType}:${reference.recordId}`).join(', ')}` : 'Not referenced by currently published CMS content — verify whether this public object should remain.'}</small>
+                <a href={object.publicUrl} target="_blank" rel="noreferrer">Open public object for inspection</a>
+              </div>
+            </li>
+          })}</ol>
+          {inventory.objects.length > 3 && <div className="mt-4 flex justify-center">
+            <Button
+              aria-expanded={showAllPublicObjects}
+              aria-controls="public-object-inventory-list"
+              onClick={() => setShowAllPublicObjects((expanded) => !expanded)}
+            >
+              {showAllPublicObjects ? 'See Less' : 'See More'}
+            </Button>
+          </div>}
+        </> : inventory ? <p className="cms-muted">The bucket currently has no objects.</p> : null}
       </section>
       {inventory && !loading && <section className="cms-editor-card">
         <div className="cms-inline-toggles"><label><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /> I verified the bucket configuration and inspected every listed object, including unreferenced objects.</label></div>
