@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Eye, EyeOff, LockKeyhole, UserRound } from 'lucide-react'
 import { useAdminAuth } from '../lib/adminAuth.jsx'
 import BrandLink from '../components/common/BrandLink.jsx'
@@ -29,6 +29,7 @@ export default function AdminLogin({ onSuccess }) {
   const [formError, setFormError] = useState('')
   const [recoveryMode, setRecoveryMode] = useState(false)
   const [recoverySent, setRecoverySent] = useState(false)
+  const recoverySubmittingRef = useRef(false)
   const message = formError || authError
 
   const submit = async (event) => {
@@ -52,12 +53,14 @@ export default function AdminLogin({ onSuccess }) {
 
   const requestRecovery = async (event) => {
     event.preventDefault()
+    if (recoverySubmittingRef.current) return
     setFormError('')
     clearError()
     if (!username.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username.trim())) {
       setFormError('Enter a valid administrator email address.')
       return
     }
+    recoverySubmittingRef.current = true
     setBusy(true)
     try {
       await requestPasswordReset(username)
@@ -65,6 +68,7 @@ export default function AdminLogin({ onSuccess }) {
     } catch {
       setFormError('We could not process that request right now. Please try again later.')
     } finally {
+      recoverySubmittingRef.current = false
       setBusy(false)
     }
   }

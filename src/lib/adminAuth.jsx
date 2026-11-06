@@ -21,6 +21,25 @@ function friendlyAuthError(error) {
   return error?.message || 'Sign-in could not be completed. Check your connection and try again.'
 }
 
+function passwordRecoveryDiagnostic(error) {
+  const redactSensitiveValues = (value) => String(value || '')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted email]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/https?:\/\/\S+/gi, '[redacted URL]')
+    .replace(/\b(?:eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)?|[A-Za-z0-9_-]{40,})\b/g, '[redacted token]')
+    .slice(0, 240)
+  const safeLabel = (value) => typeof value === 'string'
+    ? value.replace(/[^\w.-]/g, '').slice(0, 64)
+    : ''
+
+  return {
+    name: safeLabel(error?.name) || 'AuthError',
+    code: safeLabel(error?.code) || 'unknown',
+    status: Number.isFinite(error?.status) ? error.status : null,
+    message: redactSensitiveValues(error?.message) || 'No error message provided',
+  }
+}
+
 async function assertRegisteredAdmin(user) {
   if (!user?.id) {
     throw new Error('This Supabase account is not authorized to access the portfolio dashboard.')
@@ -127,10 +146,17 @@ export function AdminAuthProvider({ children }) {
       if (!supabase || !isSupabaseConfigured) {
         throw new Error('Password recovery is available only through the configured Supabase CMS.')
       }
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/admin/reset-password`,
-      })
-      if (error) throw new Error(friendlyAuthError(error))
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/admin/reset-password`,
+        })
+        if (error) throw error
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('[AdminAuth] Password recovery request failed', passwordRecoveryDiagnostic(error))
+        }
+        throw new Error(friendlyAuthError(error))
+      }
     },
     login: async (email, password) => {
       if (isLocalFilesystemCms) {
