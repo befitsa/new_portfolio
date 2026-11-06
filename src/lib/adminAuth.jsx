@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabase } from './supabase.js'
 import { isLocalFilesystemCms } from '../services/cmsProvider.js'
+import { cmsHref } from '../admin/cmsPaths.js'
 
 const AdminAuthContext = createContext(null)
 
@@ -35,9 +36,12 @@ async function assertRegisteredAdmin(user) {
 
 export function AdminAuthProvider({ children }) {
   const [state, setState] = useState({ loading: true, user: null, error: '' })
+  const [passwordRecovery, setPasswordRecovery] = useState(false)
+  const recoveryActiveRef = useRef(false)
 
   useEffect(() => {
-    if (isLocalFilesystemCms) {
+    const isLocalAuthFlowRoute = /^\/(?:admin\/)?(?:login|reset-password)\/?$/.test(window.location.pathname)
+    if (isLocalFilesystemCms && !isLocalAuthFlowRoute) {
       setState({ loading: false, user: { id: 'local-development-admin', uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
       return undefined
     }
@@ -73,12 +77,36 @@ export function AdminAuthProvider({ children }) {
       }
     }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      queueMicrotask(() => { void resolveSession(session?.user || null) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        recoveryActiveRef.current = true
+        requestId += 1
+        setPasswordRecovery(true)
+        setState({ loading: false, user: null, error: '' })
+        return
+      }
+      if (recoveryActiveRef.current) {
+        if (event === 'SIGNED_OUT' || !session) {
+          recoveryActiveRef.current = false
+          setPasswordRecovery(false)
+          setState({ loading: false, user: null, error: '' })
+        } else {
+          setState({ loading: false, user: null, error: '' })
+        }
+        return
+      }
+      queueMicrotask(() => {
+        if (!recoveryActiveRef.current) {
+          void resolveSession(session?.user || null)
+        }
+      })
     })
     void supabase.auth.getSession().then(({ data, error }) => {
       if (error) throw error
-      return resolveSession(data.session?.user || null)
+      if (!recoveryActiveRef.current) {
+        return resolveSession(data.session?.user || null)
+      }
+      setState({ loading: false, user: null, error: '' })
     }).catch((error) => {
       if (active) setState({ loading: false, user: null, error: friendlyAuthError(error) })
     })
@@ -92,8 +120,19 @@ export function AdminAuthProvider({ children }) {
 
   const value = useMemo(() => ({
     ...state,
+    passwordRecovery,
     configured: isLocalFilesystemCms || isSupabaseConfigured,
+    recoveryAvailable: Boolean(supabase && isSupabaseConfigured),
     clearError: () => setState((current) => ({ ...current, error: '' })),
+    requestPasswordReset: async (email) => {
+      if (!supabase || !isSupabaseConfigured) {
+        throw new Error('Password recovery is available only through the configured Supabase CMS.')
+      }
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: new URL(cmsHref('/reset-password'), window.location.origin).toString(),
+      })
+      if (error) throw new Error(friendlyAuthError(error))
+    },
     login: async (email, password) => {
       if (isLocalFilesystemCms) {
         setState({ loading: false, user: { id: 'local-development-admin', uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
@@ -131,7 +170,7 @@ export function AdminAuthProvider({ children }) {
       }
       setState({ loading: false, user: null, error: '' })
     },
-  }), [state])
+  }), [passwordRecovery, state])
 
   return <AdminAuthContext.Provider value={value}>{children}</AdminAuthContext.Provider>
 }

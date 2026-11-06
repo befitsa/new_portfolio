@@ -1756,3 +1756,40 @@ test('Storage audit hosted scenarios cover operator identity, stale snapshots, a
   assert.match(sql, /cms_record_public_storage_audit/)
   assert.match(sql, /auditedBy, userData\.user\.id/)
 })
+
+test('admin password recovery uses Supabase recovery events and never treats recovery as dashboard login', async () => {
+  const auth = await readFile(
+    new URL('../src/lib/adminAuth.jsx', import.meta.url),
+    'utf8',
+  )
+  const login = await readFile(
+    new URL('../src/admin/AdminLogin.jsx', import.meta.url),
+    'utf8',
+  )
+  const recovery = await readFile(
+    new URL('../src/admin/AdminPasswordRecovery.jsx', import.meta.url),
+    'utf8',
+  )
+  const app = await readFile(
+    new URL('../src/admin/AdminApp.jsx', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(auth, /resetPasswordForEmail\(email\.trim\(\),\s*\{\s*redirectTo: new URL\(cmsHref\('\/reset-password'\), window\.location\.origin\)\.toString\(\)/)
+  assert.match(auth, /event === 'PASSWORD_RECOVERY'/)
+  assert.match(auth, /isLocalAuthFlowRoute/)
+  assert.match(auth, /recoveryActiveRef\.current = true/)
+  assert.match(auth, /recoveryAvailable: Boolean\(supabase && isSupabaseConfigured\)/)
+  assert.match(auth, /if \(!recoveryActiveRef\.current\)[\s\S]*resolveSession/)
+  assert.match(login, /Forgot Password\?/)
+  assert.match(login, /localMode && recoveryAvailable/)
+  assert.match(login, /If an administrator account exists for that email/)
+  assert.match(recovery, /supabase\.rpc\('cms_is_admin'\)/)
+  assert.match(recovery, /supabase\.auth\.updateUser\(\{ password \}\)/)
+  assert.match(recovery, /password\.length < 8/)
+  assert.match(recovery, /password !== confirmation/)
+  assert.match(recovery, /supabase\.auth\.signOut\(\)/)
+  assert.match(app, /resetPasswordRoute = currentPath === '\/reset-password'/)
+  assert.match(app, /if \(resetPasswordRoute\) return <AdminPasswordRecovery \/>/)
+  assert.match(recovery, /history\.replaceState\(window\.history\.state, '', window\.location\.pathname\)/)
+})

@@ -2900,6 +2900,11 @@ button.cms-sync-pill:disabled {
   line-height: 1.5;
 }
 
+.cms-login-card .cms-login-error {
+  background: rgb(226 153 139 / 14%);
+  color: #783d32;
+}
+
 .cms-login-submit {
   min-height: 47px;
   margin-top: 12px;
@@ -2930,6 +2935,53 @@ button.cms-sync-pill:disabled {
   font-size: 11px;
   line-height: 1.5;
   text-align: center;
+}
+
+.cms-text-link {
+  justify-self: center;
+  border: 0;
+  padding: 3px 0;
+  background: transparent;
+  color: var(--color-forest);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.cms-text-link:hover:not(:disabled) {
+  color: var(--color-gold);
+}
+
+.cms-text-link:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.cms-text-link:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.cms-forgot-link {
+  justify-self: end;
+  margin-top: -3px;
+}
+
+.cms-recovery-status {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  color: #53635a;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.cms-recovery-status p {
+  margin: 0;
 }
 
 .cms-auth-loading {

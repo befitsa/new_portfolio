@@ -35,6 +35,19 @@ Draft records are kept separate from their published versions. A successful publ
 
 The production admin CMS and public published-content adapter use Supabase. The browser authenticates through Supabase Auth, reads/writes CMS records through authenticated Postgres RPCs, reads public projection tables, and uploads draft assets to Supabase Storage. Administrator authorization is enforced by the existing `public.is_portfolio_admin()` registry and CMS RPCs; a signed-in user is not automatically an administrator. Draft uploads stay in the private `portfolio-private` bucket until an authorized publish operation promotes referenced assets.
 
+### Admin password recovery
+
+The Supabase admin login provides **Forgot Password?** and sends a Supabase Auth reset email using the current admin origin and route. Configure Supabase Dashboard → **Authentication → URL Configuration** so the Site URL is the correct production site origin and the Additional Redirect URLs allow the exact recovery paths used by the deployment:
+
+- Local path-based admin: `http://localhost:5173/admin/reset-password`
+- Local admin host (with the default `VITE_ADMIN_SUBDOMAIN=dev`): `http://dev.localhost:5173/reset-password`
+- Production path-based admin: `https://YOUR_PRODUCTION_HOST/admin/reset-password`
+- Production admin subdomain: `https://YOUR_ADMIN_HOST/reset-password`
+
+Only add the actual production host(s) and local development URLs used by your team; do not use a broad wildcard. In Vite development mode, the regular CMS remains local-only; `/admin/login` (or `/login` on the configured admin host) can also send a Supabase recovery email when the Supabase public URL and publishable key are configured. The corresponding reset route processes the Supabase callback without changing local CMS data or login behavior. In **Authentication → Email Templates → Reset Password**, retain Supabase's confirmation URL variable (`{{ .ConfirmationURL }}`) so the email link can establish the recovery session and return to the configured path. Confirm Auth email delivery/SMTP and the template sender, then test delivery in the mailbox and Supabase Auth logs. A missing, expired, or non-admin recovery session cannot show the password form. A valid recovery session must pass the existing `cms_is_admin` check; after changing the password the user is signed out and must sign in normally. Recovery does not extend or bypass the configured admin session lifetime.
+
+The repository cannot inspect or change hosted Supabase URL allowlists, SMTP/email-template settings, or verify delivered email/reset links. Complete these project-level settings and test a real recovery link in a non-production test account before relying on recovery in production.
+
 Site settings remain private as drafts. An explicit settings publish marks the global profile settings visible so legacy settings imported with `visibility: false` can be exposed through the public projection; use **Publish settings** after deployment to republish those settings.
 
 ### Netlify build configuration

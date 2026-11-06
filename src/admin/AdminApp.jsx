@@ -9,6 +9,7 @@ import { checkCmsApiHealth, useCmsApiStatus } from '../lib/adminApi.js'
 import { AdminAuthProvider, useAdminAuth } from '../lib/adminAuth.jsx'
 import { cmsHref, cmsRoutePath } from './cmsPaths.js'
 import AdminLogin, { adminHomePath, adminLoginPath, safeAdminReturnPath } from './AdminLogin.jsx'
+import AdminPasswordRecovery from './AdminPasswordRecovery.jsx'
 import BrandLink from '../components/common/BrandLink.jsx'
 import {
   CmsBackgroundPage, CmsDashboardPage, CmsMediaPage, CmsProjectEditorPage, CmsSkillsPage,
@@ -101,11 +102,13 @@ function AdminWorkspace({ onLogout }) {
 
 function AdminEntry() {
   const { loading, user, logout } = useAdminAuth()
-  const loginRoute = cmsRoutePath() === '/login'
+  const currentPath = cmsRoutePath()
+  const loginRoute = currentPath === '/login'
+  const resetPasswordRoute = currentPath === '/reset-password'
   const next = safeAdminReturnPath(new URLSearchParams(window.location.search).get('next'))
   useEffect(() => {
     if (loading) return
-    if (!user && !loginRoute) {
+    if (!user && !loginRoute && !resetPasswordRoute) {
       const current = `${window.location.pathname}${window.location.search}`
       const destination = adminLoginPath()
       const query = new URLSearchParams({ next: current })
@@ -113,8 +116,9 @@ function AdminEntry() {
       return
     }
     if (user && loginRoute) window.location.replace(next)
-  }, [loading, user, loginRoute, next])
+  }, [loading, user, loginRoute, resetPasswordRoute, next])
 
+  if (resetPasswordRoute) return <AdminPasswordRecovery />
   if (loading || (!user && !loginRoute)) {
     return <main className="cms-auth-loading" role="status"><span className="cms-auth-spinner" />Verifying administrator access…</main>
   }
