@@ -10,7 +10,7 @@ export function getPublicSiteUrl(location = window.location) {
   }
 
   if (isLocalDevelopment) {
-    return 'http://localhost:5173/'
+    return 'http://localhost:3000/'
   }
 
   const configuredUrl = import.meta.env.VITE_PUBLIC_PORTFOLIO_URL?.trim()

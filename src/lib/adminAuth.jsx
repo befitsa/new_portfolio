@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabase } from './supabase.js'
 import { isLocalFilesystemCms } from '../services/cmsProvider.js'
-import { cmsHref } from '../admin/cmsPaths.js'
 
 const AdminAuthContext = createContext(null)
 
@@ -129,7 +128,7 @@ export function AdminAuthProvider({ children }) {
         throw new Error('Password recovery is available only through the configured Supabase CMS.')
       }
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: new URL(cmsHref('/reset-password'), window.location.origin).toString(),
+        redirectTo: `${window.location.origin}/admin/reset-password`,
       })
       if (error) throw new Error(friendlyAuthError(error))
     },

@@ -11,7 +11,7 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open the URL printed by Vite. The public portfolio is at `/`; the local CMS is at `/admin`. Local development authentication is intentionally Firebase-free and is only enabled in Vite development mode. Do not expose the development server to the public internet.
+Open `http://localhost:3000`. The public portfolio is at `/`; the local CMS is at `/admin`. Local development authentication is intentionally Firebase-free and is only enabled in Vite development mode. Do not expose the development server to the public internet.
 
 The first local run creates `.local-cms/content.json` with empty project, experience, education, resume, and media collections, plus profile settings initialized from the existing profile. Existing files are read and validated, never reset on startup; malformed or unsupported files cause an error rather than being overwritten. Uploaded images, media, and PDF resumes are stored under `.local-cms/uploads/`. Both locations are ignored by Git, persist through browser refreshes and server restarts, and remain on the local machine.
 
@@ -37,14 +37,13 @@ The production admin CMS and public published-content adapter use Supabase. The 
 
 ### Admin password recovery
 
-The Supabase admin login provides **Forgot Password?** and sends a Supabase Auth reset email using the current admin origin and route. Configure Supabase Dashboard → **Authentication → URL Configuration** so the Site URL is the correct production site origin and the Additional Redirect URLs allow the exact recovery paths used by the deployment:
+The Supabase admin login provides **Forgot Password?** and sends a Supabase Auth reset email to `${window.location.origin}/admin/reset-password`. Configure Supabase Dashboard → **Authentication → URL Configuration** with the correct Site URL and allow the exact recovery redirect URLs:
 
-- Local path-based admin: `http://localhost:5173/admin/reset-password`
-- Local admin host (with the default `VITE_ADMIN_SUBDOMAIN=dev`): `http://dev.localhost:5173/reset-password`
-- Production path-based admin: `https://YOUR_PRODUCTION_HOST/admin/reset-password`
-- Production admin subdomain: `https://YOUR_ADMIN_HOST/reset-password`
+- Local Site URL: `http://localhost:3000`
+- Local Redirect URL: `http://localhost:3000/admin/reset-password`
+- Production Redirect URL: `https://YOUR-PRODUCTION-DOMAIN/admin/reset-password`
 
-Only add the actual production host(s) and local development URLs used by your team; do not use a broad wildcard. In Vite development mode, the regular CMS remains local-only; `/admin/login` (or `/login` on the configured admin host) can also send a Supabase recovery email when the Supabase public URL and publishable key are configured. The corresponding reset route processes the Supabase callback without changing local CMS data or login behavior. In **Authentication → Email Templates → Reset Password**, retain Supabase's confirmation URL variable (`{{ .ConfirmationURL }}`) so the email link can establish the recovery session and return to the configured path. Confirm Auth email delivery/SMTP and the template sender, then test delivery in the mailbox and Supabase Auth logs. A missing, expired, or non-admin recovery session cannot show the password form. A valid recovery session must pass the existing `cms_is_admin` check; after changing the password the user is signed out and must sign in normally. Recovery does not extend or bypass the configured admin session lifetime.
+Only add the actual production host and local development URL used by your team; do not use a broad wildcard. In Vite development mode, the regular CMS remains local-only; `/admin/login` can also send a Supabase recovery email when the Supabase public URL and publishable key are configured. The reset route processes the Supabase callback without changing local CMS data or login behavior. In **Authentication → Email Templates → Reset Password**, retain Supabase's confirmation URL variable (`{{ .ConfirmationURL }}`) so the email link can establish the recovery session and return to the configured path. Confirm Auth email delivery/SMTP and the template sender, then test delivery in the mailbox and Supabase Auth logs. A missing, expired, reused, or non-admin recovery session cannot show the password form. A valid recovery session must pass the existing `cms_is_admin` check; after changing the password the user is signed out and must sign in normally. Recovery does not extend or bypass the configured admin session lifetime.
 
 The repository cannot inspect or change hosted Supabase URL allowlists, SMTP/email-template settings, or verify delivered email/reset links. Complete these project-level settings and test a real recovery link in a non-production test account before relying on recovery in production.
 

@@ -1774,8 +1774,19 @@ test('admin password recovery uses Supabase recovery events and never treats rec
     new URL('../src/admin/AdminApp.jsx', import.meta.url),
     'utf8',
   )
+  const viteConfig = await readFile(
+    new URL('../vite.config.js', import.meta.url),
+    'utf8',
+  )
+  const siteUrls = await readFile(
+    new URL('../src/lib/siteUrls.js', import.meta.url),
+    'utf8',
+  )
 
-  assert.match(auth, /resetPasswordForEmail\(email\.trim\(\),\s*\{\s*redirectTo: new URL\(cmsHref\('\/reset-password'\), window\.location\.origin\)\.toString\(\)/)
+  assert.match(auth, /resetPasswordForEmail\(email\.trim\(\),\s*\{\s*redirectTo: `\$\{window\.location\.origin\}\/admin\/reset-password`/)
+  assert.match(viteConfig, /port:\s*3000/)
+  assert.match(viteConfig, /strictPort:\s*true/)
+  assert.match(siteUrls, /return 'http:\/\/localhost:3000\/'/)
   assert.match(auth, /event === 'PASSWORD_RECOVERY'/)
   assert.match(auth, /isLocalAuthFlowRoute/)
   assert.match(auth, /recoveryActiveRef\.current = true/)
