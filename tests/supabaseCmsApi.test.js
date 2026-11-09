@@ -35,6 +35,17 @@ test('password recovery redirect prefers explicit and configured public app URLs
   assert.equal(getAdminRecoveryRedirectUrl({
     origin: 'https://portfolio.example',
   }), 'https://portfolio.example/admin/reset-password')
+
+  assert.throws(() => getAdminRecoveryRedirectUrl({
+    origin: 'https://portfolio.example',
+    isProduction: true,
+  }), /VITE_ADMIN_RECOVERY_REDIRECT_URL must be configured for production/)
+
+  assert.throws(() => getAdminRecoveryRedirectUrl({
+    configuredRedirectUrl: 'http://localhost:3000/admin/reset-password',
+    origin: 'https://portfolio.example',
+    isProduction: true,
+  }), /Production password recovery cannot redirect to localhost/)
 })
 
 test('password recovery redirect rejects invalid configured URLs', () => {
@@ -1805,6 +1816,10 @@ test('admin password recovery uses Supabase recovery events and never treats rec
     new URL('../src/admin/AdminLogin.jsx', import.meta.url),
     'utf8',
   )
+  const forgotPassword = await readFile(
+    new URL('../src/admin/AdminForgotPassword.jsx', import.meta.url),
+    'utf8',
+  )
   const recovery = await readFile(
     new URL('../src/admin/AdminPasswordRecovery.jsx', import.meta.url),
     'utf8',
@@ -1819,6 +1834,14 @@ test('admin password recovery uses Supabase recovery events and never treats rec
   )
   const siteUrls = await readFile(
     new URL('../src/lib/siteUrls.js', import.meta.url),
+    'utf8',
+  )
+  const netlifyConfig = await readFile(
+    new URL('../netlify.toml', import.meta.url),
+    'utf8',
+  )
+  const supabaseClient = await readFile(
+    new URL('../src/lib/supabase.js', import.meta.url),
     'utf8',
   )
 
@@ -1836,17 +1859,20 @@ test('admin password recovery uses Supabase recovery events and never treats rec
   assert.match(viteConfig, /strictPort:\s*true/)
   assert.match(siteUrls, /return 'http:\/\/localhost:3000\/'/)
   assert.match(auth, /event === 'PASSWORD_RECOVERY'/)
+  assert.match(supabaseClient, /detectSessionInUrl:\s*true/)
   assert.match(auth, /isLocalAuthFlowRoute/)
   assert.match(auth, /recoveryActiveRef\.current = true/)
   assert.match(auth, /recoveryAvailable: Boolean\(supabase && isSupabaseConfigured\)/)
   assert.match(auth, /if \(!recoveryActiveRef\.current\)[\s\S]*resolveSession/)
   assert.match(login, /Forgot Password\?/)
-  assert.match(login, /localMode && recoveryAvailable/)
-  assert.match(login, /If an administrator account exists for that email/)
-  assert.match(login, /const recoverySubmittingRef = useRef\(false\)/)
-  assert.match(login, /if \(recoverySubmittingRef\.current\) return/)
-  assert.match(login, /<form className="cms-login-form" onSubmit={requestRecovery}/)
-  assert.match(login, /className="cms-login-submit" type="submit" disabled=\{!configured \|\| busy\}>\s*\{busy \? 'Sending reset link…' : 'Send reset link'\}/)
+  assert.match(login, /adminForgotPasswordPath/)
+  assert.match(login, /href=\{adminForgotPasswordPath\(\)\}/)
+  assert.match(forgotPassword, /requestPasswordReset\(email\)/)
+  assert.match(forgotPassword, /If an administrator account exists for that email/)
+  assert.match(forgotPassword, /const submittingRef = useRef\(false\)/)
+  assert.match(forgotPassword, /if \(submittingRef\.current\) return/)
+  assert.match(forgotPassword, /<form className="cms-login-form" onSubmit=\{submit\}/)
+  assert.match(forgotPassword, /Send reset link/)
   assert.match(recovery, /supabase\.rpc\('cms_is_admin'\)/)
   assert.match(recovery, /supabase\.auth\.updateUser\(\{ password \}\)/)
   assert.match(recovery, /aria-label=\{showPassword \? 'Hide new password' : 'Show new password'\}/)
@@ -1855,6 +1881,10 @@ test('admin password recovery uses Supabase recovery events and never treats rec
   assert.match(recovery, /password !== confirmation/)
   assert.match(recovery, /supabase\.auth\.signOut\(\)/)
   assert.match(app, /resetPasswordRoute = currentPath === '\/reset-password'/)
+  assert.match(app, /forgotPasswordRoute = currentPath === '\/forgot-password'/)
+  assert.match(app, /if \(forgotPasswordRoute\) return <AdminForgotPassword \/>/)
   assert.match(app, /if \(resetPasswordRoute\) return <AdminPasswordRecovery \/>/)
   assert.match(recovery, /history\.replaceState\(window\.history\.state, '', window\.location\.pathname\)/)
+  assert.match(netlifyConfig, /from = "\/\*"\s+to = "\/index\.html"\s+status = 200/)
+  assert.match(netlifyConfig, /from = "\/\*"\s+to = "\/index\.html"\s+status = 200/)
 })

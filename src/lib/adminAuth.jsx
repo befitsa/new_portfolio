@@ -59,7 +59,7 @@ export function AdminAuthProvider({ children }) {
   const recoveryActiveRef = useRef(false)
 
   useEffect(() => {
-    const isLocalAuthFlowRoute = /^\/(?:admin\/)?(?:login|reset-password)\/?$/.test(window.location.pathname)
+    const isLocalAuthFlowRoute = /^\/(?:admin\/)?(?:login|forgot-password|reset-password)\/?$/.test(window.location.pathname)
     if (isLocalFilesystemCms && !isLocalAuthFlowRoute) {
       setState({ loading: false, user: { id: 'local-development-admin', uid: 'local-development-admin', displayName: 'Local developer' }, error: '' })
       return undefined
@@ -153,6 +153,7 @@ export function AdminAuthProvider({ children }) {
             configuredRedirectUrl: import.meta.env.VITE_ADMIN_RECOVERY_REDIRECT_URL,
             publicSiteUrl: import.meta.env.VITE_PUBLIC_PORTFOLIO_URL,
             origin: window.location.origin,
+            isProduction: import.meta.env.PROD,
           }),
         })
         if (error) throw error
