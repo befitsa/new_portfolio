@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabase } from './supabase.js'
+import { getAdminRecoveryRedirectUrl } from './siteUrls.js'
 import { isLocalFilesystemCms } from '../services/cmsProvider.js'
 
 const AdminAuthContext = createContext(null)
@@ -148,7 +149,11 @@ export function AdminAuthProvider({ children }) {
       }
       try {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${window.location.origin}/admin/reset-password`,
+          redirectTo: getAdminRecoveryRedirectUrl({
+            configuredRedirectUrl: import.meta.env.VITE_ADMIN_RECOVERY_REDIRECT_URL,
+            publicSiteUrl: import.meta.env.VITE_PUBLIC_PORTFOLIO_URL,
+            origin: window.location.origin,
+          }),
         })
         if (error) throw error
       } catch (error) {

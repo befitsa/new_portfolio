@@ -12,7 +12,46 @@ import {
   SupabaseCmsError,
   validateSupabaseUpload,
 } from '../src/lib/supabaseCmsApi.js'
+import { getAdminRecoveryRedirectUrl } from '../src/lib/siteUrls.js'
 import { projectSchema } from '../src/lib/db/contentSchemas.js'
+
+test('password recovery redirect prefers explicit and configured public app URLs', () => {
+  assert.equal(getAdminRecoveryRedirectUrl({
+    configuredRedirectUrl: 'https://portfolio.example/admin/reset-password',
+    publicSiteUrl: 'https://other.example',
+    origin: 'http://localhost:3000',
+  }), 'https://portfolio.example/admin/reset-password')
+
+  assert.equal(getAdminRecoveryRedirectUrl({
+    publicSiteUrl: 'https://portfolio.example/',
+    origin: 'http://localhost:3000',
+  }), 'https://portfolio.example/admin/reset-password')
+
+  assert.equal(getAdminRecoveryRedirectUrl({
+    configuredRedirectUrl: 'http://localhost:3000/admin/reset-password',
+    origin: 'http://localhost:3000',
+  }), 'http://localhost:3000/admin/reset-password')
+
+  assert.equal(getAdminRecoveryRedirectUrl({
+    origin: 'https://portfolio.example',
+  }), 'https://portfolio.example/admin/reset-password')
+})
+
+test('password recovery redirect rejects invalid configured URLs', () => {
+  assert.throws(() => getAdminRecoveryRedirectUrl({
+    configuredRedirectUrl: 'javascript:alert(1)',
+    origin: 'http://localhost:3000',
+  }), /must use HTTP or HTTPS/)
+
+  assert.throws(() => getAdminRecoveryRedirectUrl({
+    configuredRedirectUrl: 'https://portfolio.example/',
+    origin: 'http://localhost:3000',
+  }), /must end in \/admin\/reset-password/)
+
+  assert.throws(() => getAdminRecoveryRedirectUrl({
+    origin: 'http://localhost:3000',
+  }), /Set VITE_ADMIN_RECOVERY_REDIRECT_URL or VITE_PUBLIC_PORTFOLIO_URL/)
+})
 
 function project(overrides = {}) {
   return projectSchema.parse({
@@ -1783,7 +1822,12 @@ test('admin password recovery uses Supabase recovery events and never treats rec
     'utf8',
   )
 
-  assert.match(auth, /resetPasswordForEmail\(email\.trim\(\),\s*\{\s*redirectTo: `\$\{window\.location\.origin\}\/admin\/reset-password`/)
+  assert.match(auth, /resetPasswordForEmail\(email\.trim\(\),\s*\{\s*redirectTo: getAdminRecoveryRedirectUrl\(/)
+  assert.match(auth, /configuredRedirectUrl: import\.meta\.env\.VITE_ADMIN_RECOVERY_REDIRECT_URL/)
+  assert.match(siteUrls, /export function getAdminRecoveryRedirectUrl/)
+  assert.match(siteUrls, /new URL\('\/admin\/reset-password', baseUrl\)\.toString\(\)/)
+  assert.ok(siteUrls.includes('VITE_ADMIN_RECOVERY_REDIRECT_URL must end in /admin/reset-password'))
+  assert.ok(siteUrls.includes('before requesting recovery from localhost'))
   assert.match(auth, /import\.meta\.env\.DEV/)
   assert.match(auth, /Password recovery request failed/)
   assert.match(auth, /redacted email/)
@@ -1805,6 +1849,8 @@ test('admin password recovery uses Supabase recovery events and never treats rec
   assert.match(login, /className="cms-login-submit" type="submit" disabled=\{!configured \|\| busy\}>\s*\{busy \? 'Sending reset link…' : 'Send reset link'\}/)
   assert.match(recovery, /supabase\.rpc\('cms_is_admin'\)/)
   assert.match(recovery, /supabase\.auth\.updateUser\(\{ password \}\)/)
+  assert.match(recovery, /aria-label=\{showPassword \? 'Hide new password' : 'Show new password'\}/)
+  assert.match(recovery, /aria-label=\{showConfirmation \? 'Hide password confirmation' : 'Show password confirmation'\}/)
   assert.match(recovery, /password\.length < 8/)
   assert.match(recovery, /password !== confirmation/)
   assert.match(recovery, /supabase\.auth\.signOut\(\)/)

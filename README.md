@@ -37,7 +37,7 @@ The production admin CMS and public published-content adapter use Supabase. The 
 
 ### Admin password recovery
 
-The Supabase admin login provides **Forgot Password?** and sends a Supabase Auth reset email to `${window.location.origin}/admin/reset-password`. Configure Supabase Dashboard → **Authentication → URL Configuration** with the correct Site URL and allow the exact recovery redirect URLs:
+The Supabase admin login provides **Forgot Password?** and sends a Supabase Auth reset email to the recovery callback selected in this order: `VITE_ADMIN_RECOVERY_REDIRECT_URL` (an exact callback URL), `VITE_PUBLIC_PORTFOLIO_URL` plus `/admin/reset-password`, then the current non-local app origin plus `/admin/reset-password`. To prevent unusable localhost links, recovery requests from localhost are rejected unless one of the first two variables is configured. Set `VITE_ADMIN_RECOVERY_REDIRECT_URL=http://localhost:3000/admin/reset-password` for local testing, or set it to the deployed app URL to make local requests open the deployed recovery page. Set the intended destination in `.env.local` and in the deployed site's build environment, then restart/rebuild. Configure Supabase Dashboard → **Authentication → URL Configuration** with the correct Site URL and allow each exact callback URL used:
 
 - Local Site URL: `http://localhost:3000`
 - Local Redirect URL: `http://localhost:3000/admin/reset-password`

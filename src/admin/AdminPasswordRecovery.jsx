@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LockKeyhole } from 'lucide-react'
+import { Eye, EyeOff, LockKeyhole } from 'lucide-react'
 import BrandLink from '../components/common/BrandLink.jsx'
 import { useAdminAuth } from '../lib/adminAuth.jsx'
 import { isSupabaseConfigured, supabase } from '../lib/supabase.js'
@@ -17,6 +17,8 @@ export default function AdminPasswordRecovery() {
   const [status, setStatus] = useState(() => recoveryLinkHasError() ? 'invalid' : 'checking')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -138,12 +140,18 @@ export default function AdminPasswordRecovery() {
             <label htmlFor="new-admin-password">New password</label>
             <div className="cms-login-input-wrap">
               <LockKeyhole size={17} aria-hidden="true" />
-              <input id="new-admin-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} minLength={8} required />
+              <input id="new-admin-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} minLength={8} required />
+              <button type="button" className="cms-password-toggle" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide new password' : 'Show new password'} aria-pressed={showPassword} disabled={!password || busy}>
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
             </div>
             <label htmlFor="confirm-admin-password">Confirm new password</label>
             <div className="cms-login-input-wrap">
               <LockKeyhole size={17} aria-hidden="true" />
-              <input id="confirm-admin-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={busy} minLength={8} required />
+              <input id="confirm-admin-password" type={showConfirmation ? 'text' : 'password'} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={busy} minLength={8} required />
+              <button type="button" className="cms-password-toggle" onClick={() => setShowConfirmation((visible) => !visible)} aria-label={showConfirmation ? 'Hide password confirmation' : 'Show password confirmation'} aria-pressed={showConfirmation} disabled={!confirmation || busy}>
+                {showConfirmation ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
             </div>
             {message && <p className="cms-login-error" role="alert">{message}</p>}
             <button className="cms-login-submit" type="submit" disabled={busy}>
